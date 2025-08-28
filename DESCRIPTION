@@ -1,20 +1,13 @@
-PacAuthors@R: 
+Package: mlr3mbspls
+Title: Multi-Block Sparse Partial Least Squares for mlr3
+Version: 0.2.0
+Authors@R: 
     c(
       person("Stefan", "Coors", email = "mail@stefancoors.de", role = c("aut", "cre"),
              comment = c(ORCID = "0000-0002-7465-2146")),
       person("Clara", "Vetter", email = "clara.vetter@med.uni-muenchen.de", role = "aut",
              comment = c(ORCID = "0000-0003-4268-2890"))
-    )lr3mbspls
-Title: Multi-Block Sparse Partial Least Squares for mlr3
-Version: 0.2.0
-Authors@R: 
-    c(
-      person("Stefan", "Coors", "mail@stefancoors.de", role = c("aut", "cre"),
-             comment = c(ORCID = "0000-0002-7465-2146")),
-      person("Clara", "Vetter", "clara.vetter@med.uni-muenchen.de", role = "aut",
-             comment = c(ORCID = "0000-0003-4268-2890"))
     )
-
 Description: Integration of multi-block sparse partial least squares (MB-sPLS) 
     with the mlr3 machine learning framework. This package provides custom PipeOp 
     components for MB-sPLS projection and dimensionality reduction in multi-block
