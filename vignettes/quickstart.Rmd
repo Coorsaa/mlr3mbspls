@@ -1,0 +1,659 @@
+---
+title: "Quick Start with mlr3mbspls"
+author: "Stefan Coors"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Quick Start with mlr3mbspls}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = FALSE  # Set to TRUE when running locally
+)
+```
+
+# Introduction
+
+The `mlr3mbspls` package provides a complete implementation of **multi-block sparse partial least squares (MB-sPLS)** integrated with the mlr3 ecosystem. This package enables:
+
+- **Multi-block dimensionality reduction** using sparse PLS
+- **Block-wise scaling and preprocessing** for heterogeneous data
+- **Site effect correction** for multi-site studies
+- **Custom learners** with Gower distance for mixed-type data
+- **Comprehensive evaluation measures** for unsupervised learning
+- **Advanced tuning strategies** for component selection
+- **Bootstrap and permutation testing** for model validation
+
+This vignette demonstrates the core functionality through practical examples.
+
+## Setup
+
+First, let's load the required packages:
+
+```{r setup, message=FALSE}
+library(mlr3)
+library(mlr3pipelines)
+library(mlr3learners)
+library(mlr3tuning)
+library(mlr3cluster)
+library(paradox)
+library(mlr3mbspls)
+library(data.table)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Additional packages for advanced visualization (load if available)
+if (requireNamespace("igraph", quietly = TRUE)) library(igraph)
+if (requireNamespace("ggraph", quietly = TRUE)) library(ggraph)
+if (requireNamespace("reshape2", quietly = TRUE)) library(reshape2)
+```
+
+## Simulating Multi-block Data
+
+For this tutorial, we'll create realistic multi-block data with site effects:
+
+```{r create-data}
+set.seed(42)
+n_samples <- 200
+n_sites <- 3
+
+# Create sample metadata
+site_id <- sample(paste0("site_", 1:n_sites), n_samples, replace = TRUE)
+batch_id <- sample(paste0("batch_", 1:5), n_samples, replace = TRUE)
+sample_ids <- paste0("sample_", 1:n_samples)
+
+# Block 1: Clinical/demographic data (5 features)
+clinical_data <- matrix(rnorm(n_samples * 5), ncol = 5)
+colnames(clinical_data) <- paste0("clinical_", 1:5)
+
+# Block 2: Gene expression data (20 features)
+gene_data <- matrix(rnorm(n_samples * 20), ncol = 20)
+colnames(gene_data) <- paste0("gene_", 1:20)
+
+# Block 3: Metabolomics data (15 features)  
+metabol_data <- matrix(rnorm(n_samples * 15), ncol = 15)
+colnames(metabol_data) <- paste0("metabol_", 1:15)
+
+# Add some site effects and correlations between blocks
+site_effect <- model.matrix(~ site_id - 1)
+clinical_data <- clinical_data + site_effect %*% matrix(rnorm(3 * 5, sd = 0.5), ncol = 5)
+gene_data <- gene_data + site_effect %*% matrix(rnorm(3 * 20, sd = 0.3), ncol = 20)
+
+# Create shared latent structure across blocks
+latent_factor <- rnorm(n_samples)
+clinical_data[, 1:2] <- clinical_data[, 1:2] + outer(latent_factor, c(1.2, 0.8))
+gene_data[, 1:5] <- gene_data[, 1:5] + outer(latent_factor, rnorm(5, mean = 1, sd = 0.5))
+metabol_data[, 1:3] <- metabol_data[, 1:3] + outer(latent_factor, rnorm(3, mean = 0.7, sd = 0.3))
+
+# Combine into a single data frame
+data_combined <- data.table(
+  id = sample_ids,
+  site = site_id,
+  batch = batch_id,
+  clinical_data,
+  gene_data,
+  metabol_data
+)
+
+print(head(data_combined))
+print(paste("Data dimensions:", nrow(data_combined), "x", ncol(data_combined)))
+```
+
+## Defining Block Structure
+
+The key to MB-sPLS is properly defining which features belong to which block:
+
+```{r define-blocks}
+# Define feature blocks (excluding metadata columns)
+blocks <- list(
+  clinical = paste0("clinical_", 1:5),
+  genes = paste0("gene_", 1:20),
+  metabolites = paste0("metabol_", 1:15)
+)
+
+# Define site correction variables
+site_correction <- list(
+  site_batch = c("site", "batch")
+)
+
+# Site correction methods
+site_correction_methods <- list(
+  site_batch = "combat"  # or "limma", "zscore"
+)
+
+print("Block structure:")
+str(blocks)
+```
+
+## Creating a Clustering Task
+
+Since MB-sPLS is typically used for unsupervised learning, we'll create a clustering task:
+
+```{r create-task}
+# Create clustering task
+task <- TaskClust$new(
+  id = "multiblock_example", 
+  backend = data_combined,
+  target = "id"
+)
+
+# Remove metadata columns from features
+task$select(setdiff(task$feature_names, c("site", "batch")))
+
+print(task)
+print(paste("Features per block:"))
+for (block_name in names(blocks)) {
+  n_features <- length(intersect(blocks[[block_name]], task$feature_names))
+  print(paste("  ", block_name, ":", n_features, "features"))
+}
+```
+
+## Basic MB-sPLS Pipeline
+
+Let's start with a simple MB-sPLS pipeline:
+
+```{r basic-pipeline}
+# Create a metrics environment for logging
+metrics_env <- new.env(parent = emptyenv())
+
+# Basic pipeline: scaling -> MB-sPLS -> clustering
+graph <- po("scale") %>>%
+  po("mbspls", 
+     blocks = blocks,
+     ncomp = 3L,
+     performance_metric = "mac",
+     log_env = metrics_env) %>>%
+  po("learner", learner = lrn("clust.kmeans", centers = 3))
+
+# Create GraphLearner
+learner <- as_learner(graph)
+print(learner)
+
+# Train the pipeline
+learner$train(task)
+
+# Make predictions
+prediction <- learner$predict(task)
+print(prediction)
+
+# Check the MB-sPLS results
+print("MB-sPLS training results:")
+if (!is.null(metrics_env$last)) {
+  payload <- metrics_env$last
+  print(paste("Components extracted:", length(payload$mac_comp)))
+  print(paste("Per-component MAC scores:", paste(round(payload$mac_comp, 3), collapse = ", ")))
+  print(paste("Per-component explained variance:", paste(round(payload$ev_comp, 3), collapse = ", ")))
+}
+```
+
+## Advanced Pipeline with Site Correction
+
+For more realistic scenarios, we'll include site correction:
+
+```{r advanced-pipeline}
+# Re-add site and batch to task for site correction
+task_with_sites <- TaskClust$new(
+  id = "multiblock_with_sites", 
+  backend = data_combined,
+  target = "id"
+)
+
+# Create advanced pipeline with site correction
+metrics_env2 <- new.env(parent = emptyenv())
+
+# Note: The blocks need to be updated after factor encoding
+# We'll use a simpler approach for this example
+advanced_graph <- 
+  po("encode", method = "treatment") %>>%
+  po("scale") %>>%
+  po("mbspls", 
+     blocks = blocks,  # Original block definitions
+     ncomp = 3L,
+     performance_metric = "mac",
+     permutation_test = TRUE,
+     n_perm = 100,
+     log_env = metrics_env2) %>>%
+  po("learner", learner = lrn("clust.kmeans", centers = 3))
+
+advanced_learner <- as_learner(advanced_graph)
+
+# Train on task without site variables for simplicity
+advanced_learner$train(task)
+advanced_prediction <- advanced_learner$predict(task)
+print(advanced_prediction)
+```
+
+## Custom Measures for Evaluation
+
+The package provides specialized measures for MB-sPLS evaluation:
+
+```{r measures}
+# Create measures that read from the log environment
+measure_mac <- MeasureMBsPLS_MAC$new()
+measure_ev <- MeasureMBsPLS_EV$new()
+measure_evwt <- MeasureMBsPLS_EVWeightedMAC$new()
+
+# Evaluate the model using these measures
+measures <- list(measure_mac, measure_ev, measure_evwt)
+
+# For evaluation to work, we need the GraphLearner that contains the log_env
+scores <- sapply(measures, function(m) m$score(advanced_prediction, task, advanced_learner))
+names(scores) <- sapply(measures, function(m) m$id)
+print("Evaluation scores:")
+print(scores)
+```
+
+## Sequential Component Tuning
+
+The package provides specialized tuning for MB-sPLS with sequential component selection:
+
+```{r tuning}
+# Create a graph learner for tuning
+metrics_env3 <- new.env(parent = emptyenv())
+tuning_graph <- po("scale") %>>%
+  po("mbspls", 
+     blocks = blocks,
+     ncomp = 3L,  # Will be overridden by tuner
+     performance_metric = "mac",
+     log_env = metrics_env3) %>>%
+  po("learner", learner = lrn("clust.kmeans", centers = 3))
+
+tuning_learner <- as_learner(tuning_graph)
+
+# Create the specialized MB-sPLS tuner
+tuner <- TunerSeqMBsPLS$new()
+
+# Define the tuning instance
+instance <- ti(
+  task = task,
+  learner = tuning_learner,
+  resampling = rsmp("cv", folds = 3),
+  measures = msr("mbspls.mac"),
+  terminator = trm("evals", n_evals = 50)
+)
+
+# This is a conceptual example - in practice you would run:
+# tuner$optimize(instance)
+# print(instance$result)
+
+print("Tuner created successfully - would optimize sparsity parameters per component")
+```
+
+## Block-wise Scaling and Preprocessing
+
+The package provides specialized preprocessing for multi-block data:
+
+```{r preprocessing}
+# Create a pipeline with block-wise scaling
+block_scaling_graph <- 
+  po("blockscaling", 
+     blocks = blocks,
+     method = "unit_ssq") %>>%  # Each block scaled to unit sum-of-squares
+  po("mbspls", 
+     blocks = blocks,
+     ncomp = 2L,
+     performance_metric = "frobenius") %>>%
+  po("learner", learner = lrn("clust.kmeans", centers = 3))
+
+block_learner <- as_learner(block_scaling_graph)
+
+# Train with block scaling
+block_learner$train(task)
+block_prediction <- block_learner$predict(task)
+print(block_prediction)
+```
+
+## Custom Learners: KNN with Gower Distance
+
+The package includes custom learners that work well with MB-sPLS output:
+
+```{r custom-learners}
+# Create a classification task for demonstration
+set.seed(123)
+class_labels <- sample(c("A", "B", "C"), n_samples, replace = TRUE)
+task_classif <- TaskClassif$new(
+  id = "multiblock_classif",
+  backend = data.table(data_combined[, -c("id", "site", "batch")], 
+                      class = class_labels),
+  target = "class"
+)
+
+# Use KNN with Gower distance (good for mixed-type data after MB-sPLS)
+knn_gower <- lrn("classif.knngower", k = 5, predict_type = "prob")
+
+# Create pipeline: MB-sPLS -> KNN with Gower distance
+classif_graph <- po("scale") %>>%
+  po("mbspls", 
+     blocks = blocks,
+     ncomp = 3L,
+     performance_metric = "mac") %>>%
+  po("learner", learner = knn_gower)
+
+classif_learner <- as_learner(classif_graph)
+
+# Train and evaluate
+classif_learner$train(task_classif)
+classif_pred <- classif_learner$predict(task_classif)
+print(classif_pred$confusion)
+```
+
+## Nested Cross-Validation
+
+For robust evaluation, use the built-in nested CV function:
+
+```{r nested-cv}
+# This is a conceptual example showing the nested CV interface
+# In practice, this would run extensive computations
+
+# Set up resampling strategies
+outer_resampling <- rsmp("cv", folds = 3)
+inner_resampling <- rsmp("cv", folds = 3)
+
+# Create a graph learner for nested CV
+nested_metrics_env <- new.env(parent = emptyenv())
+nested_graph <- po("scale") %>>%
+  po("mbspls", 
+     blocks = blocks,
+     ncomp = 5L,  # Max components to consider
+     performance_metric = "mac",
+     log_env = nested_metrics_env) %>>%
+  po("learner", learner = lrn("clust.kmeans", centers = 3))
+
+nested_learner <- as_learner(nested_graph)
+
+# Conceptual nested CV call (commented out due to computation time)
+# nested_results <- mbspls_nested_cv(
+#   task = task,
+#   graphlearner = nested_learner,
+#   rs_outer = outer_resampling,
+#   rs_inner = inner_resampling,
+#   ncomp = 5L,
+#   tuner_budget = 20L,
+#   performance_metric = "mac"
+# )
+
+print("Nested CV interface available via mbspls_nested_cv()")
+```
+
+## Visualization and Model Interpretation
+
+The package provides comprehensive visualization through the `autoplot()` method for GraphLearners. Let's explore the various plot types available:
+
+```{r visualization}
+# Ensure we have a trained model with proper logging
+metrics_env_viz <- new.env(parent = emptyenv())
+
+# Create a model specifically for visualization
+viz_graph <- po("scale") %>>%
+  po("mbspls", 
+     blocks = blocks,
+     ncomp = 3L,
+     performance_metric = "mac",
+     permutation_test = TRUE,
+     bootstrap_test = TRUE,  # Enable bootstrap for additional plots
+     n_boot = 100,  # Reduced for demo
+     log_env = metrics_env_viz) %>>%
+  po("learner", learner = lrn("clust.kmeans", centers = 3))
+
+viz_learner <- as_learner(viz_graph)
+viz_learner$train(task)
+viz_prediction <- viz_learner$predict(task)
+
+# 1. MB-sPLS Weights Plot - Shows the most important features per component and block
+p_weights <- autoplot(viz_learner, type = "mbspls_weights", top_n = 5)
+print(p_weights)
+
+# 2. Variance Explained Plot - Shows how much variance each component explains per block
+p_variance <- autoplot(viz_learner, type = "mbspls_variance", show_total = TRUE)
+print(p_variance)
+
+# 3. Scree Plot - Shows the objective function (MAC/Frobenius) per component
+p_scree <- autoplot(viz_learner, type = "mbspls_scree")
+print(p_scree)
+
+# 4. Cumulative Scree Plot
+p_scree_cum <- autoplot(viz_learner, type = "mbspls_scree", cumulative = TRUE)
+print(p_scree_cum)
+```
+
+### Advanced Visualization: Heatmaps and Networks
+
+```{r advanced-viz}
+# 5. Correlation Heatmap - Shows correlations between latent variables
+p_heatmap <- autoplot(viz_learner, type = "mbspls_heatmap", method = "spearman")
+print(p_heatmap)
+
+# 6. Network Plot - Shows connections between latent variables above a threshold
+if (requireNamespace("igraph", quietly = TRUE) && 
+    requireNamespace("ggraph", quietly = TRUE)) {
+  p_network <- autoplot(viz_learner, type = "mbspls_network", 
+                       cutoff = 0.3, method = "spearman")
+  print(p_network)
+}
+
+# 7. Score Plots - Shows relationships between blocks for a specific component
+p_scores <- autoplot(viz_learner, type = "mbspls_scores", 
+                    component = 1, standardize = TRUE)
+print(p_scores)
+```
+
+### Bootstrap Visualization (if bootstrap testing was enabled)
+
+```{r bootstrap-viz}
+# 8. Bootstrap Component Plot - Shows bootstrap confidence intervals for components
+# This requires that bootstrap testing was enabled during training
+tryCatch({
+  p_bootstrap <- autoplot(viz_learner, type = "mbspls_bootstrap_component")
+  print(p_bootstrap)
+}, error = function(e) {
+  cat("Bootstrap plot not available - requires val_test='bootstrap' in predict()\n")
+})
+```
+
+### Visualization on New Data
+
+The autoplot function can also evaluate and visualize results on new data:
+
+```{r new-data-viz}
+# Create a test set (in practice, this would be held-out data)
+set.seed(456)
+test_indices <- sample(1:nrow(data_combined), size = 50)
+test_data <- data_combined[test_indices, ]
+test_task <- TaskClust$new(
+  id = "test_multiblock",
+  backend = test_data,
+  target = "id"
+)
+test_task$select(setdiff(test_task$feature_names, c("site", "batch")))
+
+# Visualize performance on test data
+p_variance_test <- autoplot(viz_learner, type = "mbspls_variance", 
+                           new_task = test_task, show_total = TRUE)
+print(p_variance_test)
+
+p_scree_test <- autoplot(viz_learner, type = "mbspls_scree", 
+                        new_task = test_task)
+print(p_scree_test)
+
+# Test data heatmap
+p_heatmap_test <- autoplot(viz_learner, type = "mbspls_heatmap", 
+                          new_task = test_task, method = "pearson")
+print(p_heatmap_test)
+```
+
+### Custom Visualization of Model State
+
+You can also access the model state directly for custom visualizations:
+
+```{r custom-viz}
+# Extract the MB-sPLS model state
+mbspls_state <- viz_learner$model$mbspls$state
+
+# Custom plot: Feature importance across all components
+if (!is.null(mbspls_state$weights)) {
+  # Aggregate absolute weights across components for each feature
+  feature_importance <- data.frame()
+  
+  for (comp in 1:length(mbspls_state$weights)) {
+    for (block_name in names(mbspls_state$weights[[comp]])) {
+      weights <- mbspls_state$weights[[comp]][[block_name]]
+      if (length(weights) > 0) {
+        temp_df <- data.frame(
+          feature = names(weights),
+          weight = abs(as.numeric(weights)),
+          component = paste0("Comp_", comp),
+          block = block_name,
+          stringsAsFactors = FALSE
+        )
+        feature_importance <- rbind(feature_importance, temp_df)
+      }
+    }
+  }
+  
+  # Filter to top features and create plot
+  if (nrow(feature_importance) > 0) {
+    top_features <- feature_importance %>%
+      group_by(feature, block) %>%
+      summarise(total_importance = sum(weight), .groups = "drop") %>%
+      slice_max(total_importance, n = 20)
+    
+    feature_importance_plot <- feature_importance %>%
+      semi_join(top_features, by = c("feature", "block")) %>%
+      ggplot(aes(x = reorder(paste(feature, block, sep = "_"), weight), 
+                 y = weight, fill = component)) +
+      geom_col() +
+      coord_flip() +
+      labs(title = "Feature Importance Across Components",
+           x = "Feature (Block)", y = "Absolute Weight") +
+      theme_minimal() +
+      facet_wrap(~ block, scales = "free")
+    
+    print(feature_importance_plot)
+  }
+}
+
+# Custom plot: Component contributions per sample (first 20 samples)
+if (!is.null(mbspls_state$T_mat)) {
+  # Get first few samples for visualization
+  n_samples_plot <- min(20, nrow(mbspls_state$T_mat))
+  sample_scores <- as.data.frame(mbspls_state$T_mat[1:n_samples_plot, ])
+  sample_scores$sample_id <- 1:n_samples_plot
+  
+  # Create meaningful column names if not present
+  if (is.null(colnames(mbspls_state$T_mat))) {
+    n_blocks <- length(blocks)
+    n_comp <- mbspls_state$ncomp
+    col_names <- paste0("LV", rep(1:n_comp, each = n_blocks), "_", 
+                       rep(names(blocks), n_comp))
+    colnames(sample_scores)[1:(n_blocks * n_comp)] <- col_names
+  }
+  
+  # Reshape for plotting (use base R to avoid tidyr dependency issues)
+  scores_long <- data.frame()
+  for (i in 1:n_samples_plot) {
+    for (j in 1:(ncol(sample_scores)-1)) {  # -1 to exclude sample_id
+      col_name <- colnames(sample_scores)[j]
+      # Try to split the column name
+      if (grepl("_", col_name)) {
+        parts <- strsplit(col_name, "_", fixed = TRUE)[[1]]
+        component <- parts[1]
+        block <- paste(parts[-1], collapse = "_")
+      } else {
+        component <- paste0("Comp_", ceiling(j / length(blocks)))
+        block <- names(blocks)[((j-1) %% length(blocks)) + 1]
+      }
+      
+      scores_long <- rbind(scores_long, data.frame(
+        sample_id = i,
+        component = component,
+        block = block,
+        score = sample_scores[i, j],
+        stringsAsFactors = FALSE
+      ))
+    }
+  }
+  
+  if (nrow(scores_long) > 0) {
+    p_sample_contrib <- ggplot(scores_long, aes(x = factor(sample_id), y = score, fill = block)) +
+      geom_col(position = "dodge") +
+      facet_wrap(~ component, scales = "free_y") +
+      labs(title = "Latent Variable Scores by Sample (First 20 samples)",
+           x = "Sample ID", y = "Score") +
+      theme_minimal() +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    
+    print(p_sample_contrib)
+  }
+}
+```
+
+## Working with Real-world Features
+
+Tips for applying MB-sPLS to real data:
+
+```{r real-world-tips}
+# 1. Handle missing values before MB-sPLS
+cat("Tips for real-world applications:\n\n")
+
+cat("1. Missing value handling:\n")
+cat("   - Use po('imputehist') or po('imputeoor') for categorical features\n")
+cat("   - Use po('imputemedian') or po('imputemean') for numeric features\n")
+cat("   - Or use the built-in k-NN imputation in preprocessing graphs\n\n")
+
+cat("2. Feature scaling:\n")
+cat("   - Use po('blockscaling', method = 'unit_ssq') for equal block importance\n")
+cat("   - Use method = 'feature_zscore' for different scale features within blocks\n\n")
+
+cat("3. Site effect correction:\n")
+cat("   - Include site/batch variables in site_correction parameter\n")
+cat("   - Choose appropriate correction method: 'combat', 'limma', or 'zscore'\n\n")
+
+cat("4. Component selection:\n")
+cat("   - Use permutation testing (permutation_test = TRUE) for significance\n")
+cat("   - Use bootstrap testing for stability assessment\n")
+cat("   - Consider cross-validation for optimal number of components\n\n")
+
+cat("5. Sparsity tuning:\n")
+cat("   - Use TunerSeqMBsPLS for systematic component-wise optimization\n")
+cat("   - Start with moderate sparsity (c = sqrt(p_block)) and tune from there\n\n")
+
+# Example of a complete preprocessing pipeline
+complete_graph <- 
+  po("imputemedian") %>>%  # Handle missing values
+  po("removeconstants") %>>%  # Remove constant features
+  po("blockscaling", blocks = blocks, method = "unit_ssq") %>>%  # Block scaling
+  po("mbspls", 
+     blocks = blocks,
+     ncomp = 3L,
+     performance_metric = "mac",
+     permutation_test = TRUE,
+     bootstrap_test = TRUE) %>>%
+  po("learner", learner = lrn("clust.kmeans", centers = 3))
+
+cat("Complete preprocessing pipeline created.\n")
+```
+
+## Conclusion
+
+The `mlr3mbspls` package provides a comprehensive framework for multi-block sparse PLS analysis within the mlr3 ecosystem. Key features include:
+
+- **Flexible preprocessing** with block-wise scaling and site correction
+- **Advanced tuning strategies** for component and sparsity selection  
+- **Robust evaluation** with permutation and bootstrap testing
+- **Custom learners** optimized for multi-block data
+- **Comprehensive visualization** and interpretation tools
+
+For more advanced use cases, explore:
+- Nested cross-validation with `mbspls_nested_cv()`
+- Sequential tuning with `TunerSeqMBsPLS`
+- Custom site correction methods
+- Bootstrap stability selection
+- Integration with other mlr3 ecosystem packages
+
+The package is particularly well-suited for multi-omics data analysis, neuroimaging studies, and any scenario where multiple related data blocks need to be jointly analyzed while accounting for sparsity and site effects.
