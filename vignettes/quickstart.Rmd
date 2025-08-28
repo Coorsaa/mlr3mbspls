@@ -1,6 +1,6 @@
 ---
 title: "Quick Start with mlr3mbspls"
-author: "Stefan Coors"
+author: "Stefan Coors, Clara Vetter"
 date: "`r Sys.Date()`"
 output: rmarkdown::html_vignette
 vignette: >
