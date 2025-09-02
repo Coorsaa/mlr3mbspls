@@ -47,7 +47,7 @@ mbspls_multi_lv_matrix = function(
   n      = nrow(X_blocks[[1]])
 
   W_all = P_all = vector("list", K)
-  T_all = matrix(numeric(0), n, 0)
+  T_all <- matrix(0.0, n, B * K)
   obj_vec  = p_vec  = numeric(0)
   ev_block = matrix(NA_real_, K, B)
   ev_comp  = numeric(0)
@@ -61,7 +61,8 @@ mbspls_multi_lv_matrix = function(
       c_matrix[, k],
       max_iter,
       max_tol,
-      frobenius
+      frobenius,
+      spearman
     )
 
     Wk = lapply(fit$W, as.numeric)           # weight vectors
@@ -73,14 +74,15 @@ mbspls_multi_lv_matrix = function(
     p_k = NA_real_
     if (do_perm) {
       p_k = perm_test_component(
-        X_blocks,
-        Wk,
-        c_matrix[, k],
-        n_perm,
-        spearman,
-        max_iter,
-        max_tol,
-        frobenius
+        X_orig              = X_blocks,
+        W_orig              = Wk,
+        c_vec               = c_matrix[, k],
+        n_perm              = n_perm,
+        spearman            = spearman,
+        max_iter            = max_iter,
+        tol                 = max_tol,
+        early_stop_threshold= alpha,       # <- use perm_alpha here
+        frobenius           = frobenius
       )
       if (p_k > alpha) {
         if (k == 1L) {              # first component → keep it, but stop afterwards
@@ -114,7 +116,7 @@ mbspls_multi_lv_matrix = function(
     P_all[[k]] = Pk
     obj_vec    = c(obj_vec, obj_k)
     p_vec      = c(p_vec,  p_k)
-    T_all      = cbind(T_all, Tk)
+    T_all[, ((k - 1L) * B + 1L):(k * B)] <- Tk
 
     if (early_stop)
       break

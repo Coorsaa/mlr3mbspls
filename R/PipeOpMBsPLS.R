@@ -301,7 +301,7 @@ PipeOpMBsPLS = R6::R6Class(
           X_blocks  = X_list,
           c_matrix  = c_matrix,
           max_iter  = 1000L,
-          max_tol   = 1e-6,
+          max_tol   = 1e-4,
           spearman  = (pv$correlation_method == "spearman"),
           do_perm   = isTRUE(pv$permutation_test),
           n_perm    = pv$n_perm,
@@ -397,26 +397,6 @@ PipeOpMBsPLS = R6::R6Class(
           lgr$info("Stored stability-filtered weights at min_freq = %.3f", thr)
         }
       }
-
-      # pad / name W and P
-      pad_and_name <- function(x, feat_names) {
-        if (length(x) == 0L) {
-          x <- numeric(length(feat_names))
-        } else if (length(x) != length(feat_names)) {
-          stop(sprintf("Internal size mismatch: expected %d, got %d",
-                       length(feat_names), length(x)))
-        }
-        stats::setNames(x, feat_names)
-      }
-      for (k in seq_len(n_kept)) {
-        for (b in seq_len(B)) {
-          feat_names <- blocks[[block_names[b]]]
-          W_all[[k]][[b]] <- pad_and_name(W_all[[k]][[b]], feat_names)
-          P_all[[k]][[b]] <- pad_and_name(P_all[[k]][[b]], feat_names)
-        }
-        names(W_all[[k]]) <- names(P_all[[k]]) <- block_names
-      }
-      names(W_all) <- names(P_all) <- comp_names
 
       # name EV structures
       if (!is.null(ev_blk)) {
