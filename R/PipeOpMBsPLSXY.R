@@ -250,12 +250,15 @@ PipeOpMBsPLSXY <- R6::R6Class(
             stop("c_matrix rows must cover all blocks and '.target'. Missing: ", paste(missing_rows, collapse = ", "))
           cm <- cm[want, , drop = FALSE]
         }
-        fit <- mbspls_multi_lv_matrix(
-          X_blocks = X_list_all, c_matrix = cm,
-          max_iter = 1000L, max_tol = 1e-6,
+        fit <- cpp_mbspls_multi_lv_cmatrix(
+          X_blocks = X_list_all,
+          c_matrix = cm,
+          max_iter = 1000L,
+          tol = 1e-4,
           spearman = identical(pv$correlation_method, "spearman"),
           do_perm = isTRUE(pv$permutation_test),
-          n_perm = pv$n_perm, alpha = pv$perm_alpha,
+          n_perm = pv$n_perm,
+          alpha = pv$perm_alpha,
           frobenius = use_frob
         )
       } else {

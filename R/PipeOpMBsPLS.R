@@ -297,11 +297,11 @@ PipeOpMBsPLS = R6::R6Class(
           frobenius     = use_frob
         )
       } else {
-        mbspls_multi_lv_matrix(
+        cpp_mbspls_multi_lv_cmatrix(
           X_blocks  = X_list,
           c_matrix  = c_matrix,
           max_iter  = 1000L,
-          max_tol   = 1e-4,
+          tol   = 1e-4,
           spearman  = (pv$correlation_method == "spearman"),
           do_perm   = isTRUE(pv$permutation_test),
           n_perm    = pv$n_perm,
@@ -837,11 +837,11 @@ PipeOpMBsPLS = R6::R6Class(
             frobenius     = (perf_metric == "frobenius")
           )
         } else {
-          mbspls_multi_lv_matrix(
+          cpp_mbspls_multi_lv_cmatrix(
             X_blocks  = Xlst,
             c_matrix  = c_matrix,
             max_iter  = 1000L,
-            max_tol   = 1e-6,
+            tol       = 1e-4,
             spearman  = (corr_method == "spearman"),
             do_perm   = FALSE,
             n_perm    = 0L,

@@ -29,6 +29,10 @@ cpp_mbspls_multi_lv <- function(X_blocks, c_constraints, K = 2L, max_iter = 500L
     .Call(`_mlr3mbspls_cpp_mbspls_multi_lv`, X_blocks, c_constraints, K, max_iter, tol, spearman, do_perm, n_perm, alpha, frobenius)
 }
 
+cpp_mbspls_multi_lv_cmatrix <- function(X_blocks, c_matrix, max_iter = 500L, tol = 1e-4, spearman = FALSE, do_perm = FALSE, n_perm = 100L, alpha = 0.05, frobenius = FALSE) {
+    .Call(`_mlr3mbspls_cpp_mbspls_multi_lv_cmatrix`, X_blocks, c_matrix, max_iter, tol, spearman, do_perm, n_perm, alpha, frobenius)
+}
+
 cpp_ev_test <- function(X_test, weights, loadings, ncomp) {
     .Call(`_mlr3mbspls_cpp_ev_test`, X_test, weights, loadings, ncomp)
 }

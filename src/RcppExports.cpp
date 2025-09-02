@@ -140,6 +140,25 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// cpp_mbspls_multi_lv_cmatrix
+Rcpp::List cpp_mbspls_multi_lv_cmatrix(const Rcpp::List& X_blocks, const arma::mat& c_matrix, int max_iter, double tol, bool spearman, bool do_perm, int n_perm, double alpha, bool frobenius);
+RcppExport SEXP _mlr3mbspls_cpp_mbspls_multi_lv_cmatrix(SEXP X_blocksSEXP, SEXP c_matrixSEXP, SEXP max_iterSEXP, SEXP tolSEXP, SEXP spearmanSEXP, SEXP do_permSEXP, SEXP n_permSEXP, SEXP alphaSEXP, SEXP frobeniusSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type X_blocks(X_blocksSEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type c_matrix(c_matrixSEXP);
+    Rcpp::traits::input_parameter< int >::type max_iter(max_iterSEXP);
+    Rcpp::traits::input_parameter< double >::type tol(tolSEXP);
+    Rcpp::traits::input_parameter< bool >::type spearman(spearmanSEXP);
+    Rcpp::traits::input_parameter< bool >::type do_perm(do_permSEXP);
+    Rcpp::traits::input_parameter< int >::type n_perm(n_permSEXP);
+    Rcpp::traits::input_parameter< double >::type alpha(alphaSEXP);
+    Rcpp::traits::input_parameter< bool >::type frobenius(frobeniusSEXP);
+    rcpp_result_gen = Rcpp::wrap(cpp_mbspls_multi_lv_cmatrix(X_blocks, c_matrix, max_iter, tol, spearman, do_perm, n_perm, alpha, frobenius));
+    return rcpp_result_gen;
+END_RCPP
+}
 // cpp_ev_test
 Rcpp::List cpp_ev_test(const Rcpp::List& X_test, const Rcpp::List& weights, const Rcpp::List& loadings, int ncomp);
 RcppExport SEXP _mlr3mbspls_cpp_ev_test(SEXP X_testSEXP, SEXP weightsSEXP, SEXP loadingsSEXP, SEXP ncompSEXP) {
@@ -241,6 +260,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_mlr3mbspls_cpp_mbspls_one_lv", (DL_FUNC) &_mlr3mbspls_cpp_mbspls_one_lv, 6},
     {"_mlr3mbspls_perm_test_component", (DL_FUNC) &_mlr3mbspls_perm_test_component, 9},
     {"_mlr3mbspls_cpp_mbspls_multi_lv", (DL_FUNC) &_mlr3mbspls_cpp_mbspls_multi_lv, 10},
+    {"_mlr3mbspls_cpp_mbspls_multi_lv_cmatrix", (DL_FUNC) &_mlr3mbspls_cpp_mbspls_multi_lv_cmatrix, 9},
     {"_mlr3mbspls_cpp_ev_test", (DL_FUNC) &_mlr3mbspls_cpp_ev_test, 4},
     {"_mlr3mbspls_cpp_mbspls_bootstrap", (DL_FUNC) &_mlr3mbspls_cpp_mbspls_bootstrap, 9},
     {"_mlr3mbspls_cpp_bootstrap_latent_correlation", (DL_FUNC) &_mlr3mbspls_cpp_bootstrap_latent_correlation, 8},

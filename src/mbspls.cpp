@@ -731,6 +731,193 @@ Rcpp::List cpp_mbspls_multi_lv(const Rcpp::List&  X_blocks,
   );
 }
 
+
+// [[Rcpp::export]]
+Rcpp::List cpp_mbspls_multi_lv_cmatrix(const Rcpp::List&  X_blocks,
+                                       const arma::mat&   c_matrix,
+                                       int                max_iter   = 500,
+                                       double             tol        = 1e-4,
+                                       bool               spearman   = false,
+                                       bool               do_perm    = false,
+                                       int                n_perm     = 100,
+                                       double             alpha      = 0.05,
+                                       bool               frobenius  = false)
+{
+  log_info("📦  cpp_mbspls_multi_lv_cmatrix() called");
+
+  const int B = X_blocks.size();
+  if (B == 0) Rcpp::stop("Empty X_blocks list");
+  if (static_cast<int>(c_matrix.n_rows) != B)
+    Rcpp::stop("c_matrix must have %d rows (blocks); got %d",
+               B, static_cast<int>(c_matrix.n_rows));
+  const int K = static_cast<int>(c_matrix.n_cols);
+  if (K < 1) Rcpp::stop("c_matrix must have at least one column (components)");
+
+  // Materialise blocks and basic checks
+  std::vector<arma::mat> X(B);
+  for (int b = 0; b < B; ++b) {
+    arma::mat Xi = Rcpp::as<arma::mat>(X_blocks[b]);
+    X[b] = arma::mat(Xi);
+    if (!is_valid_matrix(X[b])) {
+      Rcpp::stop("Invalid input matrix in block %d", b + 1);
+    }
+  }
+  const int n = static_cast<int>(X[0].n_rows);
+
+  // Pre-compute total SSqs for EVs
+  arma::vec ss_tot(B, arma::fill::zeros);
+  for (int b = 0; b < B; ++b) ss_tot(b) = arma::accu(arma::square(X[b]));
+  const double ss_all = arma::accu(ss_tot);
+
+  // Holders
+  std::vector<std::vector<arma::vec>> W_all, P_all;
+  arma::mat  T_all(n, 0);
+  std::vector<double> obj_vec, p_vec;
+  std::vector<arma::vec> ev_block_list;
+  std::vector<double>   ev_comp_list;
+
+  for (int k = 0; k < K; ++k) {
+    log_info("⏩  extracting component " + std::to_string(k + 1));
+
+    // Current sparsity vector
+    arma::vec c_vec = c_matrix.col(k);
+    if (static_cast<int>(c_vec.n_elem) != B)
+      Rcpp::stop("Unexpected c_matrix column length at component %d", k + 1);
+
+    // Fit one LV on the *current* (already-deflated up to k-1) blocks
+    Rcpp::List X_list(B);
+    for (int b = 0; b < B; ++b) X_list[b] = X[b];
+
+    Rcpp::List fit;
+    try {
+      // IMPORTANT: pass spearman through
+      fit = cpp_mbspls_one_lv(X_list, c_vec, max_iter, tol, frobenius, spearman);
+    } catch (...) {
+      log_info("Component extraction failed, stopping");
+      break;
+    }
+
+    // Unwrap weights
+    std::vector<arma::vec> Wk(B);
+    {
+      Rcpp::List Wtmp = fit["W"];
+      for (int b = 0; b < B; ++b) Wk[b] = Rcpp::as<arma::vec>(Wtmp[b]);
+    }
+
+    // Objective for bookkeeping
+    const double obj_k = compute_objective_direct_core(X, Wk, spearman, frobenius);
+
+    // Optional permutation test with early stopping on alpha
+    double p_val = NA_REAL;
+    bool   keep_it = true;
+    if (do_perm) {
+      try {
+        p_val = perm_test_component(
+          /* X_orig  */ X,
+          /* W_orig  */ Wk,
+          /* c_vec   */ c_vec,
+          /* n_perm  */ n_perm,
+          /* spearman*/ spearman,
+          /* max_iter*/ max_iter,
+          /* tol     */ tol,
+          /* early   */ alpha,       // <-- wire alpha for early stop
+          /* frob    */ frobenius
+        );
+        keep_it = (p_val <= alpha);
+      } catch (...) {
+        log_info("Permutation test failed; treating as not significant");
+        keep_it = false;
+      }
+    }
+
+    // Scores for this component
+    ScoreMatrix scores_k = compute_scores_core(X, Wk);
+    arma::mat Tk = scores_k.T;
+    T_all = arma::join_rows(T_all, Tk);
+
+    // Loadings, EVs, and deflation
+    std::vector<arma::vec> Pk(B);
+    arma::vec ev_block(B, arma::fill::zeros);
+    double ss_exp_total = 0.0;
+
+    for (int b = 0; b < B; ++b) {
+      arma::vec tb = Tk.col(b);
+      if (!is_valid_vector(tb)) continue;
+
+      const double tb_norm_sq = arma::dot(tb, tb);
+      if (tb_norm_sq < 1e-12) continue;
+
+      arma::vec pb = X[b].t() * tb / tb_norm_sq;
+      if (!is_valid_vector(pb)) continue;
+
+      const double ss_exp = tb_norm_sq * arma::dot(pb, pb);
+      if (ss_tot(b) > 1e-12) ev_block(b) = ss_exp / ss_tot(b);
+      ss_exp_total += ss_exp;
+
+      Pk[b] = pb;
+
+      // Deflate for next component
+      if (!deflate_block(X[b], tb, pb)) {
+        log_info("Deflation failed for block " + std::to_string(b + 1) +
+                 ", component " + std::to_string(k + 1));
+      }
+    }
+
+    double ev_comp = 0.0;
+    if (ss_all > 1e-12) ev_comp = std::max(0.0, std::min(1.0, ss_exp_total / ss_all));
+
+    // Keep LV-1 regardless of significance; otherwise stop if not significant
+    const bool keep_component = (!do_perm) || keep_it || k == 0;
+    if (!keep_component) {
+      log_info("🚦  LV not significant - stopping extraction");
+      break; // nothing has been stored for this k
+    }
+
+    // Store results
+    W_all.push_back(Wk);
+    P_all.push_back(Pk);
+    obj_vec.push_back(obj_k);
+    p_vec.push_back(p_val);
+    ev_block_list.push_back(ev_block);
+    ev_comp_list.push_back(ev_comp);
+
+    // If LV-1 was not significant: keep it but stop afterwards
+    if (do_perm && !keep_it) {
+      log_info("🚦  LV-1 kept but not significant - no further extraction");
+      break;
+    }
+  }
+
+  // Pack return
+  const std::size_t nc = W_all.size();
+  Rcpp::List W_out(nc), P_out(nc);
+  arma::mat ev_block_mat(nc, B);
+  arma::vec ev_comp_vec(nc);
+
+  for (std::size_t k = 0; k < nc; ++k) {
+    Rcpp::List Wi(B), Pi(B);
+    for (int b = 0; b < B; ++b) {
+      Wi[b] = W_all[k][b];
+      Pi[b] = P_all[k][b];
+    }
+    W_out[k] = Wi;
+    P_out[k] = Pi;
+    ev_block_mat.row(k) = ev_block_list[k].t();
+    ev_comp_vec(k)      = ev_comp_list[k];
+  }
+
+  return Rcpp::List::create(
+    Rcpp::_["W"]          = W_out,
+    Rcpp::_["P"]          = P_out,
+    Rcpp::_["T_mat"]      = T_all,
+    Rcpp::_["objective"]  = obj_vec,
+    Rcpp::_["p_values"]   = p_vec,
+    Rcpp::_["ev_block"]   = ev_block_mat,
+    Rcpp::_["ev_comp"]    = ev_comp_vec
+  );
+}
+
+
 // [[Rcpp::export]]
 Rcpp::List cpp_ev_test(const Rcpp::List&  X_test,
                        const Rcpp::List&  weights,
