@@ -155,7 +155,7 @@ autoplot.GraphLearner <- function(object,
   weights_view   <- match.arg(weights_view)
   weights_source <- match.arg(weights_source)
 
-  # optional stability/selection frequency table
+  # optional stability/selection frequency table (as data.frame)
   .freq_tbl <- {
     sf <- model$weights_selectfreq
     if (!is.null(sf)) {
@@ -179,8 +179,9 @@ autoplot.GraphLearner <- function(object,
 
   # reusable helpers -----------------------------------------------------------
   .pal_vals <- function(palette) {
-    if (length(palette) == 1L) RColorBrewer::brewer.pal(3, palette)[c(3, 1)]
-    else rep_len(palette, 2)[1:2]
+    pal <- RColorBrewer::brewer.pal(3, palette)
+    c(`TRUE` = pal[1],  # positive (green-ish in Dark2)
+      `FALSE`= pal[3])  # negative (purple-ish in Dark2)
   }
   .base_size_from_n <- function(n) {
     # scale gently with number of features shown; clamp to [7, 14]
@@ -194,7 +195,7 @@ autoplot.GraphLearner <- function(object,
     dplyr::bind_rows(lapply(seq_along(W_use), function(k) {
       dplyr::bind_rows(lapply(names(W_use[[k]]), function(b) {
         tibble::tibble(
-          component = sprintf("LC_%01d", k),
+          component = sprintf("LC_%02d", k),  # <-- 2-digit to match selectfreq
           block     = b,
           feature   = names(W_use[[k]][[b]]),
           weight    = as.numeric(W_use[[k]][[b]])
@@ -225,10 +226,13 @@ autoplot.GraphLearner <- function(object,
 
   # Shared plotting core for a single LC (weights view) -----------------------
   plot_one_lc_weights <- function(df_lc, comp_label) {
-    # attach frequency (optional)
+    # attach frequency (optional) and filter by frequency
     if (!is.null(.freq_tbl)) {
-      df_lc <- dplyr::left_join(df_lc, .freq_tbl,
-                                by = c("component", "block", "feature"))
+      df_lc <- dplyr::left_join(
+        df_lc,
+        .freq_tbl[, c("component","block","feature","freq")],
+        by = c("component", "block", "feature")
+      )
     }
     if (!"freq" %in% names(df_lc)) df_lc$freq <- NA_real_
 
@@ -268,8 +272,8 @@ autoplot.GraphLearner <- function(object,
     block_lvls <- levels(df_lc$block_lab)
     sep_df <- if (length(block_lvls) > 1L) {
       expand.grid(
-        block_lab    = factor(block_lvls[-length(block_lvls)], levels = block_lvls),
-        component_lab= factor(comp_lab, levels = comp_lab),
+        block_lab     = factor(block_lvls[-length(block_lvls)], levels = block_lvls),
+        component_lab = factor(comp_lab, levels = comp_lab),
         KEEP.OUT.ATTRS = FALSE
       )
     } else data.frame(block_lab = factor(), component_lab = factor())
@@ -287,16 +291,19 @@ autoplot.GraphLearner <- function(object,
       ggplot2::geom_hline(yintercept = 0, linewidth = 0.25, colour = "grey70") +
       # facet-aware separator (vertical in data space; horizontal after coord_flip)
       (if (nrow(sep_df)) ggplot2::geom_vline(
-         data = sep_df,
-         ggplot2::aes(xintercept = xintercept),
-         colour = sep_color, linewidth = sep_size, inherit.aes = FALSE
+         data    = sep_df,
+         mapping = ggplot2::aes(xintercept = xintercept),
+         colour  = sep_color, linewidth = sep_size, inherit.aes = FALSE
        ) else NULL) +
       ggplot2::facet_grid(
         rows = ggplot2::vars(block_lab),
         cols = ggplot2::vars(component_lab),
         scales = "free_y",
         space  = "free_y",
-        switch = "y"
+        switch = "y",
+        labeller = ggplot2::labeller(
+          block_lab = function(x) stringr::str_wrap(x, width = label_width)
+        )
       ) +
       ggplot2::scale_fill_manual(values = .pal_vals(palette)) +
       ggplot2::scale_x_discrete(labels = function(x) lab_map[as.character(x)]) +
@@ -322,8 +329,11 @@ autoplot.GraphLearner <- function(object,
   plot_one_lc_boot <- function(df_lc, comp_label, font = "sans") {
     # join stability freq (optional)
     if (!is.null(.freq_tbl)) {
-      df_lc <- dplyr::left_join(df_lc, .freq_tbl,
-                                by = c("component", "block", "feature"))
+      df_lc <- dplyr::left_join(
+        df_lc,
+        .freq_tbl[, c("component","block","feature","freq")],
+        by = c("component", "block", "feature")
+      )
     }
     if (!"freq" %in% names(df_lc)) df_lc$freq <- NA_real_
     if (is.numeric(filter_min_frequency)) {
@@ -333,6 +343,7 @@ autoplot.GraphLearner <- function(object,
     df_lc$block     <- factor(df_lc$block,     levels = block_levels)
     df_lc$component <- factor(df_lc$component, levels = comp_levels)
 
+    # alpha by stability
     if (isTRUE(alpha_by_stability)) {
       af <- df_lc$freq
       af[!is.finite(af)] <- 1
@@ -345,6 +356,7 @@ autoplot.GraphLearner <- function(object,
     df_lc$block_lab <- factor(.nice_label(as.character(df_lc$block)),
                               levels = .nice_label(block_levels))
     comp_lab        <- .nice_label(as.character(comp_label))
+    df_lc$component_lab <- factor(comp_lab, levels = comp_lab)
 
     # separators between blocks per component (after coord_flip shows as horizontal rule)
     block_lvls <- levels(df_lc$block_lab)
@@ -366,16 +378,19 @@ autoplot.GraphLearner <- function(object,
       ggplot2::geom_hline(yintercept = 0, linewidth = 0.25, colour = "grey70") +
       # facet-aware separator (vertical in data space → horizontal after coord_flip)
       (if (nrow(sep_df)) ggplot2::geom_vline(
-         data = sep_df,
-         ggplot2::aes(xintercept = xintercept),
-         colour = sep_color, linewidth = sep_size, inherit.aes = FALSE
+         data    = sep_df,
+         mapping = ggplot2::aes(xintercept = xintercept),
+         colour  = sep_color, linewidth = sep_size, inherit.aes = FALSE
        ) else NULL) +
       ggplot2::facet_grid(
         rows = ggplot2::vars(block_lab),
-        cols = NULL,
+        cols = ggplot2::vars(component_lab),
         scales = "free_y",
         space  = "free_y",
-        switch = "y"
+        switch = "y",
+        labeller = ggplot2::labeller(
+          block_lab = function(x) stringr::str_wrap(x, width = label_width)
+        )
       ) +
       ggplot2::scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = label_width)) +
       ggplot2::coord_flip() +
@@ -392,6 +407,7 @@ autoplot.GraphLearner <- function(object,
         strip.placement    = "outside",
         strip.background   = ggplot2::element_rect(fill = NA, colour = NA),
         strip.text.y.left  = ggplot2::element_text(angle = 0, face = "bold"),
+        strip.text.y       = ggplot2::element_text(angle = 0, face = "bold"),
         strip.text.x       = ggplot2::element_text(face = "bold"),
         axis.text.y        = ggplot2::element_text(size = base_size * 0.8)
       )
@@ -434,7 +450,7 @@ autoplot.GraphLearner <- function(object,
 
   comps <- unique(boot_long$component)
   plots <- lapply(comps, function(comp) {
-    plot_one_lc_boot(boot_long[boot_long$component == comp, , drop = FALSE], comp)
+    plot_one_lc_boot(boot_long[boot_long$component == comp, , drop = FALSE], comp, font = font)
   })
   if (length(plots) == 1L || !has_patchwork) {
     return(plots[[1L]])
@@ -855,37 +871,19 @@ autoplot.GraphLearner <- function(object,
   p <- ggplot2::ggplot(df, ggplot2::aes(component, mean))
 
   # Violin & box show the distribution shape and summary (centered at each component)
-  if (isTRUE(show_violin)) {
-    # Reconstruct a per-component bootstrap vector when available
-    # If you saved full replicate vectors per component (e.g. pay$val_boot_vectors[[k]]),
-    # you can replace the synthetic normal below with the true replicates for perfect fidelity.
-    if (!is.null(pay$val_boot_vectors)) {
-      boot_long <- do.call(rbind, lapply(seq_along(pay$val_boot_vectors), function(i) {
-        data.frame(component = comp_lab[i], boot = as.numeric(pay$val_boot_vectors[[i]]))
-      }))
-      boot_long$component <- factor(boot_long$component, levels = comp_lab)
-      p <- p +
-        ggplot2::geom_violin(data = boot_long,
-                             ggplot2::aes(y = boot, x = component),
-                             fill = "grey40", alpha = violin_alpha, colour = NA, width = 0.8,
-                             inherit.aes = FALSE)
-    } else {
-      # Fallback: draw a narrow violin using a normal approx (mean & sd)
-      # (kept subtle; replace with true replicates when you expose them)
-      approx_long <- do.call(rbind, lapply(seq_len(nrow(df)), function(i) {
-        m <- df$mean[i]; s <- df$`mean`[i]*0 # placeholder to avoid R CMD check NOTE
-        # Estimate sd from CI if SE is present; otherwise derive from (upr-lwr)
-        se <- bt$boot_se[i]
-        sd_est <- if (is.finite(se) && se > 0) se else max((df$upr[i] - df$lwr[i]) / (2 * 1.96), 1e-6)
-        y <- m + stats::rnorm(500L, 0, sd_est)
-        data.frame(component = df$component[i], boot = y)
-      }))
-      p <- p +
-        ggplot2::geom_violin(data = approx_long,
-                             ggplot2::aes(y = boot, x = component),
-                             fill = "grey40", alpha = violin_alpha, colour = NA, width = 0.8,
-                             inherit.aes = FALSE)
-    }
+  if (isTRUE(show_violin) && !is.null(pay$val_boot_vectors)) {
+    # Add violin plot
+    boot_long <- do.call(rbind, lapply(seq_along(pay$val_boot_vectors), function(i) {
+      data.frame(component = comp_lab[i], boot = as.numeric(pay$val_boot_vectors[[i]]))
+    }))
+    boot_long$component <- factor(boot_long$component, levels = comp_lab)
+    p <- p +
+      ggplot2::geom_violin(data = boot_long,
+                           ggplot2::aes(y = boot, x = component),
+                           fill = "grey40", alpha = violin_alpha, colour = NA, width = 0.8,
+                           inherit.aes = FALSE)
+  } else {
+    stop("No bootstrap samples available for violin plot.")
   }
 
   if (isTRUE(show_box)) {
