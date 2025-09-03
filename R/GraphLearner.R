@@ -142,7 +142,8 @@ autoplot.GraphLearner <- function(object,
   summary_fun = NULL,
   filter_min_frequency = NULL,
   alpha_by_stability = FALSE,
-  weights_source = c("raw", "stability_filtered")
+  weights_source = c("raw", "stability_filtered"),
+  font = "sans"
 ) {
   requireNamespace("ggplot2")
   requireNamespace("dplyr")
@@ -304,7 +305,7 @@ autoplot.GraphLearner <- function(object,
         x = NULL, y = "Weight",
         title = sprintf("Sparse weights per block — %s", comp_lab)
       ) +
-      ggplot2::theme_minimal(base_size = base_size) +
+      ggplot2::theme_minimal(base_size = base_size, base_family = font) +
       ggplot2::theme(
         panel.grid.major.y = ggplot2::element_blank(),
         panel.grid.minor   = ggplot2::element_blank(),
@@ -318,7 +319,7 @@ autoplot.GraphLearner <- function(object,
   }
 
   # Shared plotting core for a single LC (bootstrap view) ---------------------
-  plot_one_lc_boot <- function(df_lc, comp_label) {
+  plot_one_lc_boot <- function(df_lc, comp_label, font = "sans") {
     # join stability freq (optional)
     if (!is.null(.freq_tbl)) {
       df_lc <- dplyr::left_join(df_lc, .freq_tbl,
@@ -383,7 +384,7 @@ autoplot.GraphLearner <- function(object,
         y = if (is.function(summary_fun) && identical(summary_fun, abs)) "Bootstrapped |weight|" else "Bootstrapped weight",
         title = sprintf("Bootstrap distributions of weights — %s", comp_lab)
       ) +
-      ggplot2::theme_minimal(base_size = base_size) +
+      ggplot2::theme_minimal(base_size = base_size, base_family = font) +
       ggplot2::theme(
         panel.grid.major.y = ggplot2::element_blank(),
         panel.grid.minor   = ggplot2::element_blank(),
@@ -443,7 +444,7 @@ autoplot.GraphLearner <- function(object,
 }
 
 .mbspls_plot_heatmap_from_model <- function(model, method = "spearman",
-                                            T_override = NULL, title_suffix = "") {
+                                            T_override = NULL, title_suffix = "", font = "sans") {
   requireNamespace("ggplot2")
   scores <- T_override %||% model$T_mat
   if (is.null(scores) || NCOL(scores) < 2)
@@ -464,7 +465,7 @@ autoplot.GraphLearner <- function(object,
     ggplot2::geom_tile() +
     ggplot2::scale_fill_gradient2(limits = c(-1, 1), midpoint = 0,
                                   low = "blue", mid = "white", high = "red") +
-    ggplot2::theme_minimal() +
+    ggplot2::theme_minimal(base_family = font) +
     ggplot2::theme(axis.text.x = ggplot2::element_text(angle = 90, vjust = 0.5, hjust = 1),
                    panel.grid  = ggplot2::element_blank()) +
     ggplot2::labs(title = sprintf("Cross-correlation of latent scores (%s)%s", method, title_suffix),
@@ -472,7 +473,7 @@ autoplot.GraphLearner <- function(object,
 }
 
 .mbspls_plot_network_from_model <- function(model, cutoff = 0.3, method = "spearman",
-                                            T_override = NULL, title_suffix = "") {
+                                            T_override = NULL, title_suffix = "", font = "sans") {
   requireNamespace("igraph"); requireNamespace("ggraph"); requireNamespace("ggplot2")
 
   scores <- T_override %||% model$T_mat
@@ -518,7 +519,7 @@ autoplot.GraphLearner <- function(object,
     ) +
     ggraph::geom_node_point(size = 4, colour = "grey30") +
     ggraph::geom_node_text(ggplot2::aes(label = name), repel = TRUE, size = 3) +
-    ggplot2::theme_void() +
+    ggplot2::theme_void(base_family = font) +
     ggplot2::labs(title = sprintf("LV network |r| \u2265 %.2f (%s)%s", cutoff, method, title_suffix))
 }
 
@@ -532,7 +533,8 @@ autoplot.GraphLearner <- function(object,
   flip = FALSE,
   ev_block_override = NULL,
   ev_comp_override  = NULL,
-  title_suffix = ""
+  title_suffix = "",
+  font = "sans"
 ) {
   if (!requireNamespace("ggplot2", quietly = TRUE))
     stop("Package 'ggplot2' is required for this plot.")
@@ -599,7 +601,7 @@ autoplot.GraphLearner <- function(object,
     ggplot2::labs(y = "Variance explained", x = NULL,
                   title = paste0("MB-sPLS: block-wise variance per component", title_suffix)) +
     ggplot2::guides(fill = ggplot2::guide_legend(title = "block")) +
-    ggplot2::theme_minimal(base_size = 11) +
+    ggplot2::theme_minimal(base_size = 11, base_family = font) +
     ggplot2::theme(legend.position = "right")
 
   if (isTRUE(show_total) && !is.null(tot_vec)) {
@@ -626,7 +628,7 @@ autoplot.GraphLearner <- function(object,
 
 
 .mbspls_plot_scree_from_model <- function(model, cumulative = FALSE,
-                                          obj_override = NULL, title_suffix = "") {
+                                          obj_override = NULL, title_suffix = "", font = "sans") {
   if (!requireNamespace("ggplot2", quietly = TRUE))
     stop("Package 'ggplot2' is required for this plot.")
   obj <- obj_override %||% model$obj_vec
@@ -648,7 +650,7 @@ autoplot.GraphLearner <- function(object,
                   title = paste0(if (!cumulative) "MB-sPLS scree (objective per component)"
                                   else "MB-sPLS cumulative objective",
                                   title_suffix)) +
-    ggplot2::theme_minimal(base_size = 11)
+    ggplot2::theme_minimal(base_size = 11, base_family = font)
 }
 
 
@@ -658,7 +660,8 @@ autoplot.GraphLearner <- function(object,
                                            density = c("none", "contour", "hex"),
                                            annotate = TRUE,
                                            T_override = NULL,
-                                           title_suffix = "") {
+                                           title_suffix = "",
+                                           font = "sans") {
   if (!requireNamespace("ggplot2", quietly = TRUE))
     stop("Package 'ggplot2' is required for this plot.")
   density <- match.arg(density)
@@ -747,7 +750,7 @@ autoplot.GraphLearner <- function(object,
         title = sprintf("MB-sPLS cross-block score agreement — LV%d%s", component, title_suffix),
         subtitle = "Z-scored per block; dashed: y = x; solid: LS fit; r = Pearson, ccc = Lin’s concordance"
       ) +
-      ggplot2::theme_minimal(base_size = 11)
+      ggplot2::theme_minimal(base_size = 11, base_family = font)
   } else {
     p +
       ggplot2::facet_grid(block_y ~ block_x, scales = "free") +
@@ -757,7 +760,7 @@ autoplot.GraphLearner <- function(object,
         title = sprintf("MB-sPLS cross-block score agreement — LV%d%s", component, title_suffix),
         subtitle = "Dashed: y = x; solid: LS fit; r = Pearson, ccc = Lin’s concordance"
       ) +
-      ggplot2::theme_minimal(base_size = 11)
+      ggplot2::theme_minimal(base_size = 11, base_family = font)
   }
 }
 
@@ -812,7 +815,8 @@ autoplot.GraphLearner <- function(object,
   violin_alpha = 0.25,
   box_width = 0.15,
   point_size = 2.6,
-  errorbar_width = 0.22
+  errorbar_width = 0.22,
+  font = "sans"
 ) {
   if (!requireNamespace("ggplot2", quietly = TRUE))
     stop("Package 'ggplot2' is required for bootstrap plots.")
@@ -931,5 +935,5 @@ autoplot.GraphLearner <- function(object,
       y = "Latent correlation (MAC/Frobenius)",
       caption = "Red cross = observed correlation on original test data; filled dot = bootstrap mean"
     ) +
-    ggplot2::theme_minimal(base_size = 11)
+    ggplot2::theme_minimal(base_size = 11, base_family = font)
 }

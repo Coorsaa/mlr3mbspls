@@ -12,6 +12,10 @@
 #'                  "excludes_zero" keeps only features whose 95% CI does not cross 0.
 #' @param add_block_rule logical: draw a thin rule between block facets (default FALSE;
 #'                       turn on only if needed; some ggplot2 versions are picky here)
+#' @param font character: font family for the plot (default "Sans")
+#' @param alpha_by_stability logical (bootstrap only): if TRUE, use
+#'   model$weights_selectfreq$freq for the requested component as bar alpha;
+#'   ignored for source="weights"
 #' @return a ggplot object
 #' 
 #' @export 
@@ -21,7 +25,9 @@ mbspls_plot_block_weight_ci <- function(
   component = 1,
   source = c("weights", "bootstrap"),
   ci_filter = c("none", "excludes_zero", "overlaps_zero"),
-  add_block_rule = TRUE
+  add_block_rule = TRUE,
+  font = "sans",
+  alpha_by_stability = TRUE
 ) {
   requireNamespace("ggplot2")
   requireNamespace("dplyr")
@@ -51,12 +57,16 @@ mbspls_plot_block_weight_ci <- function(
 
   mean_block_weights_LC <- list()
   sd_block_weights_LC   <- list()
+  freq_tbl              <- NULL
 
   # ------------- source = 'weights' (across models) -------------
   if (source == "weights") {
     is_single_model <- is.list(models) && !is.null(models$weights)
     model_list <- if (is_single_model) list(models) else models
     if (!length(model_list)) stop("No model(s) supplied.")
+    if (isTRUE(alpha_by_stability)) {
+      message("alpha_by_stability is only available for source='bootstrap'; ignoring.")
+    }
 
     block_mats <- lapply(block_levels, function(b) {
       cols <- lapply(seq_along(model_list), function(i) {
@@ -99,6 +109,20 @@ mbspls_plot_block_weight_ci <- function(
     if (is.null(model_obj$weights_boot_draws))
       stop("For source='bootstrap', provide a single model with $weights_boot_draws.")
 
+    # Optional selection frequency table for alpha mapping
+    if (isTRUE(alpha_by_stability)) {
+      freq_tbl <- model_obj$weights_selectfreq
+      if (!is.null(freq_tbl)) {
+        if (inherits(freq_tbl, "data.table")) freq_tbl <- as.data.frame(freq_tbl)
+        if (all(c("component","block","feature","freq") %in% names(freq_tbl))) {
+          freq_tbl <- freq_tbl[freq_tbl$component == comp_lab,
+                               c("block","feature","freq"), drop = FALSE]
+        } else {
+          freq_tbl <- NULL
+        }
+      }
+    }
+
     boot_df <- as.data.frame(model_obj$weights_boot_draws)
     boot_df <- boot_df[boot_df$component == comp_lab & boot_df$block %in% block_levels, , drop = FALSE]
     if (!nrow(boot_df))
@@ -125,12 +149,13 @@ mbspls_plot_block_weight_ci <- function(
       by = c("replicate", "block")
     ) |>
       dplyr::mutate(weight_aligned = sign * weight)
-
+    
     boot_summary <- boot_df |>
       dplyr::group_by(block, feature) |>
       dplyr::summarise(
-        mean = mean(weight_aligned, na.rm = TRUE),
-        sd   = stats::sd(weight_aligned, na.rm = TRUE),
+        mean   = mean(weight_aligned, na.rm = TRUE),
+        q025   = stats::quantile(weight_aligned, 0.025, na.rm = TRUE, names = FALSE),
+        q975   = stats::quantile(weight_aligned, 0.975, na.rm = TRUE, names = FALSE),
         .groups = "drop"
       )
 
@@ -138,37 +163,53 @@ mbspls_plot_block_weight_ci <- function(
       feats <- blocks[[b]]
       sb <- boot_summary[boot_summary$block == b, , drop = FALSE]
       mu_map <- setNames(sb$mean, sb$feature)
-      sd_map <- setNames(sb$sd,   sb$feature)
-      mu  <- unname(mu_map[feats]); mu[is.na(mu)]   <- 0
-      sdv <- unname(sd_map[feats]); sdv[is.na(sdv)] <- 0
+      q025_map <- setNames(sb$q025, sb$feature)
+      q975_map <- setNames(sb$q975, sb$feature)
+      mu    <- unname(mu_map[feats]); mu[is.na(mu)]       <- 0
+      q025v <- unname(q025_map[feats]); q025v[is.na(q025v)] <- 0
+      q975v <- unname(q975_map[feats]); q975v[is.na(q975v)] <- 0
       mean_block_weights_LC[[b]] <- mu
-      sd_block_weights_LC[[b]]   <- sdv
+      sd_block_weights_LC[[b]]   <- list(q025 = q025v, q975 = q975v)
     }
   }
 
   # ---------------- build long df ----------------
   df <- dplyr::bind_rows(lapply(block_levels, function(b) {
-    feats <- blocks[[b]]
-    mu    <- mean_block_weights_LC[[b]]
-    sdv   <- sd_block_weights_LC[[b]]
-    if (length(mu) != length(feats) || length(sdv) != length(feats)) {
-      stop(sprintf("Length mismatch in block '%s': %d features, %d means, %d sds.",
-                   b, length(feats), length(mu), length(sdv)))
-    }
-    tibble::tibble(block = b, feature = feats, mean = as.numeric(mu), sd = as.numeric(sdv))
+  feats <- blocks[[b]]
+  mu    <- mean_block_weights_LC[[b]]
+  quantiles <- sd_block_weights_LC[[b]]
+  q025v <- quantiles$q025
+  q975v <- quantiles$q975
+  if (length(mu) != length(feats) || length(q025v) != length(feats) || length(q975v) != length(feats)) {
+    stop(sprintf("Length mismatch in block '%s': %d features, %d means, %d q025, %d q975.",
+           b, length(feats), length(mu), length(q025v), length(q975v)))
+  }
+  tibble::tibble(block = b, feature = feats, mean = as.numeric(mu), q025 = as.numeric(q025v), q975 = as.numeric(q975v))
   }))
 
   df <- df |>
-    dplyr::mutate(
-      ci_low  = mean - 1.96 * sd,
-      ci_high = mean + 1.96 * sd,
-      signpos = mean >= 0,
-      abs_m   = abs(mean)
-    )
+  dplyr::mutate(
+    ci_low  = q025,
+    ci_high = q975,
+    signpos = mean >= 0,
+    abs_m   = abs(mean)
+  )
+
+  # Attach stability-based alpha (bootstrap only)
+  if (isTRUE(alpha_by_stability) && !is.null(freq_tbl) && nrow(freq_tbl)) {
+    df <- dplyr::left_join(df, freq_tbl, by = c("block","feature"))
+    df$alpha_freq <- df$freq
+    df$alpha_freq[!is.finite(df$alpha_freq)] <- 1
+    df$alpha_freq <- pmax(pmin(df$alpha_freq, 1), 0)
+  } else {
+    df$alpha_freq <- 1
+  }
 
   # CI filters
   if (ci_filter == "excludes_zero") {
-    df <- dplyr::filter(df, ci_low > 0 | ci_high < 0)
+    df <- dplyr::filter(df, ci_low >= 0 | ci_high <= 0)
+    # filter all 0s
+    df <- dplyr::filter(df, abs_m > 1e-3)
   } else if (ci_filter == "overlaps_zero") {
     df <- dplyr::filter(df, ci_low <= 0 & ci_high >= 0)
   }
@@ -216,7 +257,7 @@ mbspls_plot_block_weight_ci <- function(
   base_sz <- .base_size_from_n(nrow(df))
 
   # ---------------- plot ----------------
-  p <- ggplot2::ggplot(df, ggplot2::aes(x = axis_id, y = mean, fill = signpos)) +
+  p <- ggplot2::ggplot(df, ggplot2::aes(x = axis_id, y = mean, fill = signpos, alpha = alpha_freq)) +
     ggplot2::geom_col(width = 0.85, show.legend = FALSE) +
     ggplot2::geom_errorbar(
       ggplot2::aes(ymin = ci_low, ymax = ci_high),
@@ -232,18 +273,19 @@ mbspls_plot_block_weight_ci <- function(
       switch = "y"
     ) +
     ggplot2::scale_fill_manual(values = c(`TRUE` = col_pos, `FALSE` = col_neg)) +
+    ggplot2::scale_alpha_identity() +
     ggplot2::scale_x_discrete(labels = function(x) lab_map[as.character(x)]) +
     ggplot2::coord_flip() +
     ggplot2::labs(
       x = NULL, y = "Weight",
-      title = sprintf("Sparse weights per block — LC %d", component),
+      title = sprintf("Sparse weights per block - LC %d", component),
       subtitle = paste0(
         if (source == "weights") "Across models" else "Across bootstrap replicates",
         " · 95% CI = mean \u00B1 1.96 × SD",
         if (ci_filter != "none") paste0(" · Filter: ", ci_filter_label) else ""
       )
     ) +
-    ggplot2::theme_minimal(base_size = base_sz) +
+    ggplot2::theme_minimal(base_size = base_sz, base_family = font) +
     ggplot2::theme(
       panel.grid.major.y = ggplot2::element_blank(),
       panel.grid.minor   = ggplot2::element_blank(),

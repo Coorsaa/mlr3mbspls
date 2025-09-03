@@ -526,10 +526,11 @@ double perm_test_component(
     }
 
     // Optional early stop on running p-value
-    if (p > 100 && (p % 50) == 0) {
-      const double current_p = static_cast<double>(ge + 1) / static_cast<double>(p + 1);
-      if (current_p > early_stop_threshold) {
-        return current_p;
+    if (early_stop_threshold < 1.0 && p >= 100 && (p % 50) == 0) {
+      // Safe lower bound on the final p-value if we stopped now
+      double p_lower_final = static_cast<double>(ge + 1) / static_cast<double>(n_perm + 1);
+      if (p_lower_final > early_stop_threshold) {
+        return p_lower_final;
       }
     }
 
@@ -637,7 +638,7 @@ Rcpp::List cpp_mbspls_multi_lv(const Rcpp::List&  X_blocks,
       try {
         p_val = perm_test_component(X, Wk, c_constraints,
                             n_perm, spearman, max_iter, tol,
-                            /* early_stop_threshold */ 0.05,
+                            /* early_stop_threshold */ alpha,
                             /* frobenius */            frobenius);
         keep_it = (p_val <= alpha);
         log_info("     p-value = " + std::to_string(p_val));
