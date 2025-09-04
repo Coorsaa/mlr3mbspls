@@ -442,6 +442,19 @@ PipeOpMBsPLS = R6::R6Class(
       self$state$latent_cor_train   <- tail(obj, 1)
       self$state$performance_metric <- pv$performance_metric
 
+      # --- make trained state visible to downstream PipeOps via a shared env
+      if (!is.null(pv$log_env) && inherits(pv$log_env, "environment")) {
+        pv$log_env$mbspls_state <- list(
+          blocks      = blocks,              # named list, post-preproc col names
+          ncomp       = n_kept,              # number of retained components
+          weights     = W_all,               # list(K) of named weight vectors per block
+          loadings    = P_all,               # list(K) of named loading vectors per block
+          T_mat_train = T_mat_train,         # (optional) training scores matrix
+          comp_names  = sprintf("LC_%02d", seq_len(n_kept)),
+          block_names = names(blocks)
+        )
+      }
+
       lgr$info("Training done; last latent correlation = %.4f", tail(obj, 1))
       dt_lat
     },

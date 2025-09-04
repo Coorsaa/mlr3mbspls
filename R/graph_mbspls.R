@@ -80,6 +80,9 @@ mbspls_preproc_graph = function(
 #' @param val_test_alpha Numeric, significance level for validation test (default is 0.05).
 #' @param val_test_n Integer, number of validation test iterations (default is 1000).
 #' @param val_test_permute_all Logical, whether to permute all variables in validation test.
+#' @param ref_block Character, name of the reference block for weight flipping.
+#' @param towards Character, direction for weight flipping ("positive" or "negative").
+#' @param source Character, source for weight flipping ("weights" or "scores").
 #' @param log_env Environment for logging (default is NULL).
 #' @return [`GraphLearner`]
 #' @import mlr3
@@ -110,6 +113,9 @@ mbspls_graph_learner = function(
   val_test_alpha = 0.05,
   val_test_n = 1000,
   val_test_permute_all = TRUE,
+  ref_block = names(blocks)[1],
+  towards = "positive",
+  source = "weights",
   log_env = NULL
 ) {
   assert_list(blocks, types = "character", names = "unique")
@@ -147,6 +153,12 @@ mbspls_graph_learner = function(
       val_test_alpha = val_test_alpha,
       val_test_n = val_test_n,
       val_test_permute_all = val_test_permute_all,
+      log_env = log_env
+    ) %>>%
+    po("mbspls_flipweights",
+      ref_block = ref_block,
+      towards = towards,
+      source = source,
       log_env = log_env
     ) %>>%
     po("learner", learner)
