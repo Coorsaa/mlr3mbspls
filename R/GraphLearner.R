@@ -9,7 +9,7 @@
 #'   \itemize{
 #'     \item \code{"mbspls_weights"} – bar plot of strongest (|w|) weights per component×block. Args: \code{top_n}, \code{palette}.
 #'     \item \code{"mbspls_heatmap"} – heat map of cross-correlations of latent scores. Arg: \code{method}.
-#'     \item \code{"mbspls_network"} – LV network for edges with \code{|r| >= cutoff}. Args: \code{cutoff}, \code{method}.
+#'     \item \code{"mbspls_network"} – LC network for edges with \code{|r| >= cutoff}. Args: \code{cutoff}, \code{method}.
 #'     \item \code{"mbspls_variance"} – non-stacked bars of block-wise variance explained; optional total line.
 #'     \item \code{"mbspls_scree"} – objective per component or cumulative.
 #'     \item \code{"mbspls_scores"} – score plots across all block pairs for a chosen LV. Arg: \code{component = 1}.
@@ -66,7 +66,8 @@ autoplot.GraphLearner <- function(object,
 
   p <- switch(
     type,
-    mbspls_weights = do.call(.mbspls_plot_weights_from_model, c(list(model = mod), dots)),
+    mbspls_weights = do.call(.mbspls_plot_weights_from_model,
+                      c(list(model = mod, gl = object), dots)),
     mbspls_heatmap = do.call(.mbspls_plot_heatmap_from_model,
                       c(list(model = mod, T_override = if (!is.null(eval_payload)) eval_payload$T_mat else NULL,
                              title_suffix = title_suffix), dots)),
@@ -131,6 +132,53 @@ autoplot.GraphLearner <- function(object,
   stop("Could not find a trained MB-sPLS model in gl$model. The PipeOp in the graph is untrained.", call. = FALSE)
 }
 
+# Returns a numeric vector of length ncomp with entries in {+1, -1},
+# or NULL if no flip operator/model is found.
+.mbspls_get_flip_signs <- function(gl, flip_id = NULL) {
+  if (!inherits(gl, "GraphLearner")) return(NULL)
+  if (is.null(flip_id)) {
+    ids <- names(gl$graph$pipeops)
+    hit <- ids[vapply(gl$graph$pipeops,
+                      function(po) inherits(po, "PipeOpMBsPLSFlipWeights"),
+                      logical(1))]
+    flip_id <- if (length(hit)) hit[1] else NULL
+  }
+  if (is.null(flip_id)) return(NULL)
+  node_model <- tryCatch(gl$model[[flip_id]], error = function(e) NULL)
+  if (is.null(node_model)) return(NULL)
+  s <- tryCatch(node_model$signs, error = function(e) NULL)
+  if (is.null(s)) return(NULL)
+  as.numeric(s)
+}
+
+.mbspls_align_signs <- function(signs, ncomp) {
+  if (is.null(signs)) return(rep(1, ncomp))
+  if (!is.null(names(signs))) {
+    s <- sapply(seq_len(ncomp), function(k) signs[[sprintf("LC_%02d", k)]] %||% 1)
+  } else {
+    s <- as.numeric(signs)
+    if (length(s) < ncomp) s <- c(s, rep(1, ncomp - length(s)))
+    s <- s[seq_len(ncomp)]
+  }
+  s[!is.finite(s)] <- 1
+  s
+}
+
+.pal_vals <- function(palette) {
+  pal <- RColorBrewer::brewer.pal(3, palette)
+  c(`TRUE` = pal[1],  # positive (green-ish in Dark2)
+    `FALSE`= pal[3])  # negative (purple-ish in Dark2)
+}
+
+.base_size_from_n <- function(n) {
+  # scale gently with number of features shown; clamp to [7, 14]
+  bs <- 13 - 0.07 * (n - 20)
+  max(7, min(14, bs))
+}
+
+.nice_label <- function(x) gsub("_", " ", x, fixed = TRUE)
+
+#' @importFrom rlang .data
 .mbspls_plot_weights_from_model <- function(
   model,
   top_n = NULL,
@@ -143,7 +191,11 @@ autoplot.GraphLearner <- function(object,
   filter_min_frequency = NULL,
   alpha_by_stability = FALSE,
   weights_source = c("raw", "stability_filtered"),
-  font = "sans"
+  font = "sans",
+  # NEW: flip support & GL context
+  gl = NULL,
+  flip_signs = NULL,
+  flip_id = NULL
 ) {
   requireNamespace("ggplot2")
   requireNamespace("dplyr")
@@ -155,178 +207,79 @@ autoplot.GraphLearner <- function(object,
   weights_view   <- match.arg(weights_view)
   weights_source <- match.arg(weights_source)
 
-  # optional stability/selection frequency table (as data.frame)
+  # optional selection freq as data.frame
   .freq_tbl <- {
     sf <- model$weights_selectfreq
-    if (!is.null(sf)) {
-      if (requireNamespace("data.table", quietly = TRUE) && data.table::is.data.table(sf)) {
-        sf <- as.data.frame(sf)
-      }
-      if (!nrow(sf)) sf <- NULL
+    if (!is.null(sf) && requireNamespace("data.table", quietly = TRUE) && data.table::is.data.table(sf)) {
+      sf <- as.data.frame(sf)
     }
+    if (!is.null(sf) && !nrow(sf)) sf <- NULL
     sf
   }
 
-  # pick which weights to plot
+  # choose which weights to plot
   W_use <- model$weights
   if (weights_source == "stability_filtered" && !is.null(model$weights_stability_filtered)) {
     W_use <- model$weights_stability_filtered
   }
 
-  # consistent ordering in facets
+  # ---------- NEW: apply flip signs to weights & boot draws ----------
+  flip_signs <- flip_signs %||% .mbspls_get_flip_signs(gl, flip_id)
+  S <- .mbspls_align_signs(flip_signs, ncomp = length(W_use))
+  if (any(S != 1)) {
+    for (k in seq_along(W_use)) if (S[k] != 1) {
+      for (b in names(W_use[[k]])) W_use[[k]][[b]] <- S[k] * W_use[[k]][[b]]
+    }
+  }
+  # -------------------------------------------------------------------
+
   block_levels <- names(model$blocks)
   comp_levels  <- paste0("LC_", sprintf("%02d", seq_len(model$ncomp)))
 
-  # reusable helpers -----------------------------------------------------------
-  .pal_vals <- function(palette) {
-    pal <- RColorBrewer::brewer.pal(3, palette)
-    c(`TRUE` = pal[1],  # positive (green-ish in Dark2)
-      `FALSE`= pal[3])  # negative (purple-ish in Dark2)
+  # Fallback names for unnamed weight vectors (prevents 'feature' not found)
+  .fallback_featnames <- function(block_name, w_vec) {
+    nms <- names(w_vec)
+    if (!is.null(nms)) return(nms)
+    # try model$blocks mapping first:
+    fb <- model$blocks[[block_name]]
+    if (!is.null(fb) && length(fb) == length(w_vec)) return(fb)
+    # last resort: synthetic names
+    paste0(block_name, "_", seq_along(w_vec))
   }
-  .base_size_from_n <- function(n) {
-    # scale gently with number of features shown; clamp to [7, 14]
-    bs <- 13 - 0.07 * (n - 20)
-    max(7, min(14, bs))
-  }
-  .nice_label <- function(x) gsub("_", " ", x, fixed = TRUE)
 
-  # one LC per plot; stitch with patchwork if >1 LCs --------------------------
   build_weights_long <- function() {
-    dplyr::bind_rows(lapply(seq_along(W_use), function(k) {
+    tibble::as_tibble(dplyr::bind_rows(lapply(seq_along(W_use), function(k) {
       dplyr::bind_rows(lapply(names(W_use[[k]]), function(b) {
+        wv <- W_use[[k]][[b]]
         tibble::tibble(
-          component = sprintf("LC_%02d", k),  # <-- 2-digit to match selectfreq
+          component = sprintf("LC_%02d", k),
           block     = b,
-          feature   = names(W_use[[k]][[b]]),
-          weight    = as.numeric(W_use[[k]][[b]])
+          feature   = .fallback_featnames(b, wv),   # NEW: always present
+          weight    = as.numeric(wv)
         )
       }))
-    })) |>
-      dplyr::mutate(abs_w = abs(weight)) |>
-      dplyr::filter(abs_w > 0)
+    })))
   }
 
   build_boot_long <- function(vb) {
     dplyr::bind_rows(lapply(seq_along(vb), function(k) {
+      mult <- S[k] %||% 1   # NEW: flip bootstrap draws as well
       dplyr::bind_rows(lapply(names(vb[[k]]), function(b) {
-        fb <- vb[[k]][[b]]  # list(feature -> numeric vector)
+        fb <- vb[[k]][[b]]
         dplyr::bind_rows(lapply(names(fb), function(f) {
           tibble::tibble(
             component = sprintf("LC_%02d", k),
             block     = b,
             feature   = f,
-            value     = as.numeric(fb[[f]])
+            value     = mult * as.numeric(fb[[f]])
           )
         }))
       }))
-    })) |>
-      dplyr::mutate(abs_v = abs(value)) |>
-      dplyr::filter(abs_v > 0)
+    }))
   }
 
-  # Shared plotting core for a single LC (weights view) -----------------------
+  # Plot core (weights view)
   plot_one_lc_weights <- function(df_lc, comp_label) {
-    # attach frequency (optional) and filter by frequency
-    if (!is.null(.freq_tbl)) {
-      df_lc <- dplyr::left_join(
-        df_lc,
-        .freq_tbl[, c("component","block","feature","freq")],
-        by = c("component", "block", "feature")
-      )
-    }
-    if (!"freq" %in% names(df_lc)) df_lc$freq <- NA_real_
-
-    if (is.numeric(filter_min_frequency)) {
-      df_lc <- dplyr::filter(df_lc, is.na(freq) | freq >= filter_min_frequency)
-    }
-
-    # order & per-panel factor for correct within-facet order
-    df_lc$block     <- factor(df_lc$block,     levels = block_levels)
-    df_lc$component <- factor(df_lc$component, levels = comp_levels)
-
-    df_lc <- df_lc |>
-      dplyr::arrange(block, abs_w) |>
-      dplyr::mutate(
-        feature_label = stringr::str_wrap(feature, width = label_width),
-        axis_id       = paste(block, feature, sep = "___")
-      )
-    df_lc$axis_id <- factor(df_lc$axis_id, levels = unique(df_lc$axis_id))
-    lab_map <- setNames(as.character(df_lc$feature_label), as.character(df_lc$axis_id))
-
-    # alpha by stability
-    if (isTRUE(alpha_by_stability)) {
-      af <- df_lc$freq
-      af[!is.finite(af)] <- 1
-      df_lc$alpha_freq <- pmax(pmin(af, 1), 0)
-    } else {
-      df_lc$alpha_freq <- 1
-    }
-
-    # pretty facet labels (block & LC)
-    df_lc$block_lab <- factor(.nice_label(as.character(df_lc$block)),
-                              levels = .nice_label(block_levels))
-    comp_lab        <- .nice_label(as.character(comp_label))
-    df_lc$component_lab <- factor(comp_lab, levels = comp_lab)
-
-    # separators between blocks: one thin rule at the top of each block panel
-    block_lvls <- levels(df_lc$block_lab)
-    sep_df <- if (length(block_lvls) > 1L) {
-      expand.grid(
-        block_lab     = factor(block_lvls[-length(block_lvls)], levels = block_lvls),
-        component_lab = factor(comp_lab, levels = comp_lab),
-        KEEP.OUT.ATTRS = FALSE
-      )
-    } else data.frame(block_lab = factor(), component_lab = factor())
-    if (nrow(sep_df)) sep_df$xintercept <- -Inf
-
-    # font scaling
-    base_size <- .base_size_from_n(nrow(df_lc))
-
-    ggplot2::ggplot(
-      df_lc,
-      ggplot2::aes(axis_id, weight, fill = weight > 0, alpha = alpha_freq)
-    ) +
-      ggplot2::geom_col(width = 0.85, show.legend = FALSE) +
-      ggplot2::scale_alpha_identity() +
-      ggplot2::geom_hline(yintercept = 0, linewidth = 0.25, colour = "grey70") +
-      # facet-aware separator (vertical in data space; horizontal after coord_flip)
-      (if (nrow(sep_df)) ggplot2::geom_vline(
-         data    = sep_df,
-         mapping = ggplot2::aes(xintercept = xintercept),
-         colour  = sep_color, linewidth = sep_size, inherit.aes = FALSE
-       ) else NULL) +
-      ggplot2::facet_grid(
-        rows = ggplot2::vars(block_lab),
-        cols = ggplot2::vars(component_lab),
-        scales = "free_y",
-        space  = "free_y",
-        switch = "y",
-        labeller = ggplot2::labeller(
-          block_lab = function(x) stringr::str_wrap(x, width = label_width)
-        )
-      ) +
-      ggplot2::scale_fill_manual(values = .pal_vals(palette)) +
-      ggplot2::scale_x_discrete(labels = function(x) lab_map[as.character(x)]) +
-      ggplot2::coord_flip() +
-      ggplot2::labs(
-        x = NULL, y = "Weight",
-        title = sprintf("Sparse weights per block — %s", comp_lab)
-      ) +
-      ggplot2::theme_minimal(base_size = base_size, base_family = font) +
-      ggplot2::theme(
-        panel.grid.major.y = ggplot2::element_blank(),
-        panel.grid.minor   = ggplot2::element_blank(),
-        panel.spacing      = grid::unit(0, "pt"),
-        strip.placement    = "outside",
-        strip.background   = ggplot2::element_rect(fill = NA, colour = NA),
-        strip.text.y.left  = ggplot2::element_text(angle = 0, face = "bold"),
-        strip.text.x       = ggplot2::element_text(face = "bold"),
-        axis.text.y        = ggplot2::element_text(size = base_size * 0.8)
-      )
-  }
-
-  # Shared plotting core for a single LC (bootstrap view) ---------------------
-  plot_one_lc_boot <- function(df_lc, comp_label, font = "sans") {
     # join stability freq (optional)
     if (!is.null(.freq_tbl)) {
       df_lc <- dplyr::left_join(
@@ -336,50 +289,63 @@ autoplot.GraphLearner <- function(object,
       )
     }
     if (!"freq" %in% names(df_lc)) df_lc$freq <- NA_real_
-    if (is.numeric(filter_min_frequency)) {
-      df_lc <- dplyr::filter(df_lc, is.na(freq) | freq >= filter_min_frequency)
-    }
+
+    # order columns & compute abs
+    df_lc <- df_lc |>
+      dplyr::mutate(abs_w = abs(.data$weight)) |>
+      dplyr::filter(.data$abs_w > 0)
+
+    if (!nrow(df_lc)) stop("No non-zero weights to plot (after filtering).")
 
     df_lc$block     <- factor(df_lc$block,     levels = block_levels)
     df_lc$component <- factor(df_lc$component, levels = comp_levels)
 
+    df_lc <- df_lc |>
+      dplyr::arrange(.data$block, .data$abs_w) |>
+      dplyr::mutate(
+        feature_label = stringr::str_wrap(.data$feature, width = label_width),  # NEW: .data
+        axis_id       = paste(.data$block, .data$feature, sep = "___")
+      )
+    df_lc$axis_id <- factor(df_lc$axis_id, levels = unique(df_lc$axis_id))
+    lab_map <- setNames(as.character(df_lc$feature_label), as.character(df_lc$axis_id))
+
     # alpha by stability
     if (isTRUE(alpha_by_stability)) {
-      af <- df_lc$freq
-      af[!is.finite(af)] <- 1
+      af <- df_lc$freq; af[!is.finite(af)] <- 1
       df_lc$alpha_freq <- pmax(pmin(af, 1), 0)
-    } else {
-      df_lc$alpha_freq <- 1
-    }
+    } else df_lc$alpha_freq <- 1
 
-    # pretty labels
+    # pretty facet labels
+    .nice_label <- function(x) gsub("_", " ", x, fixed = TRUE)
     df_lc$block_lab <- factor(.nice_label(as.character(df_lc$block)),
                               levels = .nice_label(block_levels))
     comp_lab        <- .nice_label(as.character(comp_label))
     df_lc$component_lab <- factor(comp_lab, levels = comp_lab)
 
-    # separators between blocks per component (after coord_flip shows as horizontal rule)
+    # separators
     block_lvls <- levels(df_lc$block_lab)
     sep_df <- if (length(block_lvls) > 1L) {
-      data.frame(
-        block_lab  = factor(block_lvls[-length(block_lvls)], levels = block_lvls),
-        xintercept = -Inf
+      expand.grid(
+        block_lab     = factor(block_lvls[-length(block_lvls)], levels = block_lvls),
+        component_lab = factor(comp_lab, levels = comp_lab),
+        KEEP.OUT.ATTRS = FALSE
       )
-    } else data.frame(block_lab = factor(), xintercept = numeric())
+    } else data.frame(block_lab = factor(), component_lab = factor())
 
+    # font scaling
+    .base_size_from_n <- function(n) max(7, min(14, 13 - 0.07 * (n - 20)))
     base_size <- .base_size_from_n(nrow(df_lc))
 
     ggplot2::ggplot(
       df_lc,
-      ggplot2::aes(stringr::str_wrap(feature, width = label_width), value, alpha = alpha_freq)
+      ggplot2::aes(.data$axis_id, .data$weight, fill = .data$weight > 0, alpha = .data$alpha_freq)
     ) +
-      ggplot2::geom_violin(width = 0.8, fill = "grey40", colour = NA, show.legend = FALSE) +
+      ggplot2::geom_col(width = 0.85, show.legend = FALSE) +
       ggplot2::scale_alpha_identity() +
       ggplot2::geom_hline(yintercept = 0, linewidth = 0.25, colour = "grey70") +
-      # facet-aware separator (vertical in data space → horizontal after coord_flip)
       (if (nrow(sep_df)) ggplot2::geom_vline(
          data    = sep_df,
-         mapping = ggplot2::aes(xintercept = xintercept),
+         mapping = ggplot2::aes(xintercept = -Inf),
          colour  = sep_color, linewidth = sep_size, inherit.aes = FALSE
        ) else NULL) +
       ggplot2::facet_grid(
@@ -392,13 +358,14 @@ autoplot.GraphLearner <- function(object,
           block_lab = function(x) stringr::str_wrap(x, width = label_width)
         )
       ) +
-      ggplot2::scale_x_discrete(labels = function(x) stringr::str_wrap(x, width = label_width)) +
+      ggplot2::scale_fill_manual(values = {
+        pal <- RColorBrewer::brewer.pal(3, palette)
+        c(`TRUE` = pal[1], `FALSE` = pal[3])
+      }) +
+      ggplot2::scale_x_discrete(labels = function(x) lab_map[as.character(x)]) +
       ggplot2::coord_flip() +
-      ggplot2::labs(
-        x = NULL,
-        y = if (is.function(summary_fun) && identical(summary_fun, abs)) "Bootstrapped |weight|" else "Bootstrapped weight",
-        title = sprintf("Bootstrap distributions of weights — %s", comp_lab)
-      ) +
+      ggplot2::labs(x = NULL, y = "Weight",
+                    title = sprintf("Sparse weights per block — %s", comp_lab)) +
       ggplot2::theme_minimal(base_size = base_size, base_family = font) +
       ggplot2::theme(
         panel.grid.major.y = ggplot2::element_blank(),
@@ -407,56 +374,45 @@ autoplot.GraphLearner <- function(object,
         strip.placement    = "outside",
         strip.background   = ggplot2::element_rect(fill = NA, colour = NA),
         strip.text.y.left  = ggplot2::element_text(angle = 0, face = "bold"),
-        strip.text.y       = ggplot2::element_text(angle = 0, face = "bold"),
         strip.text.x       = ggplot2::element_text(face = "bold"),
         axis.text.y        = ggplot2::element_text(size = base_size * 0.8)
       )
   }
 
-  # Branches ------------------------------------------------------------------
+  # ---- Branching: weights vs bootstrap ----
   if (weights_view == "weights") {
     long <- build_weights_long()
-
+    if (!nrow(long)) stop("No weights available to plot.")
     if (!is.null(top_n)) {
       long <- long |>
-        dplyr::group_by(component, block) |>
-        dplyr::slice_max(abs_w, n = max(1L, as.integer(top_n)), with_ties = FALSE) |>
+        dplyr::group_by(.data$component, .data$block) |>
+        dplyr::mutate(abs_w = abs(.data$weight)) |>
+        dplyr::slice_max(.data$abs_w, n = max(1L, as.integer(top_n)), with_ties = FALSE) |>
         dplyr::ungroup()
     }
-
-    # loop over components and compose horizontally
     comps <- unique(long$component)
     plots <- lapply(comps, function(comp) {
       plot_one_lc_weights(long[long$component == comp, , drop = FALSE], comp)
     })
-    if (length(plots) == 1L || !has_patchwork) {
-      return(plots[[1L]])
-    } else {
-      return(patchwork::wrap_plots(plots, nrow = 1))
-    }
+    if (length(plots) == 1L || !has_patchwork) return(plots[[1L]])
+    return(patchwork::wrap_plots(plots, nrow = 1))
   }
 
   # bootstrap view
   vb <- model$weights_boot_vectors
   if (is.null(vb)) {
-    stop("weights_boot_vectors not found in model state. ",
-         "Enable bootstrap_test=TRUE and boot_store_vectors=TRUE during training.")
+    stop("weights_boot_vectors not found. Train with bootstrap_test=TRUE and boot_store_vectors=TRUE.")
   }
   boot_long <- build_boot_long(vb)
-
-  if (is.function(summary_fun)) {
-    boot_long$value <- summary_fun(boot_long$value)
-  }
+  if (is.function(summary_fun)) boot_long$value <- summary_fun(boot_long$value)
 
   comps <- unique(boot_long$component)
   plots <- lapply(comps, function(comp) {
+    # reuse your existing 'plot_one_lc_boot' (unchanged), or inline same .data fixes
     plot_one_lc_boot(boot_long[boot_long$component == comp, , drop = FALSE], comp, font = font)
   })
-  if (length(plots) == 1L || !has_patchwork) {
-    return(plots[[1L]])
-  } else {
-    return(patchwork::wrap_plots(plots, nrow = 1))
-  }
+  if (length(plots) == 1L || !has_patchwork) return(plots[[1L]])
+  patchwork::wrap_plots(plots, nrow = 1)
 }
 
 .mbspls_plot_heatmap_from_model <- function(model, method = "spearman",
@@ -468,7 +424,7 @@ autoplot.GraphLearner <- function(object,
 
   if (is.null(colnames(scores))) {
     colnames(scores) <- unlist(lapply(seq_len(model$ncomp), function(k)
-      paste0("LV", sprintf("%02d", k), "_", names(model$blocks))))
+      paste0("LC", sprintf("%02d", k), "_", names(model$blocks))))
   }
   C <- stats::cor(scores, method = method)
   rn <- rownames(C); cn <- colnames(C)
@@ -498,7 +454,7 @@ autoplot.GraphLearner <- function(object,
 
   if (is.null(colnames(scores))) {
     colnames(scores) <- unlist(lapply(seq_len(model$ncomp), function(k)
-      paste0("LV", sprintf("%02d", k), "_", names(model$blocks))))
+      paste0("LV", sprintf("%02d", k), " ", names(model$blocks))))
   }
 
   C <- stats::cor(scores, method = method)
@@ -688,7 +644,7 @@ autoplot.GraphLearner <- function(object,
   if (component < 1 || component > model$ncomp)
     stop("`component` out of range.")
 
-  lv_cols <- paste0("LV", component, "_", names(model$blocks))
+  lv_cols <- paste0("LC", component, "_", names(model$blocks))
   missing <- setdiff(lv_cols, colnames(Tmat))
   if (length(missing))
     stop("Score columns missing from T_mat: ", paste(missing, collapse = ", "))
@@ -761,9 +717,9 @@ autoplot.GraphLearner <- function(object,
       ggplot2::facet_grid(block_y ~ block_x, scales = "fixed") +
       ggplot2::coord_equal() +
       ggplot2::labs(
-        x = sprintf("Scores: LV%d (block)", component),
-        y = sprintf("Scores: LV%d (block)", component),
-        title = sprintf("MB-sPLS cross-block score agreement — LV%d%s", component, title_suffix),
+        x = sprintf("Scores: LC%d (block)", component),
+        y = sprintf("Scores: LC%d (block)", component),
+        title = sprintf("MB-sPLS cross-block score agreement — LC%d%s", component, title_suffix),
         subtitle = "Z-scored per block; dashed: y = x; solid: LS fit; r = Pearson, ccc = Lin’s concordance"
       ) +
       ggplot2::theme_minimal(base_size = 11, base_family = font)
@@ -771,9 +727,9 @@ autoplot.GraphLearner <- function(object,
     p +
       ggplot2::facet_grid(block_y ~ block_x, scales = "free") +
       ggplot2::labs(
-        x = sprintf("Scores: LV%d (block)", component),
-        y = sprintf("Scores: LV%d (block)", component),
-        title = sprintf("MB-sPLS cross-block score agreement — LV%d%s", component, title_suffix),
+        x = sprintf("Scores: LC%d (block)", component),
+        y = sprintf("Scores: LC%d (block)", component),
+        title = sprintf("MB-sPLS cross-block score agreement — LC%d%s", component, title_suffix),
         subtitle = "Dashed: y = x; solid: LS fit; r = Pearson, ccc = Lin’s concordance"
       ) +
       ggplot2::theme_minimal(base_size = 11, base_family = font)

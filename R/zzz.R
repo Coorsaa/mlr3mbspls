@@ -4,6 +4,7 @@
 .onLoad = function(libname, pkgname) {                       # nocov start
   mlr3pipelines::mlr_pipeops$add("sitecorr", PipeOpSiteCorrection)
   mlr3pipelines::mlr_pipeops$add("mbspls", PipeOpMBsPLS)
+  mlr3pipelines::mlr_pipeops$add("mbspls_flipweights", PipeOpMBsPLSFlipWeights)
   mlr3pipelines::mlr_pipeops$add("mbsplsxy", PipeOpMBsPLSXY)
   mlr3pipelines::mlr_pipeops$add("mbspca", PipeOpMBsPCA)
   mlr3pipelines::mlr_pipeops$add("blockscale", PipeOpBlockScaling)
