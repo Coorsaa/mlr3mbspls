@@ -1,82 +1,62 @@
 #' Sequential Component-wise Tuner for MB-sPLS
 #'
-#' @title TunerSeqMBsPLS
-#'
 #' @description
-#' **`TunerSeqMBsPLS`** performs *sequential* hyper-parameter optimisation of
-#' a multi-block sparse PLS (MB-sPLS) model in the **mlr3** ecosystem.
+#' `TunerSeqMBsPLS` performs *sequential* hyper-parameter optimisation of a
+#' multi-block sparse PLS (MB-sPLS) model in the **mlr3** ecosystem. For each
+#' latent component it (i) samples block-wise sparsity vectors `c`, (ii) scores
+#' them via inner resampling using a correlation objective (MAC / Frobenius),
+#' (iii) refits the best candidate on the current residuals with optional
+#' permutation testing, and (iv) deflates before moving to the next component.
 #'
-#' For each latent component (LC) it:
-#' \enumerate{
-#'   \item samples candidate block-sparsity vectors \eqn{c = (c_1,\dots,c_B)},
-#'   \item scores them by inner resampling using a correlation objective
-#'         (mean absolute correlation or Frobenius norm of block scores),
-#'   \item picks the best candidate, refits that LC on the current full-data
-#'         residuals, (optionally) applies a permutation test, and deflates,
-#'   \item repeats until \code{ncomp} components are extracted or the test
-#'         is not significant (LC1 is always kept).
+#' @section Construction:
+#' ```
+#' tuner <- TunerSeqMBsPLS$new(
+#'   tuner              = "random_search",
+#'   budget             = 1500L,                # iterations per component
+#'   resampling         = rsmp("cv", folds = 3),
+#'   parallel           = "none",
+#'   early_stopping     = TRUE,                 # stop on non‑sig. component
+#'   n_perm             = 1000L,
+#'   perm_alpha         = 0.05,
+#'   performance_metric = "mac",                # or "frobenius"
+#'   additional_task    = NULL                  # optional unlabeled task
+#' )
+#' ```
+#'
+#' @section Methods:
+#' \describe{
+#'   \item{\code{$optimize(instance)}}{Run the sequential loop and populate the
+#'     \code{TuningInstanceSingleCrit}. The optimal block-by-component sparsity
+#'     matrix is returned via \code{instance$result$learner_param_vals$c_matrix}.}
 #' }
 #'
-#' **Measure handling.** The tuner **does not** assume a specific measure ID.
-#' Whatever measure you pass to the tuning instance (e.g. `msr("mbspls.mac")`,
-#' `msr("mbspls.mac.lv1")`, …) is used to **name the result automatically**.
-#' If that measure has `minimize = TRUE`, the returned value is negated so the
-#' instance receives the correct orientation.
-#'
-#' @section Leakage-safe preprocessing:
-#' The tuner extracts and resamples components using the preprocessing steps
-#' found **upstream** of \code{po("mbspls")} in the supplied
-#' \code{mlr3::GraphLearner}. These steps are trained only on the respective
-#' fold’s training data and then applied to its validation data to avoid any
-#' leakage into validation folds.
-#'
-#' @section Block mapping & encoding:
-#' MB-sPLS operates on **numeric matrices**. If your preprocessing includes
-#' factor encoding (e.g., `PipeOpEncode(method = "treatment")`), original
-#' feature names may be expanded/renamed (e.g., `X` → `X.a`, `X.b`, ...).
-#' Therefore, the \strong{block map passed to \code{po("mbspls")}} must refer
-#' to the \emph{post-preprocessing} column names. In user code, build your
-#' graph with a helper like \code{expand_blocks_after_pre()} and
-#' \code{make_mbs_unsup_graph()} (see the analysis script for Option B),
-#' which ensure that both \code{po("sitecorr")} and \code{po("mbspls")} receive
-#' an up-to-date block map that matches the preprocessed task.
-#'
-#' @section Returned result:
-#' The optimal per-block sparsity matrix \eqn{C^\* \in \mathbb{R}^{B\times K}}
-#' (blocks × components) is returned in
-#' \code{tuning_instance$result$learner_param_vals$c_matrix}.
-#'
-#' @section Usage:
-#' \preformatted{
-#' tuner  <- TunerSeqMBsPLS$new(
-#'   tuner          = "random_search",
-#'   budget         = 1500L,
-#'   resampling     = rsmp("cv", folds = 3),
-#'   parallel       = "none",
-#'   early_stopping = TRUE,
-#'   n_perm         = 1000L,
-#'   perm_alpha     = 0.05,
-#'   performance_metric = "mac"
-#' )
-#'
-#' gl <- make_mbs_unsup_graph(task, ncomp = 5L, perf_metric = "mac",
-#'                            learner = lrn("clust.kmeans", centers = 1))
-#' inst <- mlr3tuning::ti(
-#'   task = task,
-#'   learner = gl,
-#'   resampling = rsmp("holdout"),
-#'   measure = msr("mbspls.mac_evwt"),
-#'   terminator = trm("evals", n_evals = 1)
-#' )
-#' tuner$optimize(inst)
-#' best_C <- inst$result$learner_param_vals$c_matrix
-#' }
-#'
-#' @references
-#'  Column naming in factor encoding:
-#'  mlr3pipelines::PipeOpEncode \url{https://mlr3pipelines.mlr-org.com/reference/mlr_pipeops_encode.html}
-#'
+#' @param tuner (`character(1)`)
+#'   ID of a *synchronous* mlr3 tuner for the per-component search
+#'   (e.g. `"random_search"`, `"grid_search"`).
+#' @param budget (`integer(1)`)
+#'   Maximum number of candidate evaluations **per component**.
+#' @param resampling ([\code{mlr3::Resampling}])
+#'   Inner resampling strategy (default `rsmp("cv", folds = 3)`).
+#' @param parallel (`character(1)`)
+#'   `"none"` (default) or `"inner"` to parallelise CV folds via **future**.
+#' @param early_stopping (`logical(1)`)
+#'   If \code{TRUE} (default) run a permutation test after each LC and stop
+#'   when \code{p > perm_alpha}. LC1 is always kept.
+#' @param n_perm (`integer(1)`)
+#'   Number of permutations for the test (default 1000).
+#' @param perm_alpha (`numeric(1)`)
+#'   Significance level for early stopping (default 0.05).
+#' @param performance_metric (`character(1)`)
+#'   Objective used *inside* the inner CV: `"mac"` (mean absolute correlation,
+#'   default) or `"frobenius"` (Frobenius norm of the block-score
+#'   correlation matrix).
+#' @param additional_task [mlr3::Task] or `NULL`. Optional **unlabelled** task
+#'   whose rows are appended to the inner‑CV training features when extracting
+#'   MB‑sPLS weights. Only features are used; labels (if present) are ignored.
+#'   At prediction time and for evaluation, **only** the original task is used.
+#' 
 #' @import mlr3pipelines
+#' 
 #' @export
 TunerSeqMBsPLS = R6::R6Class(
   "TunerSeqMBsPLS",
@@ -85,35 +65,17 @@ TunerSeqMBsPLS = R6::R6Class(
   public = list(
 
     #' @description Construct a new \code{TunerSeqMBsPLS}.
-    #'
-    #' @param tuner (`character(1)`)
-    #'   ID of a *synchronous* mlr3 tuner for the per-component search
-    #'   (e.g. `"random_search"`, `"grid_search"`).
-    #' @param budget (`integer(1)`)
-    #'   Maximum number of candidate evaluations **per component**.
-    #' @param resampling ([\code{mlr3::Resampling}])
-    #'   Inner resampling strategy (default `rsmp("cv", folds = 3)`).
-    #' @param parallel (`character(1)`)
-    #'   `"none"` (default) or `"inner"` to parallelise CV folds via **future**.
-    #' @param early_stopping (`logical(1)`)
-    #'   If \code{TRUE} (default) run a permutation test after each LC and stop
-    #'   when \code{p > perm_alpha}. LC1 is always kept.
-    #' @param n_perm (`integer(1)`)
-    #'   Number of permutations for the test (default 1000).
-    #' @param perm_alpha (`numeric(1)`)
-    #'   Significance level for early stopping (default 0.05).
-    #' @param performance_metric (`character(1)`)
-    #'   Objective used *inside* the inner CV: `"mac"` (mean absolute correlation,
-    #'   default) or `"frobenius"` (Frobenius norm of the block-score
-    #'   correlation matrix).
-    initialize = function(tuner          = "random_search",
-                          budget         = 100L,
-                          resampling     = rsmp("cv", folds = 3),
-                          parallel       = "none",
-                          early_stopping = TRUE,
-                          n_perm         = 1000L,
-                          perm_alpha     = 0.05,
-                          performance_metric = "mac") {
+    initialize = function(
+      tuner          = "random_search",
+      budget         = 100L,
+      resampling     = rsmp("cv", folds = 3),
+      parallel       = "none",
+      early_stopping = TRUE,
+      n_perm         = 1000L,
+      perm_alpha     = 0.05,
+      performance_metric = "mac",
+      additional_task = NULL
+    ) {
 
       checkmate::assert_choice(parallel, c("none", "inner"))
       checkmate::assert_int   (budget, lower = 1L)
@@ -121,6 +83,9 @@ TunerSeqMBsPLS = R6::R6Class(
       checkmate::assert_int   (n_perm,  lower = 1L)
       checkmate::assert_number(perm_alpha, lower = 0, upper = 1)
       checkmate::assert_choice(performance_metric, c("mac", "frobenius"))
+      if (!is.null(additional_task)) {
+        checkmate::assert_class(additional_task, "Task")
+      }
 
       if (grepl("async", tuner, ignore.case = TRUE)) {
         warning("Asynchronous tuners not supported – switching to 'random_search'")
@@ -135,10 +100,11 @@ TunerSeqMBsPLS = R6::R6Class(
       private$.n_perm         <- n_perm
       private$.perm_alpha     <- perm_alpha
       private$.perf_metric    <- performance_metric
+      private$.additional_task <- additional_task
 
       super$initialize(
         param_set = paradox::ps(
-          "performance_metric" = paradox::p_fct(
+          performance_metric = paradox::p_fct(
             levels  = c("mac", "frobenius"),
             default = performance_metric,
             tags    = c("train", "tune")
@@ -149,13 +115,23 @@ TunerSeqMBsPLS = R6::R6Class(
       )
     },
 
+    #' @description (optional) setter if you want to supply it later
+    #' than at construction time.
+    #' @param task ([\code{mlr3::Task}])
+    #'   The additional task to be used for tuning.
+    set_additional_task = function(task) {
+      checkmate::assert_class(task, "Task")
+      private$.additional_task <- task
+      invisible(self)
+    },
+
     #' @description
     #' Run the sequential loop and populate the supplied
     #' \code{TuningInstanceSingleCrit}. The optimal block-by-component
     #' sparsity matrix is available afterwards as
     #' \code{$result$learner_param_vals$c_matrix}.
     #'
-    #' @param instance ([\code{mlr3tuning::TuningInstanceSingleCrit}])
+    #' @param instance ([\code{mlr3tuning::TuningInstanceBatchSingleCrit}])
     optimize = function(instance) private$.run(instance)
   ),
 
@@ -169,10 +145,9 @@ TunerSeqMBsPLS = R6::R6Class(
     .n_perm         = NULL,
     .perm_alpha     = NULL,
     .perf_metric    = NULL,
+    .additional_data = NULL,
 
-    # ─────────────────────────────────────────────────────────────────
-    #  Helpers
-    # ─────────────────────────────────────────────────────────────────
+
     .pre_graph_before_mbspls = function(learner) {
       ids <- learner$graph$ids()
       pos <- match("mbspls", ids)
@@ -244,6 +219,71 @@ TunerSeqMBsPLS = R6::R6Class(
       X_test
     },
 
+    # rbind two lists of matrices blockwise (assumes same ncol)
+    .rbind_blocks = function(A, B) {
+      if (is.null(B)) return(A)
+      out <- vector("list", length(A))
+      for (i in seq_along(A)) {
+        if (is.null(B[[i]])) {
+          out[[i]] <- A[[i]]
+        } else {
+          stopifnot(ncol(A[[i]]) == ncol(B[[i]]))
+          out[[i]] <- rbind(A[[i]], B[[i]])
+        }
+      }
+      out
+    },
+
+    # compute loadings on the *augmented* training, then deflate both partitions
+    .deflate_blocks_split = function(X_tr, X_add, W_list) {
+      B <- length(X_tr)
+      # compute t and p on augmented stack
+      X_aug <- Map(rbind, X_tr, X_add)
+      t_aug <- lapply(seq_len(B), \(b) X_aug[[b]] %*% W_list[[b]])
+      p_aug <- lapply(seq_len(B), \(b) {
+        tb <- t_aug[[b]]
+        n2 <- drop(crossprod(tb))
+        if (n2 < 1e-12) return(matrix(0, nrow = ncol(X_tr[[b]]), ncol = 1))
+        crossprod(X_aug[[b]], tb) / n2
+      })
+
+      # deflate train
+      for (b in seq_len(B)) {
+        tb <- X_tr[[b]] %*% W_list[[b]]
+        X_tr[[b]]  <- X_tr[[b]]  - tcrossprod(tb, p_aug[[b]])
+      }
+      # deflate add
+      if (!is.null(X_add)) {
+        for (b in seq_len(B)) {
+          tb <- X_add[[b]] %*% W_list[[b]]
+          X_add[[b]] <- X_add[[b]] - tcrossprod(tb, p_aug[[b]])
+        }
+      }
+      list(train = X_tr, add = X_add, p = p_aug)
+    },
+
+    # deflate validation with loadings computed from augmented training
+    .deflate_blocks_val = function(X_tr_before, X_val, W_list) {
+      B <- length(X_tr_before)
+      # compute p on TRAIN only (as your current .deflate_blocks_oos does)
+      p_tr <- vector("list", B)
+      for (b in seq_len(B)) {
+        t_tr <- X_tr_before[[b]] %*% W_list[[b]]
+        n2   <- drop(crossprod(t_tr))
+        if (n2 < 1e-12) {
+          p_tr[[b]] <- matrix(0, nrow = ncol(X_tr_before[[b]]), ncol = 1)
+        } else {
+          p_tr[[b]] <- crossprod(X_tr_before[[b]], t_tr) / n2
+        }
+      }
+      # deflate validation with those p’s
+      for (b in seq_len(B)) {
+        t_val <- X_val[[b]] %*% W_list[[b]]
+        X_val[[b]] <- X_val[[b]] - tcrossprod(t_val, p_tr[[b]])
+      }
+      X_val
+    },
+
     # ─────────────────────────────────────────────────────────────────
     #  Main optimisation loop
     # ─────────────────────────────────────────────────────────────────
@@ -254,6 +294,12 @@ TunerSeqMBsPLS = R6::R6Class(
 
       # preprocessing graph up to (but excluding) mbspls
       pre_graph_tpl <- private$.pre_graph_before_mbspls(learner_tpl)
+
+      # get auxiliary training rows
+      dt_extra_all <- self$param_set$values$additional_data
+      if (!is.null(dt_extra_all) && !data.table::is.data.table(dt_extra_all)) {
+        dt_extra_all <- data.table::as.data.table(dt_extra_all)
+      }
 
       # correlation method
       use_spear <- tryCatch({
@@ -269,11 +315,31 @@ TunerSeqMBsPLS = R6::R6Class(
       # preprocess FULL data once (for the final refits/deflation chain)
       pre_graph_full <- pre_graph_tpl$clone(deep = TRUE)
 
+      if (!is.null(private$.additional_task)) {
+        # pre_graph_full already trained on task_full above
+        df_add_full  <- pre_graph_full$predict(private$.additional_task)[[1L]]$data()
+        X_add_full   <- private$.make_blocks(df_add_full, blocks, allow_encoded = FALSE)
+        X_blocks_residual <- private$.rbind_blocks(X_blocks_residual, X_add_full)
+      }
+
       if (length(pre_graph_full$pipeops)) {
         pre_graph_full$train(task_full)
         pre_df_full <- data.table::last(pre_graph_full$predict(task_full))$data()
       } else {
         pre_df_full <- task_full$data()
+      }
+
+      # preprocess and append additional_data to the FULL training table
+      if (!is.null(dt_extra_all)) {
+        task_extra_full <- mlr3::TaskClust$new(
+          id = "mbspls_additional_full",
+          backend = dt_extra_all
+        )
+        df_extra_full <- pre_graph_full$predict(task_extra_full)[[1L]]$data()
+        pre_df_full <- data.table::rbindlist(
+          list(pre_df_full, df_extra_full),
+          use.names = TRUE, fill = TRUE
+        )
       }
 
       # --- expand block map to *preprocessed* names once -----------------
@@ -300,6 +366,9 @@ TunerSeqMBsPLS = R6::R6Class(
 
       fold_tr  <- vector("list", rs$iters)
       fold_val <- vector("list", rs$iters)
+
+      fold_add <- if (!is.null(private$.additional_task)) vector("list", rs$iters) else NULL
+
       for (f in seq_len(rs$iters)) {
         task_tr <- task_full$clone(deep = FALSE)$filter(tr_idx[[f]])
         task_va <- task_full$clone(deep = FALSE)$filter(va_idx[[f]])
@@ -309,7 +378,13 @@ TunerSeqMBsPLS = R6::R6Class(
         va_out <- g$predict(task_va)[[1L]]; df_va <- va_out$data()
 
         fold_tr[[f]]  <- private$.make_blocks(df_tr, blocks, allow_encoded = FALSE)
-        fold_val[[f]] <- private$.make_blocks(df_va, blocks)
+        fold_val[[f]] <- private$.make_blocks(df_va, blocks, allow_encoded = FALSE)
+
+        if (!is.null(fold_add)) {
+          add_out <- g$predict(private$.additional_task)[[1L]]  # predict only (no fit!)
+          df_add  <- add_out$data()
+          fold_add[[f]] <- private$.make_blocks(df_add, blocks, allow_encoded = FALSE)
+        }
       }
 
       if (private$.parallel == "inner") {
@@ -349,15 +424,17 @@ TunerSeqMBsPLS = R6::R6Class(
               Xtr <- fold_tr[[f]]
               Xva <- fold_val[[f]]
 
+              Xtr_aug <- private$.rbind_blocks(Xtr, if (!is.null(fold_add)) fold_add[[f]] else NULL)
               Wfit <- cpp_mbspls_one_lv(
-                Xtr, c_vec, 1000L, 1e-4,
+                Xtr_aug, c_vec, 1000L, 1e-4,
                 frobenius = (private$.perf_metric == "frobenius")
               )$W
-
+              
               B_ <- length(Xva)
-              Tva <- vapply(seq_len(B_),
-                            \(b) Xva[[b]] %*% as.numeric(Wfit[[b]]),
-                            numeric(nrow(Xva[[1]])))
+              Tva  <- vapply(
+                seq_len(B_), \(b) Xva[[b]] %*% as.numeric(Wfit[[b]]),
+                numeric(nrow(Xva[[1]]))
+              )
 
               if (B_ < 2) return(0)
 
@@ -405,28 +482,33 @@ TunerSeqMBsPLS = R6::R6Class(
         for (f in seq_len(rs$iters)) {
           Xtr_before <- fold_tr[[f]]
           Xva_before <- fold_val[[f]]
+          Xad_before <- if (!is.null(fold_add)) fold_add[[f]] else NULL
 
-          fit_fold_k <- cpp_mbspls_one_lv(
-            Xtr_before, C_star[, k], 1000L, 1e-4,
-            (private$.perf_metric == "frobenius")
-          )
+          # fit on augmented train
+          Xtr_aug_before <- private$.rbind_blocks(Xtr_before, Xad_before)
+          fit_fold_k <- cpp_mbspls_one_lv(Xtr_aug_before, C_star[, k], 1000L, 1e-4,
+                                          (private$.perf_metric == "frobenius"))
 
-          # --- OOS permutation test on VALIDATION with weights fixed
-          res <- cpp_perm_test_oos(
-            X_test  = lapply(Xva_before, identity),
-            W_trained = fit_fold_k$W,
-            n_perm = private$.n_perm,
-            spearman = FALSE,   # or TRUE if you support it consistently (see C++ note)
-            frobenius = (private$.perf_metric == "frobenius"),
-            early_stop_threshold = private$.perm_alpha,
-            permute_all_blocks = TRUE
-          )
-          p_folds[f] <- as.numeric(res$p_value)
+          # OOS permutation test: *only* validation rows
+          res <- try(cpp_perm_test_oos(
+                      X_test    = lapply(Xva_before, identity),
+                      W_trained = fit_fold_k$W,
+                      n_perm    = private$.n_perm,
+                      spearman  = FALSE,
+                      frobenius = (private$.perf_metric == "frobenius"),
+                      early_stop_threshold = private$.perm_alpha,
+                      permute_all_blocks   = TRUE),
+                    silent = TRUE)
+          p_folds[f] <- if (inherits(res, "try-error")) 1 else as.numeric(res$p_value)
           w_va[f]    <- nrow(Xva_before[[1]])
 
-          # --- Safe deflation for next component
-          fold_tr[[f]]  <- private$.deflate_blocks(Xtr_before, fit_fold_k$W)
-          fold_val[[f]] <- private$.deflate_blocks_oos(Xtr_before, Xva_before, fit_fold_k$W)
+          # Deflate train + add consistently for next component
+          spl <- private$.deflate_blocks_split(Xtr_before, Xad_before, fit_fold_k$W)
+          fold_tr[[f]]  <- spl$train
+          if (!is.null(fold_add)) fold_add[[f]] <- spl$add
+
+          # Deflate validation (OOS)
+          fold_val[[f]] <- private$.deflate_blocks_val(Xtr_before, Xva_before, fit_fold_k$W)
         }
 
         # Combine per-fold p-values via (weighted) Stouffer

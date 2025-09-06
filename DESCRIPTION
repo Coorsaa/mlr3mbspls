@@ -1,6 +1,6 @@
 Package: mlr3mbspls
 Title: Multi-Block Sparse Partial Least Squares for mlr3
-Version: 0.2.0
+Version: 0.2.2
 Authors@R: 
     c(
       person("Stefan", "Coors", email = "mail@stefancoors.de", role = c("aut", "cre"),
@@ -15,8 +15,12 @@ Description: Integration of multi-block sparse partial least squares (MB-sPLS)
     It contains a complete native implementation of the MB-sPLS algorithm, fully
     integrated with the mlr3 ecosystem.
 License: LGPL-3
+URL: https://mlr3.mlr-org.com, https://github.com/coorsaa/mlr3mbspls
+BugReports: https://github.com/coorsaa/mlr3mbspls/issues
 Encoding: UTF-8
-Roxygen: list(markdown = TRUE)
+Config/testthat/edition: 3
+Config/testthat/parallel: false
+Roxygen: list(markdown = TRUE, r6 = TRUE)
 RoxygenNote: 7.3.2
 Depends: 
     R (>= 4.3.3),
@@ -27,7 +31,6 @@ Imports:
     mlr3cluster (>= 0.1.11),
     mlr3tuning (>= 1.4.0),
     data.table (>= 1.17.6),
-    future.apply (>= 1.10.0),
     checkmate (>= 2.3.2),
     bbotk (>= 1.6.0),
     R6 (>= 2.5.1),
@@ -35,15 +38,13 @@ Imports:
     RcppArmadillo (>= 14.6.0-1),
     digest (>= 0.6.25),
     mlr3misc (>= 0.7.0),
+    ggplot2 (>= 3.5.2),
     lgr (>= 0.4.4),
+    rlang (>= 1.0.0)
 Suggests:
     mlr3learners (>= 0.12.0),
-    ggplot2 (>= 3.5.2),
-    testthat (>= 3.1.6),
-    knitr,
-    rmarkdown
+    future.apply (>= 1.10.0),
+    testthat (>= 3.2.0),
 LinkingTo:
     Rcpp,
     RcppArmadillo
-Config/testthat/edition: 3
-VignetteBuilder: knitr
