@@ -127,7 +127,7 @@
 #' @family PipeOps
 #' @keywords internal
 #' @importFrom R6 R6Class
-#' @import data.table
+#' @import data.table lgr
 #' @importFrom checkmate assert_list
 #' @importFrom paradox ps p_int p_lgl p_uty p_dbl p_fct
 #' @importFrom mlr3pipelines PipeOpTaskPreproc
@@ -165,12 +165,13 @@ PipeOpMBsPLS = R6::R6Class(
         n_perm              = p_int(lower = 1L, default = 100L, tags = "train"),
         perm_alpha          = p_dbl(lower = 0, upper = 1, default = 0.05, tags = "train"),
         bootstrap_test      = p_lgl(default = FALSE, tags = "train"),
-        boot_alpha        = p_dbl(lower = 0, upper = 1, default = 0.05, tags = "train"),
-        boot_keep_draws   = p_lgl(default = TRUE, tags = "train"),
+        boot_alpha          = p_dbl(lower = 0, upper = 1, default = 0.05, tags = "train"),
+        boot_keep_draws     = p_lgl(default = TRUE, tags = "train"),
         boot_store_vectors  = p_lgl(default = FALSE, tags = "train"),   # store list-of-vectors per feature
         boot_min_selectfreq = p_dbl(lower = 0, upper = 1, default = 0, tags = "train"),  # post-hoc filter
         c_matrix            = p_uty(tags = c("train", "tune"), default = NULL),
         n_boot              = p_int(lower = 1L, default = 500L, tags = "train"),
+        additional_data     = p_uty(tags = "train", default = NULL),
         val_test            = p_fct(c("none", "permutation", "bootstrap"), default = "none", tags = "predict"),
         val_test_alpha      = p_dbl(lower = 0, upper = 1, default = 0.05, tags = "predict"),
         val_test_n          = p_int(lower = 1L, default = 1000L, tags = "predict"),
@@ -234,59 +235,59 @@ PipeOpMBsPLS = R6::R6Class(
         self$param_set$get_values(tags = "train"),
         keep.null = TRUE
       )
-      use_frob <- (pv$performance_metric == "frobenius")
-      blocks <- pv$blocks
 
-      # validate + expand blocks against *current* dt (after upstream pipeops)
-      dt_names <- names(dt)
+      use_frob <- (pv$performance_metric == "frobenius")
+      blocks   <- pv$blocks
+
+      # --- handle optional auxiliary training rows -------------------------
+      adt <- pv$additional_data
+      if (!is.null(adt)) {
+        if (!data.table::is.data.table(adt)) adt <- data.table::as.data.table(adt)
+      }
+      # augmented training table used to FIT weights
+      dt_fit <- if (is.null(adt)) data.table::as.data.table(dt) else
+        data.table::rbindlist(list(data.table::as.data.table(dt), adt), use.names = TRUE, fill = TRUE)
+
+      # validate + expand blocks against *augmented* training names
+      dt_names <- names(dt_fit)
       blocks <- lapply(pv$blocks, function(cols) {
         cand <- private$.expand_block_cols(dt_names, cols)
-        # keep only numeric, non-constant columns
-        cand <- cand[vapply(cand, function(cl) is.numeric(dt[[cl]]), logical(1))]
+        cand <- cand[vapply(cand, function(cl) is.numeric(dt_fit[[cl]]), logical(1))]
         if (!length(cand)) return(character(0))
-        keep <- vapply(cand, function(cl) stats::var(dt[[cl]], na.rm = TRUE) > 0, logical(1))
+        keep <- vapply(cand, function(cl) stats::var(dt_fit[[cl]], na.rm = TRUE) > 0, logical(1))
         cand[keep]
       })
       blocks <- Filter(length, blocks)
-      if (length(blocks) == 0)
-        stop("No block contains at least one numeric, non-constant feature.")
+      if (length(blocks) == 0) stop("No block contains at least one numeric, non-constant feature.")
 
       n_block <- length(blocks)
-      X_list <- lapply(blocks, \(cols) {
-        mat <- as.matrix(dt[, ..cols])
-        storage.mode(mat) <- "double"
-        mat
-      })
 
-      # handle c_matrix vs c_vec
+      # matrices for FIT (augmented) vs. SCORE (task only)
+      X_list_fit  <- lapply(blocks, \(cols) { mat <- as.matrix(dt_fit[, ..cols]); storage.mode(mat) <- "double"; mat })
+      X_list_task <- lapply(blocks, \(cols) { mat <- as.matrix(dt    [, ..cols]); storage.mode(mat) <- "double"; mat })
+      lgr$info("Using %d additional rows for training", nrow(adt))
+
+      # --- handle c_matrix vs per-block c ---------------------------------------
       if (!is.null(pv$c_matrix)) {
         cm <- pv$c_matrix
         checkmate::assert_matrix(cm, mode = "numeric", any.missing = FALSE)
-        if (nrow(cm) != n_block)
-          stop(sprintf("c_matrix must have %d rows (blocks); got %d", n_block, nrow(cm)))
-        if (!is.null(rownames(cm))) {
-          missing_rows <- setdiff(names(blocks), rownames(cm))
-          if (length(missing_rows))
-            stop("Row names of c_matrix do not cover all blocks: ",
-                 paste(missing_rows, collapse = ", "))
-          cm <- cm[names(blocks), , drop = FALSE]
-        }
+        if (nrow(cm) != n_block) stop(sprintf("c_matrix must have %d rows (blocks); got %d", n_block, nrow(cm)))
+        if (!is.null(rownames(cm))) cm <- cm[names(blocks), , drop = FALSE]
         pv$ncomp <- ncol(cm)
         c_matrix <- cm
         c_vec    <- NULL
-        lgr$info("Fitting MB-sPLS with %d blocks, %d components, and c-constraints (matrix).",
-                 n_block, pv$ncomp)
+        lgr$info("Fitting MB-sPLS on augmented data: %d blocks, %d components (c-matrix).", n_block, pv$ncomp)
       } else {
         c_vec <- vapply(names(blocks), \(bn) pv[[ paste0("c_", bn) ]], numeric(1))
         c_matrix <- NULL
-        lgr$info("Fitting MB-sPLS with %d blocks, %d components, and c-constraints: %s",
+        lgr$info("Fitting MB-sPLS on augmented data: %d blocks, %d components; c = %s",
                  n_block, pv$ncomp, paste(c_vec, collapse = ", "))
       }
 
-      # fit in C++
+      # --- FIT weights/loadings on the AUGMENTED matrix -------------------------
       fit <- if (is.null(c_matrix)) {
         cpp_mbspls_multi_lv(
-          X_blocks      = X_list,
+          X_blocks      = X_list_fit,
           c_constraints = c_vec,
           K             = pv$ncomp,
           max_iter      = 1000L,
@@ -298,10 +299,10 @@ PipeOpMBsPLS = R6::R6Class(
         )
       } else {
         cpp_mbspls_multi_lv_cmatrix(
-          X_blocks  = X_list,
+          X_blocks  = X_list_fit,
           c_matrix  = c_matrix,
           max_iter  = 1000L,
-          tol   = 1e-4,
+          tol       = 1e-4,
           spearman  = (pv$correlation_method == "spearman"),
           do_perm   = isTRUE(pv$permutation_test),
           n_perm    = pv$n_perm,
@@ -357,7 +358,7 @@ PipeOpMBsPLS = R6::R6Class(
       if (isTRUE(pv$bootstrap_test) && (pv$n_boot %||% 0L) > 0L) {
         lgr$info("Running training bootstrap for weights (B = %d)", pv$n_boot)
         bt <- private$.bootstrap_weights_ci(
-          X_list      = X_list,
+          X_list      = X_list_fit,
           blocks      = blocks,
           W_ref       = W_all,          # already named now
           ncomp       = n_kept,
@@ -405,8 +406,8 @@ PipeOpMBsPLS = R6::R6Class(
       }
       if (!is.null(ev_cmp)) names(ev_cmp) <- comp_names
 
-      # ---- RECOMPUTE training scores with proper deflation (robust) ----------
-      X_cur <- X_list
+      # ---- Compute training scores for TASK rows only ----------------------------
+      X_cur <- X_list_task
       score_tables <- vector("list", n_kept)
       for (k in seq_len(n_kept)) {
         Wk <- W_all[[k]]

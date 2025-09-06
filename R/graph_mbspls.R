@@ -82,6 +82,7 @@ mbspls_preproc_graph = function(
 #' @param val_test_permute_all Logical, whether to permute all variables in validation test.
 #' @param ref_block Character, name of the reference block for weight flipping.
 #' @param towards Character, direction for weight flipping ("positive" or "negative").
+#' @param additional_data Optional additional data to be used in the MBsPLS PipeOp.
 #' @param source Character, source for weight flipping ("weights" or "scores").
 #' @param log_env Environment for logging (default is NULL).
 #' @return [`GraphLearner`]
@@ -115,6 +116,7 @@ mbspls_graph_learner = function(
   val_test_permute_all = TRUE,
   ref_block = names(blocks)[1],
   towards = "positive",
+  additional_data = NULL,
   source = "weights",
   log_env = NULL
 ) {
@@ -153,6 +155,7 @@ mbspls_graph_learner = function(
       val_test_alpha = val_test_alpha,
       val_test_n = val_test_n,
       val_test_permute_all = val_test_permute_all,
+      additional_data = additional_data,
       log_env = log_env
     ) %>>%
     po("mbspls_flipweights",

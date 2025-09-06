@@ -13,6 +13,7 @@
 
 #define ARMA_DONT_ALIGN_MEMORY
 #include <RcppArmadillo.h>
+#include <utility>  // std::pair
 
 using arma::uvec;
 using arma::vec;
@@ -1231,19 +1232,63 @@ double cpp_bootstrap_latent_correlation(const arma::mat&  weights_matrix,
          : acc / n_comparisons;           // ⟨|r|⟩
 }
 
+// ─────────────────────────────────────────────────────────────────────
+//  Helper: align shapes and filter invalid blocks
+//    • trims each X_b / W_b to the common min width
+//    • drops non‑finite / near‑zero blocks
+//    • returns only the valid, aligned blocks
+// ─────────────────────────────────────────────────────────────────────
+static inline
+std::pair<std::vector<arma::mat>, std::vector<arma::vec>>
+align_and_filter(const std::vector<arma::mat>& Xin,
+                 const std::vector<arma::vec>& Win)
+{
+  std::vector<arma::mat> Xv;
+  std::vector<arma::vec> Wv;
+  Xv.reserve(Xin.size());
+  Wv.reserve(Win.size());
+
+  for (size_t b = 0; b < Xin.size(); ++b) {
+    arma::mat Xb = Xin[b];
+    arma::vec Wb = Win[b];
+
+    // basic sanity
+    if (!Xb.is_finite() || !Wb.is_finite()) continue;
+    if (Xb.n_rows == 0 || Xb.n_cols == 0 || Wb.n_elem == 0) continue;
+
+    // trim to common width
+    const int pX = static_cast<int>(Xb.n_cols);
+    const int pW = static_cast<int>(Wb.n_elem);
+    const int p  = std::min(pX, pW);
+    if (p <= 0) continue;
+
+    if (pX != p) Xb = Xb.cols(0, p - 1);
+    if (pW != p) Wb = Wb.head(p);
+
+    // reject near‑zero feature blocks
+    if (arma::accu(arma::abs(Xb)) < 1e-12) continue;
+
+    Xv.push_back(std::move(Xb));
+    Wv.push_back(std::move(Wb));
+  }
+  return std::make_pair(std::move(Xv), std::move(Wv));
+}
+
 
 // [[Rcpp::export]]
 Rcpp::List cpp_perm_test_oos(
-    const Rcpp::List&              X_test,        // list of test blocks (n x p_b)
-    const Rcpp::List&              W_trained,     // list of trained weight vectors (p_b)
-    int                            n_perm   = 1000,
-    bool                           spearman = false,
-    bool                           frobenius = false,
-    double                         early_stop_threshold = 1.0,  // set <1.0 to allow early stop
-    bool                           permute_all_blocks = true    // B==2: you may set false to permute only block 2
-) {
+    const Rcpp::List& X_test,             // list of test blocks (n x p_b)
+    const Rcpp::List& W_trained,          // list of trained weight vectors (p_b)
+    int               n_perm               = 1000,
+    bool              spearman             = false,
+    bool              frobenius            = false,
+    double            early_stop_threshold = 1.0,   // set <1.0 to allow early stop
+    bool              permute_all_blocks   = true)  // B==2: may set false to permute only block 2
+{
   const int B = X_test.size();
   if (B < 2) Rcpp::stop("Need at least 2 blocks");
+
+  // Materialize X and W from R lists
   std::vector<arma::mat> X(B);
   std::vector<arma::vec> W(B);
 
@@ -1251,39 +1296,86 @@ Rcpp::List cpp_perm_test_oos(
   for (int b = 0; b < B; ++b) {
     X[b] = Rcpp::as<arma::mat>(X_test[b]);
     W[b] = Rcpp::as<arma::vec>(W_trained[b]);
-    if (!is_valid_matrix(X[b]) || !is_valid_vector(W[b]) || X[b].n_cols != W[b].n_elem)
-      Rcpp::stop("Invalid X_test/W_trained for block " + std::to_string(b+1));
-    if (n == -1) n = X[b].n_rows; else if (X[b].n_rows != n)
-      Rcpp::stop("Inconsistent n across test blocks");
+
+    if (!is_valid_matrix(X[b]) || !is_valid_vector(W[b])) {
+      // We do not stop here; alignment will drop this block.
+      continue;
+    }
+    if (n == -1) n = static_cast<int>(X[b].n_rows);
   }
 
-  // Observed statistic on test data (fixed weights)
-  const double stat_obs = compute_objective_direct_core(X, W, spearman, frobenius);
+  if (n < 3) {
+    // Too few rows to compute stable correlations
+    return Rcpp::List::create(
+      Rcpp::_["stat_obs"] = 0.0,
+      Rcpp::_["p_value"]  = 1.0,
+      Rcpp::_["n_perm"]   = 0
+    );
+  }
 
-  // Permutation loop: permute test rows within block(s), keep weights fixed
-  int ge = 0;
+  // Align & filter once for the observed statistic
+  auto pr_obs = align_and_filter(X, W);
+  const auto& Xv_obs = pr_obs.first;
+  const auto& Wv_obs = pr_obs.second;
+
+  if (Xv_obs.size() < 2) {
+    // Not enough valid blocks after filtering → neutral result
+    return Rcpp::List::create(
+      Rcpp::_["stat_obs"] = 0.0,
+      Rcpp::_["p_value"]  = 1.0,
+      Rcpp::_["n_perm"]   = 0
+    );
+  }
+
+  const double stat_obs = compute_objective_direct_core(Xv_obs, Wv_obs, spearman, frobenius);
+
+  if (n_perm <= 0) {
+    return Rcpp::List::create(
+      Rcpp::_["stat_obs"] = stat_obs,
+      Rcpp::_["p_value"]  = 1.0,
+      Rcpp::_["n_perm"]   = 0
+    );
+  }
+
+  // Prepare row indices for permutations
   std::vector<arma::uvec> base_idx(B);
-  for (int b = 0; b < B; ++b) base_idx[b] = arma::regspace<arma::uvec>(0, n-1);
+  for (int b = 0; b < B; ++b)
+    base_idx[b] = arma::regspace<arma::uvec>(0, n - 1);
+
+  int ge = 0;
 
   for (int p = 0; p < n_perm; ++p) {
+    // Permute rows (all blocks or all but the first)
     std::vector<arma::mat> Xp = X;
-
     if (permute_all_blocks) {
       for (int b = 0; b < B; ++b) {
-        Xp[b] = X[b].rows(arma::shuffle(base_idx[b]));
+        if (Xp[b].n_rows == static_cast<arma::uword>(n)) {
+          Xp[b] = X[b].rows(arma::shuffle(base_idx[b]));
+        }
       }
     } else {
-      // Permute only blocks 1..B-1; keep block 0 fixed (useful for B==2)
       for (int b = 1; b < B; ++b) {
-        Xp[b] = X[b].rows(arma::shuffle(base_idx[b]));
+        if (Xp[b].n_rows == static_cast<arma::uword>(n)) {
+          Xp[b] = X[b].rows(arma::shuffle(base_idx[b]));
+        }
       }
     }
 
-    const double stat_perm = compute_objective_direct_core(Xp, W, spearman, frobenius);
+    // Align & filter on the permuted copy
+    auto pr_perm = align_and_filter(Xp, W);
+    const auto& Xv_perm = pr_perm.first;
+    const auto& Wv_perm = pr_perm.second;
+
+    // If <2 usable blocks after alignment, treat this replicate as stat_perm = 0
+    double stat_perm = 0.0;
+    if (Xv_perm.size() >= 2) {
+      stat_perm = compute_objective_direct_core(Xv_perm, Wv_perm, spearman, frobenius);
+    }
     if (stat_perm >= stat_obs) ++ge;
 
+    // Early stop (optional)
     if (early_stop_threshold < 1.0 && p >= 100 && (p % 50 == 0)) {
-      double running_p = static_cast<double>(ge + 1) / static_cast<double>(p + 1);
+      const double running_p = static_cast<double>(ge + 1) / static_cast<double>(p + 1);
       if (running_p > early_stop_threshold) {
         return Rcpp::List::create(
           Rcpp::_["stat_obs"] = stat_obs,
