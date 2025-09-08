@@ -10,6 +10,8 @@
 #'               "bootstrap"-> aggregate across bootstrap replicates of one model
 #' @param ci_filter one of c("none","excludes_zero","overlaps_zero").
 #'                  "excludes_zero" keeps only features whose 95% CI does not cross 0.
+#' @param top_n integer: show only top n features per block (by absolute weight). 
+#'              If NULL (default), show all features.
 #' @param add_block_rule logical: draw a thin rule between block facets (default FALSE;
 #'                       turn on only if needed; some ggplot2 versions are picky here)
 #' @param font character: font family for the plot (default "Sans")
@@ -25,6 +27,7 @@ mbspls_plot_block_weight_ci <- function(
   component = 1,
   source = c("weights", "bootstrap"),
   ci_filter = c("none", "excludes_zero", "overlaps_zero"),
+  top_n = NULL,
   add_block_rule = TRUE,
   font = "sans",
   alpha_by_stability = TRUE
@@ -195,6 +198,14 @@ mbspls_plot_block_weight_ci <- function(
     abs_m   = abs(mean)
   )
 
+  # Apply top_n filtering per block
+  if (!is.null(top_n) && is.numeric(top_n) && top_n > 0) {
+    df <- df |>
+      dplyr::group_by(block) |>
+      dplyr::slice_max(abs_m, n = top_n, with_ties = FALSE) |>
+      dplyr::ungroup()
+  }
+
   # Attach stability-based alpha (bootstrap only)
   if (isTRUE(alpha_by_stability) && !is.null(freq_tbl) && nrow(freq_tbl)) {
     df <- dplyr::left_join(df, freq_tbl, by = c("block","feature"))
@@ -257,6 +268,13 @@ mbspls_plot_block_weight_ci <- function(
   base_sz <- .base_size_from_n(nrow(df))
 
   # ---------------- plot ----------------
+  subtitle_text <- paste0(
+    if (source == "weights") "Across models" else "Across bootstrap replicates",
+    " · 95% Bootstrap Intervall",
+    if (!is.null(top_n)) paste0(" · Top ", top_n, " features per block") else "",
+    if (ci_filter != "none") paste0(" · Filter: ", ci_filter_label) else ""
+  )
+
   p <- ggplot2::ggplot(df, ggplot2::aes(x = axis_id, y = mean, fill = signpos, alpha = alpha_freq)) +
     ggplot2::geom_col(width = 0.85, show.legend = FALSE) +
     ggplot2::geom_errorbar(
@@ -279,11 +297,7 @@ mbspls_plot_block_weight_ci <- function(
     ggplot2::labs(
       x = NULL, y = "Weight",
       title = sprintf("Sparse weights per block - LC %d", component),
-      subtitle = paste0(
-        if (source == "weights") "Across models" else "Across bootstrap replicates",
-        " · 95% CI = mean \u00B1 1.96 × SD",
-        if (ci_filter != "none") paste0(" · Filter: ", ci_filter_label) else ""
-      )
+      subtitle = subtitle_text
     ) +
     ggplot2::theme_minimal(base_size = base_sz, base_family = font) +
     ggplot2::theme(
