@@ -242,8 +242,14 @@ PipeOpMBsPLS = R6::R6Class(
       # --- handle optional auxiliary training rows -------------------------
       adt <- pv$additional_data
       if (!is.null(adt)) {
-        if (!data.table::is.data.table(adt)) adt <- data.table::as.data.table(adt)
+        if (!data.table::is.data.table(adt)) {
+          adt <- data.table::as.data.table(adt)
+          nrows_adt <- nrow(adt)
+        }
+      } else {
+        nrows_adt <- 0
       }
+      
       # augmented training table used to FIT weights
       dt_fit <- if (is.null(adt)) data.table::as.data.table(dt) else
         data.table::rbindlist(list(data.table::as.data.table(dt), adt), use.names = TRUE, fill = TRUE)
@@ -265,7 +271,7 @@ PipeOpMBsPLS = R6::R6Class(
       # matrices for FIT (augmented) vs. SCORE (task only)
       X_list_fit  <- lapply(blocks, \(cols) { mat <- as.matrix(dt_fit[, ..cols]); storage.mode(mat) <- "double"; mat })
       X_list_task <- lapply(blocks, \(cols) { mat <- as.matrix(dt    [, ..cols]); storage.mode(mat) <- "double"; mat })
-      lgr$info("Using %d additional rows for training", nrow(adt))
+      lgr$info("Using %d additional rows for training", nrows_adt)
 
       # --- handle c_matrix vs per-block c ---------------------------------------
       if (!is.null(pv$c_matrix)) {
