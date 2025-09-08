@@ -145,7 +145,7 @@ TunerSeqMBsPLS = R6::R6Class(
     .n_perm         = NULL,
     .perm_alpha     = NULL,
     .perf_metric    = NULL,
-    .additional_data = NULL,
+    .additional_task = NULL,
 
 
     .pre_graph_before_mbspls = function(learner) {
@@ -296,7 +296,7 @@ TunerSeqMBsPLS = R6::R6Class(
       pre_graph_tpl <- private$.pre_graph_before_mbspls(learner_tpl)
 
       # get auxiliary training rows
-      dt_extra_all <- self$param_set$values$additional_data
+      dt_extra_all <- self$param_set$values$additional_task
       if (!is.null(dt_extra_all) && !data.table::is.data.table(dt_extra_all)) {
         dt_extra_all <- data.table::as.data.table(dt_extra_all)
       }
@@ -329,7 +329,7 @@ TunerSeqMBsPLS = R6::R6Class(
         pre_df_full <- task_full$data()
       }
 
-      # preprocess and append additional_data to the FULL training table
+      # preprocess and append additional_task to the FULL training table
       if (!is.null(dt_extra_all)) {
         task_extra_full <- mlr3::TaskClust$new(
           id = "mbspls_additional_full",
