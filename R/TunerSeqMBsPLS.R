@@ -238,7 +238,11 @@ TunerSeqMBsPLS = R6::R6Class(
     .deflate_blocks_split = function(X_tr, X_add, W_list) {
       B <- length(X_tr)
       # compute t and p on augmented stack
-      X_aug <- Map(rbind, X_tr, X_add)
+      if (!is.null(X_add)) {
+        X_aug <- Map(rbind, X_tr, X_add)
+      } else {
+        X_aug <- X_tr
+      }
       t_aug <- lapply(seq_len(B), \(b) X_aug[[b]] %*% W_list[[b]])
       p_aug <- lapply(seq_len(B), \(b) {
         tb <- t_aug[[b]]
@@ -347,8 +351,10 @@ TunerSeqMBsPLS = R6::R6Class(
         cols_data <- names(pre_df_full)
         esc <- function(s) gsub("([][{}()|^$.*+?\\\\-])", "\\\\\\1", s)
         unique(unlist(lapply(cols, function(cn) {
-          if (cn %in% cols_data) cn else grep(paste0("^", esc(cn), "(\\.|$)"),
-                                              cols_data, value = TRUE)
+          if (cn %in% cols_data) cn else grep(
+            paste0("^", esc(cn), "(\\.|$)"),
+            cols_data, value = TRUE
+          )
         })))
       })
       # overwrite for the remainder of the run (preserves block names)
@@ -395,9 +401,10 @@ TunerSeqMBsPLS = R6::R6Class(
         fold_apply <- function(X, FUN) sapply(X, FUN)
       }
 
-      C_star <- matrix(NA_real_, B, K_max,
-                       dimnames = list(names(blocks), paste0("LC", seq_len(K_max))))
-      
+      C_star <- matrix(
+        NA_real_, B, K_max,
+        dimnames = list(names(blocks), paste0("LC", seq_len(K_max)))
+      )
       pvals_combined <- numeric(K_max)
 
       for (k in seq_len(K_max)) {
@@ -486,19 +493,27 @@ TunerSeqMBsPLS = R6::R6Class(
 
           # fit on augmented train
           Xtr_aug_before <- private$.rbind_blocks(Xtr_before, Xad_before)
-          fit_fold_k <- cpp_mbspls_one_lv(Xtr_aug_before, C_star[, k], 1000L, 1e-4,
-                                          (private$.perf_metric == "frobenius"))
+          fit_fold_k <- cpp_mbspls_one_lv(
+            Xtr_aug_before,
+            C_star[, k],
+            1000L,
+            1e-4,
+            (private$.perf_metric == "frobenius")
+          )
 
           # OOS permutation test: *only* validation rows
-          res <- try(cpp_perm_test_oos(
-                      X_test    = lapply(Xva_before, identity),
-                      W_trained = fit_fold_k$W,
-                      n_perm    = private$.n_perm,
-                      spearman  = FALSE,
-                      frobenius = (private$.perf_metric == "frobenius"),
-                      early_stop_threshold = private$.perm_alpha,
-                      permute_all_blocks   = TRUE),
-                    silent = TRUE)
+          res <- try(
+            cpp_perm_test_oos(
+              X_test    = lapply(Xva_before, identity),
+              W_trained = fit_fold_k$W,
+              n_perm    = private$.n_perm,
+              spearman  = FALSE,
+              frobenius = (private$.perf_metric == "frobenius"),
+              early_stop_threshold = private$.perm_alpha,
+              permute_all_blocks   = TRUE
+            ),
+            silent = TRUE
+          )
           p_folds[f] <- if (inherits(res, "try-error")) 1 else as.numeric(res$p_value)
           w_va[f]    <- nrow(Xva_before[[1]])
 
