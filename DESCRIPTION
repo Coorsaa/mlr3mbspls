@@ -40,7 +40,8 @@ Imports:
     mlr3misc (>= 0.7.0),
     ggplot2 (>= 3.5.2),
     lgr (>= 0.4.4),
-    rlang (>= 1.0.0)
+    rlang (>= 1.0.0),
+    clue
 Suggests:
     mlr3learners (>= 0.12.0),
     future.apply (>= 1.10.0),

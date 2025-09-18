@@ -8,6 +8,4 @@
 NULL
 
 # Define the null-coalescing operator 
-`%||%` <- function(x, y) {
-  if (is.null(x)) y else x
-}
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0L) y else x

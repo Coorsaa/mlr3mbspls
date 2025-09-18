@@ -76,3 +76,6 @@ vignettes/*.pdf
 # Authentication tokens
 .httr-oauth
 .secrets
+
+# VS Code files
+settings.json

@@ -13,8 +13,7 @@
 #'     \item \code{"mbspls_variance"} – non-stacked bars of block-wise variance explained; optional total line.
 #'     \item \code{"mbspls_scree"} – objective per component or cumulative.
 #'     \item \code{"mbspls_scores"} – score plots across all block pairs for a chosen LV. Arg: \code{component = 1}.
-#'     \item \code{"bootstrap_variable"} – bootstrap confidence intervals for variable-wise correlations. Args: \code{variable_name}, \code{component}.
-#'     \item \code{"bootstrap_component"} – bootstrap confidence intervals for component-wise correlations. Arg: \code{component}.
+#'     \item \code{"mbspls_bootstrap_component"} – bootstrap CIs for the component-level statistic on new data.
 #'   }
 #' @param ... Additional arguments forwarded to the chosen \code{type}.
 #'   The following extras are recognized by performance/score plots:
@@ -26,13 +25,6 @@
 #'   }
 #'
 #' @return A \pkg{ggplot2}/\pkg{ggraph} object.
-#'
-#' @examples
-#' # gl <- GraphLearner$new(...); gl$train(task)
-#' # autoplot(gl, type = "mbspls_variance")
-#' # autoplot(gl, type = "mbspls_variance", new_task = task_test)
-#' # autoplot(gl, type = "mbspls_scree")
-#' # autoplot(gl, type = "mbspls_scores", component = 1, new_task = task_test)
 #'
 #' @importFrom ggplot2 autoplot
 #' @export
@@ -88,36 +80,17 @@ autoplot.GraphLearner <- function(object,
                              title_suffix = title_suffix), dots)),
     mbspls_bootstrap_component = do.call(.mbspls_plot_bootstrap_component,
                       c(list(model = object, payload = eval_payload, mbspls_id = mbspls_id), dots)),
+    mbspls_bootstrap_comp = do.call(.mbspls_plot_bootstrap_component,
+                      c(list(model = object, payload = eval_payload, mbspls_id = mbspls_id), dots))
   )
   p
 }
 
-# Internal: use whichever helper exists
 .mbspls_eval_newdata_dispatch <- function(gl, task, mbspls_id = NULL) {
   fn <- get0("mbspls_eval_new_data", mode = "function")
   if (is.null(fn)) fn <- get0("mbspls_eval_on_new", mode = "function")
   if (is.null(fn)) stop("Need mbspls_eval_new_data() or mbspls_eval_on_new() in your package.")
   fn(gl, task, mbspls_id)
-}
-
-.mbspls_get_eval_payload <- function(model = NULL, payload = NULL, mbspls_id = NULL) {
-  if (!is.null(payload)) return(payload)
-
-  if (inherits(model, "GraphLearner")) {
-    ids <- names(model$graph$pipeops)
-    if (is.null(mbspls_id)) {
-      cand <- ids[vapply(model$graph$pipeops, inherits, logical(1), "PipeOpMBsPLS")]
-      if (!length(cand)) stop("No PipeOpMBsPLS node found in the graph.")
-      mbspls_id <- cand[1]
-    }
-    po <- model$graph$pipeops[[mbspls_id]]
-    env <- po$param_set$values$log_env
-    if (inherits(env, "environment") && !is.null(env$last)) return(env$last)
-  }
-  if (!is.null(model$log_env) && !is.null(model$log_env$last)) return(model$log_env$last)
-  if (!is.null(model$last)) return(model$last)
-
-  stop("No evaluation payload found. Call predict() with a log_env set (or use new_task=), or pass payload= explicitly.")
 }
 
 # Internal: locate trained MB-sPLS model inside a GraphLearner$model
@@ -192,7 +165,6 @@ autoplot.GraphLearner <- function(object,
   alpha_by_stability = FALSE,
   weights_source = c("raw", "stability_filtered"),
   font = "sans",
-  # NEW: flip support & GL context
   gl = NULL,
   flip_signs = NULL,
   flip_id = NULL
@@ -207,7 +179,6 @@ autoplot.GraphLearner <- function(object,
   weights_view   <- match.arg(weights_view)
   weights_source <- match.arg(weights_source)
 
-  # optional selection freq as data.frame
   .freq_tbl <- {
     sf <- model$weights_selectfreq
     if (!is.null(sf) && requireNamespace("data.table", quietly = TRUE) && data.table::is.data.table(sf)) {
@@ -217,13 +188,11 @@ autoplot.GraphLearner <- function(object,
     sf
   }
 
-  # choose which weights to plot
   W_use <- model$weights
   if (weights_source == "stability_filtered" && !is.null(model$weights_stability_filtered)) {
     W_use <- model$weights_stability_filtered
   }
 
-  # ---------- NEW: apply flip signs to weights & boot draws ----------
   flip_signs <- flip_signs %||% .mbspls_get_flip_signs(gl, flip_id)
   S <- .mbspls_align_signs(flip_signs, ncomp = length(W_use))
   if (any(S != 1)) {
@@ -231,19 +200,15 @@ autoplot.GraphLearner <- function(object,
       for (b in names(W_use[[k]])) W_use[[k]][[b]] <- S[k] * W_use[[k]][[b]]
     }
   }
-  # -------------------------------------------------------------------
 
   block_levels <- names(model$blocks)
   comp_levels  <- paste0("LC_", sprintf("%02d", seq_len(model$ncomp)))
 
-  # Fallback names for unnamed weight vectors (prevents 'feature' not found)
   .fallback_featnames <- function(block_name, w_vec) {
     nms <- names(w_vec)
     if (!is.null(nms)) return(nms)
-    # try model$blocks mapping first:
     fb <- model$blocks[[block_name]]
     if (!is.null(fb) && length(fb) == length(w_vec)) return(fb)
-    # last resort: synthetic names
     paste0(block_name, "_", seq_along(w_vec))
   }
 
@@ -254,7 +219,7 @@ autoplot.GraphLearner <- function(object,
         tibble::tibble(
           component = sprintf("LC_%02d", k),
           block     = b,
-          feature   = .fallback_featnames(b, wv),   # NEW: always present
+          feature   = .fallback_featnames(b, wv),
           weight    = as.numeric(wv)
         )
       }))
@@ -263,7 +228,7 @@ autoplot.GraphLearner <- function(object,
 
   build_boot_long <- function(vb) {
     dplyr::bind_rows(lapply(seq_along(vb), function(k) {
-      mult <- S[k] %||% 1   # NEW: flip bootstrap draws as well
+      mult <- S[k] %||% 1
       dplyr::bind_rows(lapply(names(vb[[k]]), function(b) {
         fb <- vb[[k]][[b]]
         dplyr::bind_rows(lapply(names(fb), function(f) {
@@ -278,9 +243,8 @@ autoplot.GraphLearner <- function(object,
     }))
   }
 
-  # Plot core (weights view)
+  # ---------- inner: weights view (bars, no CI) ----------
   plot_one_lc_weights <- function(df_lc, comp_label) {
-    # join stability freq (optional)
     if (!is.null(.freq_tbl)) {
       df_lc <- dplyr::left_join(
         df_lc,
@@ -290,11 +254,9 @@ autoplot.GraphLearner <- function(object,
     }
     if (!"freq" %in% names(df_lc)) df_lc$freq <- NA_real_
 
-    # order columns & compute abs
     df_lc <- df_lc |>
       dplyr::mutate(abs_w = abs(.data$weight)) |>
       dplyr::filter(.data$abs_w > 0)
-
     if (!nrow(df_lc)) stop("No non-zero weights to plot (after filtering).")
 
     df_lc$block     <- factor(df_lc$block,     levels = block_levels)
@@ -303,26 +265,23 @@ autoplot.GraphLearner <- function(object,
     df_lc <- df_lc |>
       dplyr::arrange(.data$block, .data$abs_w) |>
       dplyr::mutate(
-        feature_label = stringr::str_wrap(.data$feature, width = label_width),  # NEW: .data
+        feature_label = stringr::str_wrap(.data$feature, width = label_width),
         axis_id       = paste(.data$block, .data$feature, sep = "___")
       )
     df_lc$axis_id <- factor(df_lc$axis_id, levels = unique(df_lc$axis_id))
     lab_map <- setNames(as.character(df_lc$feature_label), as.character(df_lc$axis_id))
 
-    # alpha by stability
     if (isTRUE(alpha_by_stability)) {
       af <- df_lc$freq; af[!is.finite(af)] <- 1
       df_lc$alpha_freq <- pmax(pmin(af, 1), 0)
     } else df_lc$alpha_freq <- 1
 
-    # pretty facet labels
     .nice_label <- function(x) gsub("_", " ", x, fixed = TRUE)
     df_lc$block_lab <- factor(.nice_label(as.character(df_lc$block)),
                               levels = .nice_label(block_levels))
     comp_lab        <- .nice_label(as.character(comp_label))
     df_lc$component_lab <- factor(comp_lab, levels = comp_lab)
 
-    # separators
     block_lvls <- levels(df_lc$block_lab)
     sep_df <- if (length(block_lvls) > 1L) {
       expand.grid(
@@ -332,7 +291,6 @@ autoplot.GraphLearner <- function(object,
       )
     } else data.frame(block_lab = factor(), component_lab = factor())
 
-    # font scaling
     .base_size_from_n <- function(n) max(7, min(14, 13 - 0.07 * (n - 20)))
     base_size <- .base_size_from_n(nrow(df_lc))
 
@@ -343,14 +301,14 @@ autoplot.GraphLearner <- function(object,
       ggplot2::geom_col(width = 0.85, show.legend = FALSE) +
       ggplot2::scale_alpha_identity() +
       ggplot2::geom_hline(yintercept = 0, linewidth = 0.25, colour = "grey70") +
+      # ---- UPDATED separator (no inherit.aes) ----
       (if (nrow(sep_df)) ggplot2::geom_vline(
-         data    = sep_df,
-         mapping = ggplot2::aes(xintercept = -Inf),
-         colour  = sep_color, linewidth = sep_size, inherit.aes = FALSE
+         data = sep_df, xintercept = -Inf, colour = sep_color, linewidth = sep_size
        ) else NULL) +
+      # --------------------------------------------
       ggplot2::facet_grid(
-        rows = ggplot2::vars(block_lab),
-        cols = ggplot2::vars(component_lab),
+        rows = ggplot2::vars(.data$block_lab),
+        cols = ggplot2::vars(.data$component_lab),
         scales = "free_y",
         space  = "free_y",
         switch = "y",
@@ -358,14 +316,11 @@ autoplot.GraphLearner <- function(object,
           block_lab = function(x) stringr::str_wrap(x, width = label_width)
         )
       ) +
-      ggplot2::scale_fill_manual(values = {
-        pal <- RColorBrewer::brewer.pal(3, palette)
-        c(`TRUE` = pal[1], `FALSE` = pal[3])
-      }) +
+      ggplot2::scale_fill_manual(values = .pal_vals(palette)) +
       ggplot2::scale_x_discrete(labels = function(x) lab_map[as.character(x)]) +
       ggplot2::coord_flip() +
       ggplot2::labs(x = NULL, y = "Weight",
-                    title = sprintf("Sparse weights per block — %s", comp_lab)) +
+                    title = sprintf("Sparse weights per block — %s", comp_label)) +
       ggplot2::theme_minimal(base_size = base_size, base_family = font) +
       ggplot2::theme(
         panel.grid.major.y = ggplot2::element_blank(),
@@ -379,7 +334,117 @@ autoplot.GraphLearner <- function(object,
       )
   }
 
-  # ---- Branching: weights vs bootstrap ----
+  # ---------- inner: bootstrap view (bars + CI) ----------
+  plot_one_lc_boot <- function(boot_long_lc, comp_label, font = "sans") {
+    df <- boot_long_lc |>
+      dplyr::group_by(.data$block, .data$feature) |>
+      dplyr::summarise(
+        mean = mean(.data$value, na.rm = TRUE),
+        q025 = stats::quantile(.data$value, 0.025, na.rm = TRUE, names = FALSE),
+        q975 = stats::quantile(.data$value, 0.975, na.rm = TRUE, names = FALSE),
+        .groups = "drop"
+      )
+
+    if (!is.null(.freq_tbl)) {
+      df <- dplyr::left_join(
+        df,
+        .freq_tbl[, c("component","block","feature","freq")],
+        by = c("block","feature")
+      )
+    }
+    if (!"freq" %in% names(df)) df$freq <- NA_real_
+
+    df <- df |>
+      dplyr::mutate(abs_w = abs(.data$mean)) |>
+      dplyr::filter(.data$abs_w > 0)
+    if (!nrow(df)) stop("No non-zero bootstrap weights to plot (after filtering).")
+
+    if (!is.null(top_n)) {
+      df <- df |>
+        dplyr::group_by(.data$block) |>
+        dplyr::slice_max(.data$abs_w, n = max(1L, as.integer(top_n)), with_ties = FALSE) |>
+        dplyr::ungroup()
+    }
+
+    df$block     <- factor(df$block,     levels = block_levels)
+    df$component <- factor(comp_label,   levels = comp_label)
+
+    df <- df |>
+      dplyr::arrange(.data$block, .data$abs_w) |>
+      dplyr::mutate(
+        feature_label = stringr::str_wrap(.data$feature, width = label_width),
+        axis_id       = paste(.data$block, .data$feature, sep = "___")
+      )
+    df$axis_id <- factor(df$axis_id, levels = unique(df$axis_id))
+    lab_map <- setNames(as.character(df$feature_label), as.character(df$axis_id))
+
+    if (isTRUE(alpha_by_stability)) {
+      af <- df$freq; af[!is.finite(af)] <- 1
+      df$alpha_freq <- pmax(pmin(af, 1), 0)
+    } else df$alpha_freq <- 1
+
+    df$block_lab <- factor(gsub("_", " ", as.character(df$block), fixed = TRUE),
+                           levels = gsub("_", " ", block_levels, fixed = TRUE))
+    comp_lab_plt <- gsub("_", " ", as.character(comp_label), fixed = TRUE)
+    df$component_lab <- factor(comp_lab_plt, levels = comp_lab_plt)
+
+    block_lvls <- levels(df$block_lab)
+    sep_df <- if (length(block_lvls) > 1L) {
+      expand.grid(
+        block_lab     = factor(block_lvls[-length(block_lvls)], levels = block_lvls),
+        component_lab = factor(comp_lab_plt, levels = comp_lab_plt),
+        KEEP.OUT.ATTRS = FALSE
+      )
+    } else data.frame(block_lab = factor(), component_lab = factor())
+
+    base_size <- {
+      bs <- 13 - 0.07 * (nrow(df) - 20); max(7, min(14, bs))
+    }
+
+    ggplot2::ggplot(
+      df,
+      ggplot2::aes(.data$axis_id, .data$mean, fill = .data$mean > 0, alpha = .data$alpha_freq)
+    ) +
+      ggplot2::geom_col(width = 0.85, show.legend = FALSE) +
+      ggplot2::geom_errorbar(
+        ggplot2::aes(ymin = .data$q025, ymax = .data$q975),
+        width = 0.2, linewidth = 0.25, colour = "grey15"
+      ) +
+      ggplot2::scale_alpha_identity() +
+      ggplot2::geom_hline(yintercept = 0, linewidth = 0.25, colour = "grey70") +
+      # ---- UPDATED separator (no inherit.aes) ----
+      (if (nrow(sep_df)) ggplot2::geom_vline(
+         data = sep_df, xintercept = -Inf, colour = sep_color, linewidth = sep_size
+       ) else NULL) +
+      # --------------------------------------------
+      ggplot2::facet_grid(
+        rows = ggplot2::vars(.data$block_lab),
+        cols = ggplot2::vars(.data$component_lab),
+        scales = "free_y",
+        space  = "free_y",
+        switch = "y",
+        labeller = ggplot2::labeller(
+          block_lab = function(x) stringr::str_wrap(x, width = label_width)
+        )
+      ) +
+      ggplot2::scale_fill_manual(values = .pal_vals(palette)) +
+      ggplot2::scale_x_discrete(labels = function(x) lab_map[as.character(x)]) +
+      ggplot2::coord_flip() +
+      ggplot2::labs(x = NULL, y = "Weight",
+                    title = sprintf("Sparse weights per block — %s", comp_label)) +
+      ggplot2::theme_minimal(base_size = base_size, base_family = font) +
+      ggplot2::theme(
+        panel.grid.major.y = ggplot2::element_blank(),
+        panel.grid.minor   = ggplot2::element_blank(),
+        panel.spacing      = grid::unit(0, "pt"),
+        strip.placement    = "outside",
+        strip.background   = ggplot2::element_rect(fill = NA, colour = NA),
+        strip.text.y.left  = ggplot2::element_text(angle = 0, face = "bold"),
+        strip.text.x       = ggplot2::element_text(face = "bold"),
+        axis.text.y        = ggplot2::element_text(size = base_size * 0.8)
+      )
+  }
+
   if (weights_view == "weights") {
     long <- build_weights_long()
     if (!nrow(long)) stop("No weights available to plot.")
@@ -398,7 +463,6 @@ autoplot.GraphLearner <- function(object,
     return(patchwork::wrap_plots(plots, nrow = 1))
   }
 
-  # bootstrap view
   vb <- model$weights_boot_vectors
   if (is.null(vb)) {
     stop("weights_boot_vectors not found. Train with bootstrap_test=TRUE and boot_store_vectors=TRUE.")
@@ -408,7 +472,6 @@ autoplot.GraphLearner <- function(object,
 
   comps <- unique(boot_long$component)
   plots <- lapply(comps, function(comp) {
-    # reuse your existing 'plot_one_lc_boot' (unchanged), or inline same .data fixes
     plot_one_lc_boot(boot_long[boot_long$component == comp, , drop = FALSE], comp, font = font)
   })
   if (length(plots) == 1L || !has_patchwork) return(plots[[1L]])
@@ -424,7 +487,7 @@ autoplot.GraphLearner <- function(object,
 
   if (is.null(colnames(scores))) {
     colnames(scores) <- unlist(lapply(seq_len(model$ncomp), function(k)
-      paste0("LC", sprintf("%02d", k), "_", names(model$blocks))))
+      paste0("LV", sprintf("%02d", k), "_", names(model$blocks))))
   }
   C <- stats::cor(scores, method = method)
   rn <- rownames(C); cn <- colnames(C)
@@ -433,7 +496,7 @@ autoplot.GraphLearner <- function(object,
   meltC$row <- factor(meltC$row, levels = rn)
   meltC$col <- factor(meltC$col, levels = cn)
 
-  ggplot2::ggplot(meltC, ggplot2::aes(row, col, fill = value)) +
+  ggplot2::ggplot(meltC, ggplot2::aes(.data$row, .data$col, fill = .data$value)) +
     ggplot2::geom_tile() +
     ggplot2::scale_fill_gradient2(limits = c(-1, 1), midpoint = 0,
                                   low = "blue", mid = "white", high = "red") +
@@ -454,7 +517,7 @@ autoplot.GraphLearner <- function(object,
 
   if (is.null(colnames(scores))) {
     colnames(scores) <- unlist(lapply(seq_len(model$ncomp), function(k)
-      paste0("LV", sprintf("%02d", k), " ", names(model$blocks))))
+      paste0("LV", sprintf("%02d", k), "_", names(model$blocks))))
   }
 
   C <- stats::cor(scores, method = method)
@@ -475,19 +538,19 @@ autoplot.GraphLearner <- function(object,
   )
   g <- igraph::graph_from_data_frame(edges, directed = FALSE)
 
-  # --- pick a guide object safely (handle both spellings & fallback) ---
+  # guide compatibility
   edge_guide_fun <- get0("guide_edge_colourbar", asNamespace("ggraph"))
   if (is.null(edge_guide_fun))
     edge_guide_fun <- get0("guide_edge_colorbar", asNamespace("ggraph"))
   guide_obj <- if (is.null(edge_guide_fun)) ggplot2::guide_colourbar() else edge_guide_fun()
 
   ggraph::ggraph(g, layout = "fr") +
-    ggraph::geom_edge_link(ggplot2::aes(width = abs(r), colour = r)) +
+    ggraph::geom_edge_link(ggplot2::aes(width = abs(.data$r), colour = .data$r)) +
     ggraph::scale_edge_width(range = c(0.3, 3)) +
     ggraph::scale_edge_colour_gradient2(
       limits = c(-1, 1), midpoint = 0,
       low = "blue", mid = "grey", high = "red",
-      guide = guide_obj   # <- object, not string
+      guide = guide_obj
     ) +
     ggraph::geom_node_point(size = 4, colour = "grey30") +
     ggraph::geom_node_text(ggplot2::aes(label = name), repel = TRUE, size = 3) +
@@ -514,34 +577,71 @@ autoplot.GraphLearner <- function(object,
     stop("Package 'scales' is required for labeling.")
 
   layout <- match.arg(layout)
+
+  # --- Pull EVs (block-wise matrix) and coerce to a clean matrix
   ev_blk <- ev_block_override %||% model$ev_block
   if (is.null(ev_blk))
     stop("No block-wise variance info in model (train the operator).")
 
-  rn <- rownames(ev_blk) %||% paste0("LC_", sprintf("%02d", nrow(ev_blk)))
-  cn <- colnames(ev_blk) %||% names(model$blocks)
-  n_blocks <- length(cn)
+  ev_blk <- as.matrix(ev_blk)
+  if (!is.numeric(ev_blk))
+    stop("ev_block must be numeric.")
 
+  # --- Robust row/col labels (fix: proper vectorized fallback)
+  rn <- rownames(ev_blk)
+  if (is.null(rn) || length(rn) != nrow(ev_blk)) {
+    rn <- paste0("LC_", sprintf("%02d", seq_len(nrow(ev_blk))))
+  }
+  cn <- colnames(ev_blk)
+  if (is.null(cn) || length(cn) != ncol(ev_blk)) {
+    cn <- names(model$blocks)
+    if (is.null(cn) || length(cn) != ncol(ev_blk)) {
+      cn <- paste0("Block_", seq_len(ncol(ev_blk)))
+    }
+  }
+  rownames(ev_blk) <- rn
+  colnames(ev_blk) <- cn
+
+  # --- Long format for plotting bars
   df_long <- data.frame(
-    component = factor(rep(rn, each = n_blocks), levels = rn),
+    component = factor(rep(rn, each = length(cn)), levels = rn),
     block     = factor(rep(cn, times = length(rn)), levels = cn),
     explained = as.numeric(ev_blk),
     check.names = FALSE
   )
 
-  # Pretty tables as attributes
-  ev_table <- reshape2::dcast(df_long, component ~ block, value.var = "explained")
-  tot_vec  <- ev_comp_override %||% model$ev_comp
-  if (!is.null(tot_vec)) ev_table$total <- as.numeric(tot_vec)
-  ev_table_percent <- ev_table
-  ev_table_percent[-1] <- lapply(ev_table_percent[-1],
-                                 scales::percent, accuracy = accuracy)
+  # --- Build a wide table directly (no reshape2::dcast)
+  ev_table <- data.frame(component = rn, check.names = FALSE)
+  for (j in seq_along(cn)) ev_table[[cn[j]]] <- ev_blk[, j]
 
+  # Try to add a 'total' column (per-component overall EV), if provided and aligned
+  tot_vec <- ev_comp_override %||% model$ev_comp
+  if (!is.null(tot_vec)) {
+    # align by names if present; else by position; only if lengths match
+    if (!is.null(names(tot_vec)) && length(unique(names(tot_vec))) == length(tot_vec)) {
+      # reorder to rn where possible (missing names will yield NA)
+      reord <- as.numeric(tot_vec[rn])
+      if (length(reord) == length(rn)) tot_vec <- reord
+    }
+    if (length(tot_vec) == length(rn)) {
+      ev_table$total <- as.numeric(tot_vec)
+    }
+    # else: silently skip adding 'total' (prevents dimension errors)
+  }
+
+  # A pretty %-labeled copy as attributes
+  ev_table_percent <- ev_table
+  if (ncol(ev_table_percent) > 1) {
+    ev_table_percent[-1] <- lapply(ev_table_percent[-1],
+                                   scales::percent, accuracy = accuracy)
+  }
+
+  # --- Compose plot
   p_base <-
     if (layout == "grouped") {
       ggplot2::ggplot(df_long, ggplot2::aes(x = component, y = explained, fill = block)) +
         ggplot2::geom_col(
-          position = ggplot2::position_dodge2(width = 0.9, preserve = "single")  # grouped bars
+          position = ggplot2::position_dodge2(width = 0.9, preserve = "single")
         )
     } else {
       ggplot2::ggplot(df_long, ggplot2::aes(x = block, y = explained, fill = block)) +
@@ -576,9 +676,10 @@ autoplot.GraphLearner <- function(object,
     ggplot2::theme_minimal(base_size = 11, base_family = font) +
     ggplot2::theme(legend.position = "right")
 
-  if (isTRUE(show_total) && !is.null(tot_vec)) {
+  # Optional total overlay (only if we successfully added 'total')
+  if (isTRUE(show_total) && "total" %in% names(ev_table)) {
     df_tot <- data.frame(component = factor(rn, levels = rn),
-                         total = as.numeric(tot_vec))
+                         total = as.numeric(ev_table$total))
     if (layout == "grouped") {
       p <- p +
         ggplot2::geom_line(data = df_tot, ggplot2::aes(component, total, group = 1),
@@ -586,18 +687,20 @@ autoplot.GraphLearner <- function(object,
         ggplot2::geom_point(data = df_tot, ggplot2::aes(component, total),
                             inherit.aes = FALSE, size = 1.9)
     } else {
-      p <- p + ggplot2::geom_point(data = df_tot,
-                                   ggplot2::aes(x = Inf, y = total),
-                                   inherit.aes = FALSE, size = 1.9, alpha = 0.9)
+      p <- p + ggplot2::geom_point(
+        data = df_tot, ggplot2::aes(x = Inf, y = total),
+        inherit.aes = FALSE, size = 1.9, alpha = 0.9
+      )
     }
   }
+
   if (isTRUE(flip)) p <- p + ggplot2::coord_flip()
 
+  # Attach tables as attributes for easy retrieval
   attr(p, "ev_table") <- ev_table
   attr(p, "ev_table_percent") <- ev_table_percent
   p
 }
-
 
 .mbspls_plot_scree_from_model <- function(model, cumulative = FALSE,
                                           obj_override = NULL, title_suffix = "", font = "sans") {
@@ -616,7 +719,7 @@ autoplot.GraphLearner <- function(object,
   )
   ylab <- if (cumulative) "Cumulative objective" else "Latent correlation (MAC/Frobenius)"
 
-  ggplot2::ggplot(df, ggplot2::aes(comp, if (cumulative) cum else obj, group = 1)) +
+  ggplot2::ggplot(df, ggplot2::aes(.data$comp, if (cumulative) .data$cum else .data$obj, group = 1)) +
     ggplot2::geom_line() + ggplot2::geom_point(size = 2) +
     ggplot2::labs(x = NULL, y = ylab,
                   title = paste0(if (!cumulative) "MB-sPLS scree (objective per component)"
@@ -624,7 +727,6 @@ autoplot.GraphLearner <- function(object,
                                   title_suffix)) +
     ggplot2::theme_minimal(base_size = 11, base_family = font)
 }
-
 
 .mbspls_plot_scores_from_model <- function(model,
                                            component = 1,
@@ -644,7 +746,8 @@ autoplot.GraphLearner <- function(object,
   if (component < 1 || component > model$ncomp)
     stop("`component` out of range.")
 
-  lv_cols <- paste0("LC", component, "_", names(model$blocks))
+  # Columns are named LVk_<block>
+  lv_cols <- paste0("LV", component, "_", names(model$blocks))
   missing <- setdiff(lv_cols, colnames(Tmat))
   if (length(missing))
     stop("Score columns missing from T_mat: ", paste(missing, collapse = ", "))
@@ -684,7 +787,7 @@ autoplot.GraphLearner <- function(object,
                stringsAsFactors = FALSE)
   }))
 
-  p <- ggplot2::ggplot(df, ggplot2::aes(x, y)) +
+  p <- ggplot2::ggplot(df, ggplot2::aes(.data$x, .data$y)) +
     ggplot2::geom_point(alpha = 0.55, size = 1.5)
 
   if (density == "contour") {
@@ -714,21 +817,21 @@ autoplot.GraphLearner <- function(object,
 
   if (isTRUE(standardize)) {
     p +
-      ggplot2::facet_grid(block_y ~ block_x, scales = "fixed") +
+      ggplot2::facet_grid(.data$block_y ~ .data$block_x, scales = "fixed") +
       ggplot2::coord_equal() +
       ggplot2::labs(
-        x = sprintf("Scores: LC%d (block)", component),
-        y = sprintf("Scores: LC%d (block)", component),
+        x = sprintf("Scores: LV%d (block)", component),
+        y = sprintf("Scores: LV%d (block)", component),
         title = sprintf("MB-sPLS cross-block score agreement — LC%d%s", component, title_suffix),
         subtitle = "Z-scored per block; dashed: y = x; solid: LS fit; r = Pearson, ccc = Lin’s concordance"
       ) +
       ggplot2::theme_minimal(base_size = 11, base_family = font)
   } else {
     p +
-      ggplot2::facet_grid(block_y ~ block_x, scales = "free") +
+      ggplot2::facet_grid(.data$block_y ~ .data$block_x, scales = "free") +
       ggplot2::labs(
-        x = sprintf("Scores: LC%d (block)", component),
-        y = sprintf("Scores: LC%d (block)", component),
+        x = sprintf("Scores: LV%d (block)", component),
+        y = sprintf("Scores: LV%d (block)", component),
         title = sprintf("MB-sPLS cross-block score agreement — LC%d%s", component, title_suffix),
         subtitle = "Dashed: y = x; solid: LS fit; r = Pearson, ccc = Lin’s concordance"
       ) +
@@ -736,45 +839,7 @@ autoplot.GraphLearner <- function(object,
   }
 }
 
-# -------------------------------------------------------------------
-# Utilities
-# -------------------------------------------------------------------
-# Internal: pull the evaluation payload (what predict() writes)
-.mbspls_get_eval_payload <- function(object = NULL, payload = NULL, mbspls_id = NULL) {
-  if (!is.null(payload)) return(payload)
-
-  # If a GraphLearner is passed: read the MB-sPLS node's log_env$last
-  if (inherits(object, "GraphLearner")) {
-    ids <- names(object$graph$pipeops)
-    if (is.null(mbspls_id)) {
-      cand <- ids[vapply(object$graph$pipeops, inherits, logical(1), "PipeOpMBsPLS")]
-      if (!length(cand))
-        stop("No PipeOpMBsPLS node found in the graph.")
-      mbspls_id <- cand[1]
-    }
-    po <- object$graph$pipeops[[mbspls_id]]
-    env <- po$param_set$values$log_env
-    if (inherits(env, "environment") && !is.null(env$last)) {
-      return(env$last)
-    }
-  }
-
-  # If an mbspls state list is passed and (unexpectedly) has a log_env pointer
-  if (!is.null(object$log_env) && !is.null(object$log_env$last)) {
-    return(object$log_env$last)
-  }
-  if (!is.null(object$last)) {
-    return(object$last)
-  }
-
-  stop("No evaluation payload found. Call predict() with a log_env set (or use new_task=), ",
-       "or pass payload= explicitly.")
-}
-
-# -------------------------------------------------------------------
-# Bootstrap plot: all variables, faceted by block, for a component
-# -------------------------------------------------------------------
-# Bootstrap CIs per component (MAC/Frobenius on NEW data)
+# Bootstrap component-level plot (MAC/Frobenius on NEW data)
 .mbspls_plot_bootstrap_component <- function(
   model,
   payload = NULL,
@@ -801,7 +866,6 @@ autoplot.GraphLearner <- function(object,
     stop("No component-level bootstrap in payload (val_bootstrap is NULL). ",
          "Enable validation with val_test='bootstrap' for predict().")
 
-  # Expected columns (as per your logging)
   bt <- as.data.frame(bt, stringsAsFactors = FALSE)
   req <- c("component", "observed_correlation", "boot_mean", "boot_se",
            "boot_p_value", "boot_ci_lower", "boot_ci_upper",
@@ -823,57 +887,52 @@ autoplot.GraphLearner <- function(object,
 
   perf <- pay$perf_metric %||% "MAC"
 
-  # Build plot
-  p <- ggplot2::ggplot(df, ggplot2::aes(component, mean))
+  p <- ggplot2::ggplot(df, ggplot2::aes(.data$component, .data$mean))
 
-  # Violin & box show the distribution shape and summary (centered at each component)
-  if (isTRUE(show_violin) && !is.null(pay$val_boot_vectors)) {
-    # Add violin plot
+  # Violin: only if raw boot vectors are present
+  has_samples <- !is.null(pay$val_boot_vectors)
+  if (isTRUE(show_violin) && has_samples) {
     boot_long <- do.call(rbind, lapply(seq_along(pay$val_boot_vectors), function(i) {
       data.frame(component = comp_lab[i], boot = as.numeric(pay$val_boot_vectors[[i]]))
     }))
     boot_long$component <- factor(boot_long$component, levels = comp_lab)
     p <- p +
       ggplot2::geom_violin(data = boot_long,
-                           ggplot2::aes(y = boot, x = component),
+                           ggplot2::aes(y = .data$boot, x = .data$component),
                            fill = "grey40", alpha = violin_alpha, colour = NA, width = 0.8,
                            inherit.aes = FALSE)
-  } else {
-    stop("No bootstrap samples available for violin plot.")
+  } else if (isTRUE(show_violin)) {
+    # silently skip violins if not available
+    show_violin <- FALSE
   }
 
-  if (isTRUE(show_box)) {
-    p <- p +
-      ggplot2::geom_boxplot(width = box_width, outlier.shape = NA, fill = NA)
+  if (isTRUE(show_box) && has_samples) {
+    p <- p + ggplot2::geom_boxplot(width = box_width, outlier.shape = NA, fill = NA)
   }
 
-  # Mean ± CI from bootstrap
   if (isTRUE(show_ci)) {
     p <- p +
-      ggplot2::geom_errorbar(ggplot2::aes(ymin = lwr, ymax = upr),
+      ggplot2::geom_errorbar(ggplot2::aes(ymin = .data$lwr, ymax = .data$upr),
                              width = errorbar_width) +
       ggplot2::geom_point(size = point_size)
   } else {
     p <- p + ggplot2::geom_point(size = point_size)
   }
 
-  # Observed correlation on original test set (open ring)
   if (isTRUE(show_observed)) {
-    p <- p + ggplot2::geom_point(ggplot2::aes(y = obs),
-                   shape = 4, colour = "red", 
-                   size = point_size + 2, stroke = 1.2)
+    p <- p + ggplot2::geom_point(ggplot2::aes(y = .data$obs),
+                                 shape = 4, colour = "red",
+                                 size = point_size + 2, stroke = 1.2)
   }
 
-  # P-value labels above the higher of (mean, obs)
   if (isTRUE(show_pvalue)) {
-    # Place label above the CI upper whisker for readability
     df$y_lab <- df$upr
     df$lab   <- sprintf("p = %s",
                         ifelse(is.finite(df$pval),
                                formatC(df$pval, format = "f", digits = 3), "NA"))
     p <- p + ggplot2::geom_text(
       data = df,
-      ggplot2::aes(x = component, y = y_lab, label = lab),
+      ggplot2::aes(x = .data$component, y = .data$y_lab, label = .data$lab),
       inherit.aes = FALSE,
       vjust = -0.8, size = 3.2
     )
@@ -890,4 +949,34 @@ autoplot.GraphLearner <- function(object,
       caption = "Red cross = observed correlation on original test data; filled dot = bootstrap mean"
     ) +
     ggplot2::theme_minimal(base_size = 11, base_family = font)
+}
+
+# Pull the evaluation payload (predict() output) — used by bootstrap component plot
+.mbspls_get_eval_payload <- function(model = NULL, payload = NULL, mbspls_id = NULL) {
+  if (!is.null(payload)) return(payload)
+
+  if (inherits(model, "GraphLearner")) {
+    ids <- names(model$graph$pipeops)
+    if (is.null(mbspls_id)) {
+      cand <- ids[vapply(model$graph$pipeops, inherits, logical(1), "PipeOpMBsPLS")]
+      if (!length(cand))
+        stop("No PipeOpMBsPLS node found in the graph.")
+      mbspls_id <- cand[1]
+    }
+    po <- model$graph$pipeops[[mbspls_id]]
+    env <- po$param_set$values$log_env
+    if (inherits(env, "environment") && !is.null(env$last)) {
+      return(env$last)
+    }
+  }
+
+  if (!is.null(model$log_env) && !is.null(model$log_env$last)) {
+    return(model$log_env$last)
+  }
+  if (!is.null(model$last)) {
+    return(model$last)
+  }
+
+  stop("No evaluation payload found. Call predict() with a log_env set (or use new_task=), ",
+       "or pass payload= explicitly.")
 }

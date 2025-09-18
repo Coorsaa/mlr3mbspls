@@ -4,10 +4,12 @@
 .onLoad = function(libname, pkgname) {                       # nocov start
   mlr3pipelines::mlr_pipeops$add("sitecorr", PipeOpSiteCorrection)
   mlr3pipelines::mlr_pipeops$add("mbspls", PipeOpMBsPLS)
-  mlr3pipelines::mlr_pipeops$add("mbspls_flipweights", PipeOpMBsPLSFlipWeights)
+  mlr3pipelines::mlr_pipeops$add("mbspls_bootstrap_select", PipeOpMBsPLSBootstrapSelect)
   mlr3pipelines::mlr_pipeops$add("mbsplsxy", PipeOpMBsPLSXY)
   mlr3pipelines::mlr_pipeops$add("mbspca", PipeOpMBsPCA)
   mlr3pipelines::mlr_pipeops$add("blockscale", PipeOpBlockScaling)
+  mlr3pipelines::mlr_pipeops$add("target_label_filter", PipeOpTargetLabelFilter)
+  mlr3pipelines::mlr_pipeops$add("feature_suffix", PipeOpFeatureSuffix)
 
   mlr3pipelines::mlr_graphs$add("mbspls_preproc", mbspls_preproc_graph)
   mlr3pipelines::mlr_graphs$add("mbspls_graph_learner", mbspls_graph_learner)
