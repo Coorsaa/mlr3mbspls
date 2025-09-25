@@ -41,7 +41,7 @@
 #'   df = data.frame(x1 = runif(n), x2 = runif(n))
 #'   df$y = sin(3 * df$x1) + df$x2 + rnorm(n, sd = 0.1)
 #'   task = TaskRegr$new("toy", backend = df, target = "y")
-#'   lrn  = lrn("regr.knngower", k = 10, weights = "inverse")
+#'   lrn = lrn("regr.knngower", k = 10, weights = "inverse")
 #'   lrn$train(task)
 #'   lrn$predict(task)$score(msr("regr.rmse"))
 #' }
@@ -62,7 +62,7 @@ LearnerRegrKNNGower = R6::R6Class("LearnerRegrKNNGower",
           default = "pairwise", tags = c("train", "predict"))
       )
       ps$set_values(k = 5L, weights = "inverse",
-                    min_feature_frac = 0.2, na_handling = "pairwise")
+        min_feature_frac = 0.2, na_handling = "pairwise")
 
       super$initialize(
         id = "regr.knngower",
@@ -83,7 +83,7 @@ LearnerRegrKNNGower = R6::R6Class("LearnerRegrKNNGower",
       # numeric
       if (length(num_cols)) {
         Xn = as.matrix(df[, num_cols, with = FALSE])
-        storage.mode(Xn) <- "double"
+        storage.mode(Xn) = "double"
         if (is.null(ref)) {
           r_min = suppressWarnings(apply(Xn, 2, min, na.rm = TRUE))
           r_max = suppressWarnings(apply(Xn, 2, max, na.rm = TRUE))
@@ -117,7 +117,7 @@ LearnerRegrKNNGower = R6::R6Class("LearnerRegrKNNGower",
           }
           Xc[, j] = code
         }
-        storage.mode(Xc) <- "integer"
+        storage.mode(Xc) = "integer"
       } else {
         Xc = matrix(integer(0), nrow = n, ncol = 0)
         cat_levels = list()
@@ -147,7 +147,7 @@ LearnerRegrKNNGower = R6::R6Class("LearnerRegrKNNGower",
             Xo[, j] = (as.numeric(code) - 1) / (L - 1)
           }
         }
-        storage.mode(Xo) <- "double"
+        storage.mode(Xo) = "double"
       } else {
         Xo = matrix(numeric(0), nrow = n, ncol = 0)
         ord_levels = list()
@@ -180,7 +180,7 @@ LearnerRegrKNNGower = R6::R6Class("LearnerRegrKNNGower",
       enc = private$.encode_blocks(df, num_cols, cat_cols, ord_cols, ref = NULL)
 
       y_num = as.numeric(y)
-      y_var <- stats::var(y_num, na.rm = TRUE)
+      y_var = stats::var(y_num, na.rm = TRUE)
       if (!is.finite(y_var) || is.na(y_var)) y_var <- 0
 
       list(
@@ -195,7 +195,7 @@ LearnerRegrKNNGower = R6::R6Class("LearnerRegrKNNGower",
         ord_levels = enc$ord_levels,
         y = y_num,
         y_mean = mean(y_num, na.rm = TRUE),
-        y_var  = y_var
+        y_var = y_var
       )
     },
 

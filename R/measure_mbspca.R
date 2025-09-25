@@ -34,9 +34,11 @@ MeasureMBSPCAMEV = R6::R6Class(
   ),
   private = list(
     .score = function(prediction, task, learner, ...) {
-      po  = learner$pipeops$mbspca
-      st  = po$state
-      if (is.null(st$explained_variance)) return(0)
+      po = learner$pipeops$mbspca
+      st = po$state
+      if (is.null(st$explained_variance)) {
+        return(0)
+      }
       mean(st$explained_variance, na.rm = TRUE)
     }
   )

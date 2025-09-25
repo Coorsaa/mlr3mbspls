@@ -3,7 +3,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # internal job function (one OUTER fold)
-.mbspls_outer_job <- function(
+.mbspls_outer_job = function(
   train_idx, test_idx, split_id,
   task, graphlearner, rs_inner,
   ncomp, tuner_budget, tuning_early_stop,
@@ -13,20 +13,20 @@
 ) {
 
   # shallow %||% (avoid importing rlang)
-  or_null <- function(x, y) if (is.null(x)) y else x
+  or_null = function(x, y) if (is.null(x)) y else x
 
   # clone task and GL to avoid state carry-over across jobs
-  task_tr <- task$clone()$filter(train_idx)
-  task_te <- task$clone()$filter(test_idx)
+  task_tr = task$clone()$filter(train_idx)
+  task_te = task$clone()$filter(test_idx)
 
-  gl_tune <- graphlearner$clone(deep = TRUE)
+  gl_tune = graphlearner$clone(deep = TRUE)
   # ensure mbspls node reflects arguments (ncomp + metric)
-  po_tune <- gl_tune$graph$pipeops$mbspls
-  po_tune$param_set$values$ncomp              <- ncomp
-  po_tune$param_set$values$performance_metric <- performance_metric
+  po_tune = gl_tune$graph$pipeops$mbspls
+  po_tune$param_set$values$ncomp = ncomp
+  po_tune$param_set$values$performance_metric = performance_metric
 
   # build sequential tuner (same as in your function)
-  tuner <- TunerSeqMBsPLS$new(
+  tuner = TunerSeqMBsPLS$new(
     tuner              = "random_search",
     budget             = tuner_budget,
     resampling         = rs_inner,
@@ -37,48 +37,48 @@
     performance_metric = performance_metric
   )
 
-  inst <- mlr3tuning::ti(
+  inst = mlr3tuning::ti(
     task        = task_tr,
     learner     = gl_tune,
-    resampling  = mlr3::rsmp("holdout"),   # ignored by our tuner except for naming
+    resampling  = mlr3::rsmp("holdout"), # ignored by our tuner except for naming
     measure     = mlr3::msr("mbspls.mac_evwt"),
     terminator  = mlr3tuning::trm("evals", n_evals = 1)
   )
   tuner$optimize(inst)
 
   # tuned C*
-  c_star <- inst$result$learner_param_vals[[1]]$c_matrix
+  c_star = inst$result$learner_param_vals[[1]]$c_matrix
 
   # best inner score (robust extraction)
-  inner_score <- tryCatch(
+  inner_score = tryCatch(
     as.numeric(or_null(inst$objective_result_y,
       or_null(inst$result_y, inst$archive$best()$y))),
     error = function(e) NA_real_
   )
 
   # evaluation GraphLearner clone for outer test
-  gl_eval <- graphlearner$clone(deep = TRUE)
-  po_eval <- gl_eval$graph$pipeops$mbspls
-  po_eval$param_set$values$ncomp               <- ncol(c_star)
-  po_eval$param_set$values$performance_metric  <- performance_metric
-  po_eval$param_set$values$c_matrix            <- c_star
-  po_eval$param_set$values$permutation_test    <- TRUE
-  po_eval$param_set$values$val_test            <- val_test
-  po_eval$param_set$values$val_test_n          <- as.integer(val_test_n)
-  po_eval$param_set$values$val_test_alpha      <- val_test_alpha
-  po_eval$param_set$values$val_test_permute_all <- isTRUE(val_permute_all)
+  gl_eval = graphlearner$clone(deep = TRUE)
+  po_eval = gl_eval$graph$pipeops$mbspls
+  po_eval$param_set$values$ncomp = ncol(c_star)
+  po_eval$param_set$values$performance_metric = performance_metric
+  po_eval$param_set$values$c_matrix = c_star
+  po_eval$param_set$values$permutation_test = TRUE
+  po_eval$param_set$values$val_test = val_test
+  po_eval$param_set$values$val_test_n = as.integer(val_test_n)
+  po_eval$param_set$values$val_test_alpha = val_test_alpha
+  po_eval$param_set$values$val_test_permute_all = isTRUE(val_permute_all)
 
   # prediction-side payload
-  log_env_te <- new.env(parent = emptyenv())
-  po_eval$param_set$values$log_env <- log_env_te
+  log_env_te = new.env(parent = emptyenv())
+  po_eval$param_set$values$log_env = log_env_te
 
   gl_eval$train(task_tr)
   gl_eval$predict(task_te)
-  payload <- log_env_te$last
+  payload = log_env_te$last
 
   # fold summary row (identical fields to your function)
   if (is.null(payload)) {
-    res_row <- data.table::data.table(
+    res_row = data.table::data.table(
       split          = split_id,
       inner_score    = inner_score,
       mac_lv1_test   = NA_real_,
@@ -88,13 +88,13 @@
       val_p_last     = NA_real_
     )
   } else {
-    mac <- as.numeric(or_null(payload$mac_comp, NA_real_))
-    ev  <- as.numeric(or_null(payload$ev_comp,  NA_real_))
-    w   <- ev / (sum(ev) + 1e-12)
-    vp  <- or_null(payload$val_test_p, payload$val_perm_p) # backward compat
-    vs  <- or_null(payload$val_test_stat, NULL)
+    mac = as.numeric(or_null(payload$mac_comp, NA_real_))
+    ev = as.numeric(or_null(payload$ev_comp, NA_real_))
+    w = ev / (sum(ev) + 1e-12)
+    vp = or_null(payload$val_test_p, payload$val_perm_p) # backward compat
+    vs = or_null(payload$val_test_stat, NULL)
 
-    res_row <- data.table::data.table(
+    res_row = data.table::data.table(
       split          = split_id,
       inner_score    = inner_score,
       mac_lv1_test   = mac[1],
@@ -156,9 +156,9 @@
 #'   after creating the registry (default is FALSE).
 #' @return A `batchtools` registry object. Use `collect_mbspls_nested_cv()`
 #'   to gather and summarize the results after all jobs are completed.
-#' 
-#' @export 
-mbspls_nested_cv_batchtools <- function(
+#'
+#' @export
+mbspls_nested_cv_batchtools = function(
   task,
   graphlearner,
   rs_outer,
@@ -166,42 +166,42 @@ mbspls_nested_cv_batchtools <- function(
   ncomp,
   tuner_budget,
   tuning_early_stop = TRUE,
-  performance_metric = c("mac","frobenius"),
-  val_test           = c("none","permutation","bootstrap"),
-  val_test_n         = 1000L,
-  val_test_alpha     = 0.05,
-  val_permute_all    = TRUE,
-  n_perm_tuning      = 500L,
-  perm_alpha_tuning  = 0.05,
-  store_payload      = TRUE,
-  reg_dir            = "registry_mbspls_nestedcv",
-  seed               = 1L,
-  cluster_function   = batchtools::makeClusterFunctionsSocket(ncpus = 1L),
-  autosubmit         = FALSE
+  performance_metric = c("mac", "frobenius"),
+  val_test = c("none", "permutation", "bootstrap"),
+  val_test_n = 1000L,
+  val_test_alpha = 0.05,
+  val_permute_all = TRUE,
+  n_perm_tuning = 500L,
+  perm_alpha_tuning = 0.05,
+  store_payload = TRUE,
+  reg_dir = "registry_mbspls_nestedcv",
+  seed = 1L,
+  cluster_function = batchtools::makeClusterFunctionsSocket(ncpus = 1L),
+  autosubmit = FALSE
 ) {
-  performance_metric <- match.arg(performance_metric)
-  val_test           <- match.arg(val_test)
+  performance_metric = match.arg(performance_metric)
+  val_test = match.arg(val_test)
 
   # ensure OUTER is instantiated; we only pass indices to jobs
   if (!rs_outer$is_instantiated) rs_outer$instantiate(task)
 
-  outer_iters <- rs_outer$iters
-  outer_sets  <- lapply(seq_len(outer_iters), function(i) {
+  outer_iters = rs_outer$iters
+  outer_sets = lapply(seq_len(outer_iters), function(i) {
     list(train = rs_outer$train_set(i), test = rs_outer$test_set(i), split = i)
   })
 
-  # registry & CFs (socket clusters OK locally) 
+  # registry & CFs (socket clusters OK locally)
   lgr$info("Creating Batchtools registry...")
-  reg <- batchtools::makeRegistry(
+  reg = batchtools::makeRegistry(
     file.dir = reg_dir, seed = seed
   )
-  reg$cluster.functions <- cluster_function
+  reg$cluster.functions = cluster_function
   # map one job per OUTER split
   ids = batchtools::batchMap(
-    fun  = .mbspls_outer_job,
+    fun = .mbspls_outer_job,
     train_idx = lapply(outer_sets, `[[`, "train"),
-    test_idx  = lapply(outer_sets, `[[`, "test"),
-    split_id  = vapply(outer_sets, `[[`, integer(1), "split"),
+    test_idx = lapply(outer_sets, `[[`, "test"),
+    split_id = vapply(outer_sets, `[[`, integer(1), "split"),
     more.args = list(
       task               = task,
       graphlearner       = graphlearner,
@@ -225,7 +225,7 @@ mbspls_nested_cv_batchtools <- function(
     batchtools::submitJobs(reg = reg)
   }
 
-  return (list(ids = ids, reg = invisible(reg)))
+  return(list(ids = ids, reg = invisible(reg)))
 }
 
 
@@ -250,26 +250,26 @@ mbspls_nested_cv_batchtools <- function(
 #' @import data.table
 #' @importFrom lgr lgr
 #' @export
-collect_mbspls_nested_cv <- function(ids = NULL, reg) {
+collect_mbspls_nested_cv = function(ids = NULL, reg) {
   if (is.null(ids)) {
-    ids <- batchtools::findDone(reg = reg)$job.id
+    ids = batchtools::findDone(reg = reg)$job.id
   }
   # gather per-job lists
-  res_list <- batchtools::reduceResultsList(ids = ids, reg = reg)
+  res_list = batchtools::reduceResultsList(ids = ids, reg = reg)
   # each item: list(result_row, c_star, inner_score, payload)
 
   lgr$info("Collecting results from %d outer folds...", length(res_list))
-  
+
   # combine result rows
-  results <- data.table::rbindlist(lapply(res_list, `[[`, "result_row"),
-                                   use.names = TRUE, fill = TRUE)
-  c_mats  <- lapply(res_list, `[[`, "c_star")
-  inner_scores <- vapply(res_list, function(z) as.numeric(z$inner_score), 1.0)
-  payloads <- lapply(res_list, `[[`, "payload")
+  results = data.table::rbindlist(lapply(res_list, `[[`, "result_row"),
+    use.names = TRUE, fill = TRUE)
+  c_mats = lapply(res_list, `[[`, "c_star")
+  inner_scores = vapply(res_list, function(z) as.numeric(z$inner_score), 1.0)
+  payloads = lapply(res_list, `[[`, "payload")
 
   # pretty summary table (same schema you used)
-  .summ <- function(x) {
-    x <- as.numeric(x)
+  .summ = function(x) {
+    x = as.numeric(x)
     data.table::data.table(
       mean   = mean(x, na.rm = TRUE),
       sd     = stats::sd(x, na.rm = TRUE),
@@ -281,15 +281,15 @@ collect_mbspls_nested_cv <- function(ids = NULL, reg) {
       n      = sum(is.finite(x))
     )
   }
-  row <- function(label, x) cbind(data.table::data.table(metric = label), .summ(x))
+  row = function(label, x) cbind(data.table::data.table(metric = label), .summ(x))
 
-  summary_table <- data.table::rbindlist(list(
-    row("MAC (LV1)",                 results$mac_lv1_test),
+  summary_table = data.table::rbindlist(list(
+    row("MAC (LV1)", results$mac_lv1_test),
     row("EV-weighted MAC (all LCs)", results$mac_evwt_test),
-    row("# components retained",     results$ncomp_kept)
+    row("# components retained", results$ncomp_kept)
   ), use.names = TRUE, fill = TRUE)
 
-  out <- list(
+  out = list(
     results       = results[],
     c_mats        = c_mats,
     inner_scores  = inner_scores,

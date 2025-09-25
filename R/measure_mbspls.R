@@ -29,26 +29,28 @@ NULL
 
 # Internal helpers (no export) -------------------------------------------------
 
-.mbspls_payload <- function(learner) {
-  po <- learner$pipeops$mbspls
-  env <- if (!is.null(po)) po$param_set$values$log_env else NULL
-  if (!inherits(env, "environment") || is.null(env$last)) return(NULL)
+.mbspls_payload = function(learner) {
+  po = learner$pipeops$mbspls
+  env = if (!is.null(po)) po$param_set$values$log_env else NULL
+  if (!inherits(env, "environment") || is.null(env$last)) {
+    return(NULL)
+  }
   env$last
 }
 
-.norm_if_frobenius <- function(values, payload) {
-  perf <- if (!is.null(payload$perf_metric)) payload$perf_metric else "mac"
+.norm_if_frobenius = function(values, payload) {
+  perf = if (!is.null(payload$perf_metric)) payload$perf_metric else "mac"
   if (identical(perf, "frobenius")) {
-    B <- length(payload$blocks %||% character())
+    B = length(payload$blocks %||% character())
     if (is.finite(B) && B >= 2) {
       # normalise Frobenius to [0,1]
-      values <- values / sqrt(choose(B, 2))
+      values = values / sqrt(choose(B, 2))
     }
   }
   values
 }
 
-`%||%` <- function(a, b) if (is.null(a)) b else a
+`%||%` = function(a, b) if (is.null(a)) b else a
 
 # 1) EV-weighted latent correlation (primary) ----------------------------------
 
@@ -61,10 +63,10 @@ NULL
 #' \eqn{\sqrt{\binom{B}{2}}} to keep the range within \eqn{[0,1]}.
 #' @examples
 #' \dontrun{
-#' msr_evwt <- MeasureMBsPLS_EVWeightedMAC$new()
+#' msr_evwt = MeasureMBsPLS_EVWeightedMAC$new()
 #' }
 #' @export
-MeasureMBsPLS_EVWeightedMAC <- R6::R6Class(
+MeasureMBsPLS_EVWeightedMAC = R6::R6Class(
   "MeasureMBsPLS_EVWeightedMAC",
   inherit = mlr3::Measure,
   public = list(
@@ -83,11 +85,17 @@ MeasureMBsPLS_EVWeightedMAC <- R6::R6Class(
   ),
   private = list(
     .score = function(prediction, task, learner, ...) {
-      p <- .mbspls_payload(learner); if (is.null(p)) return(NA_real_)
-      mac <- as.numeric(p$mac_comp); ev <- as.numeric(p$ev_comp)
-      if (!length(mac) || !length(ev) || all(!is.finite(ev))) return(NA_real_)
-      mac <- .norm_if_frobenius(mac, p)
-      w <- ev / (sum(ev, na.rm = TRUE) + 1e-12)
+      p = .mbspls_payload(learner)
+      if (is.null(p)) {
+        return(NA_real_)
+      }
+      mac = as.numeric(p$mac_comp)
+      ev = as.numeric(p$ev_comp)
+      if (!length(mac) || !length(ev) || all(!is.finite(ev))) {
+        return(NA_real_)
+      }
+      mac = .norm_if_frobenius(mac, p)
+      w = ev / (sum(ev, na.rm = TRUE) + 1e-12)
       sum(w * mac, na.rm = TRUE)
     }
   )
@@ -99,7 +107,7 @@ MeasureMBsPLS_EVWeightedMAC <- R6::R6Class(
 #' @description
 #' Mean of per-component test latent correlations (MAC or normalised Frobenius).
 #' @export
-MeasureMBsPLS_MAC <- R6::R6Class(
+MeasureMBsPLS_MAC = R6::R6Class(
   "MeasureMBsPLS_MAC",
   inherit = mlr3::Measure,
   public = list(
@@ -118,9 +126,15 @@ MeasureMBsPLS_MAC <- R6::R6Class(
   ),
   private = list(
     .score = function(prediction, task, learner, ...) {
-      p <- .mbspls_payload(learner); if (is.null(p)) return(NA_real_)
-      mac <- as.numeric(p$mac_comp); if (!length(mac)) return(NA_real_)
-      mac <- .norm_if_frobenius(mac, p)
+      p = .mbspls_payload(learner)
+      if (is.null(p)) {
+        return(NA_real_)
+      }
+      mac = as.numeric(p$mac_comp)
+      if (!length(mac)) {
+        return(NA_real_)
+      }
+      mac = .norm_if_frobenius(mac, p)
       mean(mac, na.rm = TRUE)
     }
   )
@@ -132,7 +146,7 @@ MeasureMBsPLS_MAC <- R6::R6Class(
 #' @description
 #' Mean of per-component explained variance on the test split.
 #' @export
-MeasureMBsPLS_EV <- R6::R6Class(
+MeasureMBsPLS_EV = R6::R6Class(
   "MeasureMBsPLS_EV",
   inherit = mlr3::Measure,
   public = list(
@@ -151,8 +165,14 @@ MeasureMBsPLS_EV <- R6::R6Class(
   ),
   private = list(
     .score = function(prediction, task, learner, ...) {
-      p <- .mbspls_payload(learner); if (is.null(p)) return(NA_real_)
-      ev <- as.numeric(p$ev_comp); if (!length(ev)) return(NA_real_)
+      p = .mbspls_payload(learner)
+      if (is.null(p)) {
+        return(NA_real_)
+      }
+      ev = as.numeric(p$ev_comp)
+      if (!length(ev)) {
+        return(NA_real_)
+      }
       mean(ev, na.rm = TRUE)
     }
   )
@@ -164,7 +184,7 @@ MeasureMBsPLS_EV <- R6::R6Class(
 #' @description
 #' Mean of the test EV matrix across all components and all blocks.
 #' @export
-MeasureMBsPLS_BlockEV <- R6::R6Class(
+MeasureMBsPLS_BlockEV = R6::R6Class(
   "MeasureMBsPLS_BlockEV",
   inherit = mlr3::Measure,
   public = list(
@@ -183,9 +203,14 @@ MeasureMBsPLS_BlockEV <- R6::R6Class(
   ),
   private = list(
     .score = function(prediction, task, learner, ...) {
-      p <- .mbspls_payload(learner); if (is.null(p)) return(NA_real_)
-      evb <- p$ev_block
-      if (is.null(evb)) return(NA_real_)
+      p = .mbspls_payload(learner)
+      if (is.null(p)) {
+        return(NA_real_)
+      }
+      evb = p$ev_block
+      if (is.null(evb)) {
+        return(NA_real_)
+      }
       mean(as.numeric(evb), na.rm = TRUE)
     }
   )

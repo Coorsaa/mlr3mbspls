@@ -53,7 +53,7 @@
 #' \dontrun{
 #' # Assume `gl` is a trained GraphLearner with a PipeOpMBsPLS node and
 #' # `task_new` is an mlr3::Task with new data:
-#' res <- mbspls_eval_new_data(gl, task_new)
+#' res = mbspls_eval_new_data(gl, task_new)
 #'
 #' # Per-block explained variances on new data:
 #' res$ev_block
@@ -68,62 +68,72 @@
 #'
 #' @seealso [mlr3pipelines::GraphLearner], [PipeOpMBsPLS]
 #' @export
-mbspls_eval_new_data <- function(gl, task, mbspls_id = NULL) {
-  if (!inherits(gl, "GraphLearner"))
+mbspls_eval_new_data = function(gl, task, mbspls_id = NULL) {
+  if (!inherits(gl, "GraphLearner")) {
     stop("`gl` must be a trained GraphLearner.", call. = FALSE)
-  if (is.null(gl$model))
+  }
+  if (is.null(gl$model)) {
     stop("GraphLearner appears to be untrained (model is NULL).", call. = FALSE)
-  if (!inherits(task, "Task"))
+  }
+  if (!inherits(task, "Task")) {
     stop("`task` must be an mlr3 Task.", call. = FALSE)
+  }
 
   # --- locate MB-sPLS node ---------------------------------------------------
-  find_mbspls_id <- function(gl, id = NULL) {
-    if (!is.null(id)) return(id)
-    ids <- names(gl$graph$pipeops)
-    cand <- ids[vapply(gl$graph$pipeops, inherits, logical(1), "PipeOpMBsPLS")]
-    if (length(cand) == 0L)
+  find_mbspls_id = function(gl, id = NULL) {
+    if (!is.null(id)) {
+      return(id)
+    }
+    ids = names(gl$graph$pipeops)
+    cand = ids[vapply(gl$graph$pipeops, inherits, logical(1), "PipeOpMBsPLS")]
+    if (length(cand) == 0L) {
       stop("No PipeOpMBsPLS node found in the graph.", call. = FALSE)
-    if (length(cand) > 1L)
+    }
+    if (length(cand) > 1L) {
       warning("Multiple MB-sPLS nodes detected: ",
-              paste(cand, collapse = ", "),
-              ". Using the first: ", cand[1])
+        paste(cand, collapse = ", "),
+        ". Using the first: ", cand[1])
+    }
     cand[1]
   }
-  node_id <- find_mbspls_id(gl, mbspls_id)
+  node_id = find_mbspls_id(gl, mbspls_id)
 
   # --- attach temporary log_env, run predict() -------------------------------
-  po <- gl$graph$pipeops[[node_id]]
-  old_env <- po$param_set$values$log_env
-  on.exit({ po$param_set$values$log_env <- old_env }, add = TRUE)
+  po = gl$graph$pipeops[[node_id]]
+  old_env = po$param_set$values$log_env
+  on.exit({
+    po$param_set$values$log_env = old_env
+  }, add = TRUE)
 
-  log_env <- new.env(parent = emptyenv())
-  po$param_set$values$log_env <- log_env
+  log_env = new.env(parent = emptyenv())
+  po$param_set$values$log_env = log_env
 
-  invisible(gl$predict(task))  # triggers MB-sPLS to compute EVs/MAC on new data
+  invisible(gl$predict(task)) # triggers MB-sPLS to compute EVs/MAC on new data
 
-  payload <- log_env$last
+  payload = log_env$last
   if (is.null(payload)) {
     stop("MB-sPLS node did not log any payload. ",
-         "Check the node id and that the PipeOp supports `log_env`.", call. = FALSE)
+      "Check the node id and that the PipeOp supports `log_env`.", call. = FALSE)
   }
 
   # --- augment with trained state (weights/loadings/blocks) ------------------
-  state <- .locate_mbspls_model(gl)  # your existing helper
-  payload$weights     <- state$weights
-  payload$loadings    <- state$loadings
-  payload$blocks_map  <- state$blocks
-  payload$ncomp       <- state$ncomp
-  payload$perf_metric <- state$performance_metric
+  state = .locate_mbspls_model(gl) # your existing helper
+  payload$weights = state$weights
+  payload$loadings = state$loadings
+  payload$blocks_map = state$blocks
+  payload$ncomp = state$ncomp
+  payload$perf_metric = state$performance_metric
 
   # Tidy names (if not already set in the PipeOp payload)
-  K <- payload$ncomp %||% length(state$weights)
-  comp_names <- paste0("LC_", sprintf("%02d", seq_len(K)))
+  K = payload$ncomp %||% length(state$weights)
+  comp_names = paste0("LC_", sprintf("%02d", seq_len(K)))
   if (!is.null(payload$ev_block)) {
-    rownames(payload$ev_block) <- comp_names
-    if (!is.null(payload$blocks))
-      colnames(payload$ev_block) <- payload$blocks
+    rownames(payload$ev_block) = comp_names
+    if (!is.null(payload$blocks)) {
+      colnames(payload$ev_block) = payload$blocks
+    }
   }
-  if (!is.null(payload$ev_comp))  names(payload$ev_comp)  <- comp_names
+  if (!is.null(payload$ev_comp)) names(payload$ev_comp) <- comp_names
   if (!is.null(payload$mac_comp)) names(payload$mac_comp) <- comp_names
 
   payload

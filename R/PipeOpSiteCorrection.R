@@ -11,8 +11,8 @@
 #' - `site_correction`: block → **specification of site/batch and optional covariates**.
 #'   - For `"partial_corr"`: a **character vector of columns** (categorical site and/or numeric covariates).
 #'   - For `"dir"`: a **single categorical column** (protected attribute).
-#'   - For `"combat"` (**new structured format**): a **list** with fixed elements  
-#'     `list(site = <character(1)>, covariates = <character()>)`.  
+#'   - For `"combat"` (**new structured format**): a **list** with fixed elements
+#'     `list(site = <character(1)>, covariates = <character()>)`.
 #'     The `site` column is mapped to ComBat’s `batch`; the `covariates` are
 #'     encoded into a model matrix and passed as `mod`.
 #'     *(Backward compatible: if a single string is provided, it is treated as `site`.)*
@@ -22,7 +22,7 @@
 #' Blocks **absent** from `site_correction` are **left unchanged**.
 #'
 #' @details
-#' **Partial correlation (`"partial_corr"`)**  
+#' **Partial correlation (`"partial_corr"`)**
 #' - If the site spec is a **single categorical** column, we build a dummy-coded
 #'   design with an intercept and keep a stable column layout across train/predict.
 #'   At predict-time, **unseen site labels** are treated as **no-op rows** (i.e.,
@@ -33,19 +33,19 @@
 #' - We solve a ridge-stabilized normal equation for the site effects and
 #'   subtract them; optional mean re-add (`zero_center = FALSE` by default).
 #'
-#' **ComBat (`"combat"`, via \pkg{neuroCombat}) — now with `mod` support**  
+#' **ComBat (`"combat"`, via \pkg{neuroCombat}) — now with `mod` support**
 #' - Trains using `neuroCombat(dat = t(X), batch = site, mod = MM, ...)`, where
 #'   `MM = model.matrix(~ ., data = covariates)`; character covariates are
-#'   auto-factorized. ComBat accepts **one** batch vector, but **many covariates**.  
+#'   auto-factorized. ComBat accepts **one** batch vector, but **many covariates**.
 #'   We store the returned `estimates`, the valid batch levels, the `site_var`,
 #'   and the list of `covariates`. :contentReference[oaicite:2]{index=2}
-#' - At predict, we apply `neuroCombatFromTraining(dat, batch, estimates)`.  
+#' - At predict, we apply `neuroCombatFromTraining(dat, batch, estimates)`.
 #'   The upstream function **does not support** supplying `mod` for new data;
 #'   if estimates were trained with `mod`, it uses an internal mean-imputation
 #'   of the training covariate effects. Unseen batches can be handled with
 #'   `combat_unknown = "noop"` (skip) or `"baseline"` (map to `ref_batch`). :contentReference[oaicite:3]{index=3}
 #'
-#' **DIR (`"dir"`, via \pkg{fairmodels})**  
+#' **DIR (`"dir"`, via \pkg{fairmodels})**
 #' - Applies distribution repair per block with the given `lambda`.
 #'
 #' The operator preserves targets, reconstructs a backend with stable row ids,
@@ -134,24 +134,27 @@
 #'   \item{`$predict(task)`}{Apply the learnt correction and return a harmonized `Task`.}
 #' }
 #'
-#' @return An [mlr3::Task] with harmonized features.  
+#' @return An [mlr3::Task] with harmonized features.
 #' Site/covariate columns referenced by `site_correction` are dropped unless `keep_site_col = TRUE`.
 #'
 #' @examples
 #' \dontrun{
-#' library(mlr3); library(mlr3pipelines); library(data.table)
+#' library(mlr3)
+#' library(mlr3pipelines)
+#' library(data.table)
 #' task = tsk("pima")
 #' # fake columns
 #' task$data[, site := sample(LETTERS[1:3], .N, TRUE)]
-#' task$data[, Age := rnorm(.N)]; task$data[, Sex := sample(c("F","M"), .N, TRUE)]
+#' task$data[, Age := rnorm(.N)]
+#' task$data[, Sex := sample(c("F", "M"), .N, TRUE)]
 #'
 #' po_site = PipeOpSiteCorrection$new(param_vals = list(
 #'   blocks = list(num = task$feature_names),
 #'   site_correction = list(
-#'     num = list(site="site", covariates=c("Age","Sex"))   # <-- ComBat with mod
+#'     num = list(site = "site", covariates = c("Age", "Sex")) # <-- ComBat with mod
 #'   ),
 #'   method = list(num = "combat"),
-#'   keep_site_col  = FALSE,
+#'   keep_site_col = FALSE,
 #'   combat_unknown = "noop"
 #' ))
 #' g = po("copy") %>>% po_site
@@ -193,9 +196,9 @@ PipeOpSiteCorrection = R6::R6Class(
         regularization  = p_dbl(lower = 0, default = 0, tags = "train"),
 
         # ComBat (neuroCombat only)
-        eb              = p_lgl(default = TRUE,  tags = "train"),
+        eb              = p_lgl(default = TRUE, tags = "train"),
         mean_only       = p_lgl(default = FALSE, tags = "train"),
-        ref_batch       = p_uty(default = NULL,  tags = "train"),
+        ref_batch       = p_uty(default = NULL, tags = "train"),
         combat_unknown  = p_fct(c("noop", "baseline"), default = "noop", tags = c("train", "predict")),
 
         # DIR
@@ -219,191 +222,203 @@ PipeOpSiteCorrection = R6::R6Class(
     # ---- helpers ------------------------------------------------------------
 
     .validate_blocks = function(task, blocks) {
-      dt <- task$data(cols = task$feature_names)
+      dt = task$data(cols = task$feature_names)
       if (is.null(blocks)) {
-        num <- task$feature_names[
+        num = task$feature_names[
           vapply(task$feature_names, function(x) is.numeric(dt[[x]]), logical(1))]
         return(list(.all = num))
       }
-      dt_names <- names(dt)
-      esc <- function(s) gsub("([][{}()|^$.*+?\\\\-])", "\\\\\\1", s)
-      expand_cols <- function(cols) {
+      dt_names = names(dt)
+      esc = function(s) gsub("([][{}()|^$.*+?\\\\-])", "\\\\\\1", s)
+      expand_cols = function(cols) {
         unique(unlist(lapply(cols, function(cn) {
           if (cn %in% dt_names) cn else grep(paste0("^", esc(cn), "(\\.|$)"), dt_names, value = TRUE)
         })))
       }
-      out <- lapply(blocks, function(cols) {
-        cols <- expand_cols(cols)
+      out = lapply(blocks, function(cols) {
+        cols = expand_cols(cols)
         cols[vapply(cols, function(x) is.numeric(dt[[x]]), logical(1))]
       })
       Filter(length, out)
     },
 
     .method_for_block = function(method_map, bn) {
-      if (is.null(method_map)) return("partial_corr")
-      m <- method_map[[bn]]
+      if (is.null(method_map)) {
+        return("partial_corr")
+      }
+      m = method_map[[bn]]
       if (is.null(m)) "partial_corr" else as.character(m)
     },
 
     .encode_site = function(site_vec, known_levels, strategy = c("other", "baseline"), ref_level = NULL) {
-      strategy <- match.arg(strategy)
-      s <- as.character(site_vec)
-      fac <- factor(s, levels = known_levels)
-      unseen <- setdiff(unique(s), known_levels)
+      strategy = match.arg(strategy)
+      s = as.character(site_vec)
+      fac = factor(s, levels = known_levels)
+      unseen = setdiff(unique(s), known_levels)
       if (length(unseen)) {
         if (strategy == "other") {
-          levels(fac) <- c(levels(fac), ".other"); fac[s %in% unseen] <- ".other"
+          levels(fac) = c(levels(fac), ".other")
+          fac[s %in% unseen] = ".other"
         } else {
-          baseline <- if (is.null(ref_level)) known_levels[1L] else ref_level
-          fac[s %in% unseen] <- baseline; fac <- factor(fac, levels = known_levels)
+          baseline = if (is.null(ref_level)) known_levels[1L] else ref_level
+          fac[s %in% unseen] = baseline
+          fac = factor(fac, levels = known_levels)
         }
       }
-      mm <- stats::model.matrix(~ fac)     # intercept + k-1 dummies
-      colnames(mm) <- gsub("^fac", "", colnames(mm))
+      mm = stats::model.matrix(~fac) # intercept + k-1 dummies
+      colnames(mm) = gsub("^fac", "", colnames(mm))
       mm
     },
 
     .combat_valid_batches = function(est) {
-      labs <- character(0)
-      if (!is.null(est$gamma.hat)  && !is.null(rownames(est$gamma.hat)))  labs <- rownames(est$gamma.hat)
-      else if (!is.null(est$gamma.star) && !is.null(rownames(est$gamma.star))) labs <- rownames(est$gamma.star)
-      else if (!is.null(est$batch)) labs <- unique(as.character(est$batch))
+      labs = character(0)
+      if (!is.null(est$gamma.hat) && !is.null(rownames(est$gamma.hat))) {
+        labs = rownames(est$gamma.hat)
+      } else if (!is.null(est$gamma.star) && !is.null(rownames(est$gamma.star))) {
+        labs = rownames(est$gamma.star)
+      } else if (!is.null(est$batch)) labs <- unique(as.character(est$batch))
       unique(as.character(labs))
     },
 
     # ---- train --------------------------------------------------------------
 
     .train_task = function(task) {
-      pv <- utils::modifyList(paradox::default_values(self$param_set),
-                              self$param_set$get_values(tags = "train"),
-                              keep.null = TRUE)
+      pv = utils::modifyList(paradox::default_values(self$param_set),
+        self$param_set$get_values(tags = "train"),
+        keep.null = TRUE)
 
-      blocks <- private$.validate_blocks(task, pv$blocks)
-      if (is.null(pv$site_correction) || !length(pv$site_correction)) return(task)
+      blocks = private$.validate_blocks(task, pv$blocks)
+      if (is.null(pv$site_correction) || !length(pv$site_correction)) {
+        return(task)
+      }
 
       # Collect all referenced site/covariate columns across blocks (for data pull)
-      site_cols_used <- character(0)
+      site_cols_used = character(0)
       for (bn in names(blocks)) {
-        x <- pv$site_correction[[bn]]
+        x = pv$site_correction[[bn]]
         if (is.null(x)) next
-        m <- private$.method_for_block(pv$method, bn)
+        m = private$.method_for_block(pv$method, bn)
         if (identical(m, "combat")) {
           if (is.list(x)) {
-            site_cols_used <- c(site_cols_used,
-                                as.character(x$site),
-                                as.character(x$covariates %||% character(0)))
+            site_cols_used = c(site_cols_used,
+              as.character(x$site),
+              as.character(x$covariates %||% character(0)))
           } else {
-            site_cols_used <- c(site_cols_used, as.character(x)[1L])
+            site_cols_used = c(site_cols_used, as.character(x)[1L])
           }
         } else {
-          site_cols_used <- c(site_cols_used, as.character(x))
+          site_cols_used = c(site_cols_used, as.character(x))
         }
       }
-      site_cols_used <- unique(site_cols_used[nzchar(site_cols_used)])
+      site_cols_used = unique(site_cols_used[nzchar(site_cols_used)])
 
-      cols_needed <- unique(c(task$feature_names, site_cols_used))
-      dt <- task$data(rows = task$row_ids, cols = cols_needed)
+      cols_needed = unique(c(task$feature_names, site_cols_used))
+      dt = task$data(rows = task$row_ids, cols = cols_needed)
 
-      have_neuro <- requireNamespace("neuroCombat", quietly = TRUE)
-      have_fm    <- requireNamespace("fairmodels",  quietly = TRUE)
-      per_block  <- list()
+      have_neuro = requireNamespace("neuroCombat", quietly = TRUE)
+      have_fm = requireNamespace("fairmodels", quietly = TRUE)
+      per_block = list()
 
-      idx_fit <- if (is.null(pv$subgroup)) seq_len(nrow(dt)) else {
+      idx_fit = if (is.null(pv$subgroup)) {
+        seq_len(nrow(dt))
+      } else {
         if (is.logical(pv$subgroup)) pv$subgroup else seq_len(nrow(dt)) %in% pv$subgroup
       }
 
-      blocks_eff <- blocks  # will hold features *excluding* any referenced site/covariate columns
+      blocks_eff = blocks # will hold features *excluding* any referenced site/covariate columns
 
       for (bn in names(blocks)) {
-        xspec <- pv$site_correction[[bn]]
+        xspec = pv$site_correction[[bn]]
         if (is.null(xspec)) next
 
-        method <- private$.method_for_block(pv$method, bn)
+        method = private$.method_for_block(pv$method, bn)
 
         # --- parse site spec per method
-        site_cols <- character(0)
-        combat_site <- NULL
-        combat_covs <- character(0)
+        site_cols = character(0)
+        combat_site = NULL
+        combat_covs = character(0)
 
         if (identical(method, "combat")) {
           if (is.list(xspec)) {
-            combat_site <- as.character(xspec$site)
-            if (length(combat_site) != 1L || !nzchar(combat_site))
+            combat_site = as.character(xspec$site)
+            if (length(combat_site) != 1L || !nzchar(combat_site)) {
               stop(sprintf("Block '%s' (combat): 'site' must be character(1).", bn))
-            combat_covs <- as.character(xspec$covariates %||% character(0))
+            }
+            combat_covs = as.character(xspec$covariates %||% character(0))
           } else {
             # backward compat: single string is the site
-            xs <- as.character(xspec)
+            xs = as.character(xspec)
             if (!length(xs)) next
-            combat_site <- xs[1L]
-            combat_covs <- character(0)
+            combat_site = xs[1L]
+            combat_covs = character(0)
           }
-          site_cols <- unique(c(combat_site, combat_covs))
+          site_cols = unique(c(combat_site, combat_covs))
         } else {
-          site_cols <- as.character(xspec)
+          site_cols = as.character(xspec)
         }
 
         if (!length(site_cols)) next
-        missing_sites <- setdiff(site_cols, names(dt))
-        if (length(missing_sites))
+        missing_sites = setdiff(site_cols, names(dt))
+        if (length(missing_sites)) {
           stop(sprintf("Block '%s': missing referenced column(s): %s", bn, paste(missing_sites, collapse = ", ")))
+        }
 
-        Xcols_raw <- blocks[[bn]]
+        Xcols_raw = blocks[[bn]]
         # remove any referenced site/covariate columns from the features of this block
-        Xcols <- setdiff(Xcols_raw, site_cols)
+        Xcols = setdiff(Xcols_raw, site_cols)
         if (!identical(Xcols_raw, Xcols)) {
           lgr$info("Block '%s': dropping %d referenced column(s) from features: %s",
-                   bn, length(setdiff(Xcols_raw, Xcols)), paste(setdiff(Xcols_raw, Xcols), collapse = ", "))
+            bn, length(setdiff(Xcols_raw, Xcols)), paste(setdiff(Xcols_raw, Xcols), collapse = ", "))
         }
         if (!length(Xcols)) {
           lgr$info("Block '%s': no non-site features left after exclusion; skipping correction", bn)
           next
         }
-        X <- as.matrix(dt[, .SD, .SDcols = Xcols])
+        X = as.matrix(dt[, .SD, .SDcols = Xcols])
 
         if (identical(method, "partial_corr")) {
 
-          single_cat <- length(site_cols) == 1L && (is.factor(dt[[site_cols]]) || is.character(dt[[site_cols]]))
+          single_cat = length(site_cols) == 1L && (is.factor(dt[[site_cols]]) || is.character(dt[[site_cols]]))
           if (single_cat) {
-            site_vec  <- dt[[site_cols]]
-            site_lvls <- levels(factor(site_vec))
-            G_all     <- private$.encode_site(site_vec, site_lvls, strategy = "other")
-            G_fit     <- G_all[idx_fit, , drop = FALSE]
-            design_kind <- "categorical"
+            site_vec = dt[[site_cols]]
+            site_lvls = levels(factor(site_vec))
+            G_all = private$.encode_site(site_vec, site_lvls, strategy = "other")
+            G_fit = G_all[idx_fit, , drop = FALSE]
+            design_kind = "categorical"
           } else {
-            Z_all <- dt[, .SD, .SDcols = site_cols]
+            Z_all = dt[, .SD, .SDcols = site_cols]
             for (cc in names(Z_all)) if (is.character(Z_all[[cc]])) Z_all[, (cc) := factor(get(cc))]
-            G_all <- stats::model.matrix(~ ., data = Z_all)
-            G_fit <- G_all[idx_fit, , drop = FALSE]
-            site_lvls <- NULL
-            design_kind <- "matrix"
+            G_all = stats::model.matrix(~., data = Z_all)
+            G_fit = G_all[idx_fit, , drop = FALSE]
+            site_lvls = NULL
+            design_kind = "matrix"
           }
-          design_cols <- colnames(G_fit)
+          design_cols = colnames(G_fit)
 
-          lambda <- pv$regularization %||% 0
+          lambda = pv$regularization %||% 0
           if (lambda > 0) {
-            beta <- cpp_lm_coeff_ridge(
+            beta = cpp_lm_coeff_ridge(
               as.matrix(G_fit),
               as.matrix(X[idx_fit, , drop = FALSE]),
               lambda,
               which(colnames(G_fit) %in% c("(Intercept)")) - 1L
             )
           } else {
-            beta <- cpp_lm_coeff(
+            beta = cpp_lm_coeff(
               as.matrix(G_fit),
               as.matrix(X[idx_fit, , drop = FALSE])
             )
           }
 
-          rownames(beta) <- colnames(G_fit)
-          colnames(beta) <- colnames(X)
+          rownames(beta) = colnames(G_fit)
+          colnames(beta) = colnames(X)
 
-          mu <- colMeans(X, na.rm = TRUE)
-          Xcorr <- if (isTRUE(pv$revertflag)) X + G_all %*% beta else X - G_all %*% beta
+          mu = colMeans(X, na.rm = TRUE)
+          Xcorr = if (isTRUE(pv$revertflag)) X + G_all %*% beta else X - G_all %*% beta
           if (!isTRUE(pv$zero_center)) Xcorr <- sweep(Xcorr, 2, mu, "+")
           dt[, (Xcols) := as.data.table(Xcorr)]
 
-          per_block[[bn]] <- list(
+          per_block[[bn]] = list(
             method      = "partial_corr",
             site_cols   = site_cols,
             design_cols = design_cols,
@@ -414,7 +429,7 @@ PipeOpSiteCorrection = R6::R6Class(
             design_kind = design_kind,
             site_lvls   = site_lvls
           )
-          blocks_eff[[bn]] <- Xcols
+          blocks_eff[[bn]] = Xcols
 
         } else if (identical(method, "combat")) {
 
@@ -422,47 +437,48 @@ PipeOpSiteCorrection = R6::R6Class(
 
           # Build mod from covariates (if any)
           if (length(combat_covs)) {
-            Zcov <- dt[, .SD, .SDcols = combat_covs]
+            Zcov = dt[, .SD, .SDcols = combat_covs]
             for (cc in names(Zcov)) if (is.character(Zcov[[cc]])) Zcov[, (cc) := factor(get(cc))]
-            mod_mat <- stats::model.matrix(~ ., data = Zcov)
+            mod_mat = stats::model.matrix(~., data = Zcov)
           } else {
-            mod_mat <- NULL
+            mod_mat = NULL
           }
 
-          site_vec <- dt[[combat_site]]
-          res <- neuroCombat::neuroCombat(
-            dat       = t(X),
-            batch     = site_vec,
-            mod       = mod_mat,
-            eb        = pv$eb %||% TRUE,
-            parametric= TRUE,
+          site_vec = dt[[combat_site]]
+          res = neuroCombat::neuroCombat(
+            dat = t(X),
+            batch = site_vec,
+            mod = mod_mat,
+            eb = pv$eb %||% TRUE,
+            parametric = TRUE,
             mean.only = pv$mean_only %||% FALSE,
             ref.batch = pv$ref_batch,
-            verbose   = pv$verbose %||% FALSE
+            verbose = pv$verbose %||% FALSE
           )
           dt[, (Xcols) := as.data.table(t(res$dat.combat))]
 
-          valid_batches <- private$.combat_valid_batches(res$estimates)
-          per_block[[bn]] <- list(
+          valid_batches = private$.combat_valid_batches(res$estimates)
+          per_block[[bn]] = list(
             method     = "combat",
-            site_cols  = site_cols,           # union(site_var, covariates)
-            site_var   = combat_site,         # single batch column
-            covariates = combat_covs,         # character()
+            site_cols  = site_cols, # union(site_var, covariates)
+            site_var   = combat_site, # single batch column
+            covariates = combat_covs, # character()
             site_lvls  = valid_batches,
             estimates  = res$estimates,
             ref_batch  = if (!is.null(pv$ref_batch) && pv$ref_batch %in% valid_batches) pv$ref_batch else valid_batches[1]
           )
-          blocks_eff[[bn]] <- Xcols
+          blocks_eff[[bn]] = Xcols
 
         } else if (identical(method, "dir")) {
 
           if (!have_fm) stop("DIR requires the 'fairmodels' package.")
-          if (length(site_cols) != 1L)
+          if (length(site_cols) != 1L) {
             stop(sprintf("Block '%s' (dir): exactly one categorical column required.", bn))
+          }
 
-          prot_vec <- factor(dt[[site_cols]])
-          dat <- data.frame(dt[, .SD, .SDcols = Xcols], protected = prot_vec)
-          repaired <- fairmodels::disparate_impact_remover(
+          prot_vec = factor(dt[[site_cols]])
+          dat = data.frame(dt[, .SD, .SDcols = Xcols], protected = prot_vec)
+          repaired = fairmodels::disparate_impact_remover(
             data                  = dat,
             protected             = prot_vec,
             features_to_transform = Xcols,
@@ -470,52 +486,52 @@ PipeOpSiteCorrection = R6::R6Class(
           )
           dt[, (Xcols) := as.data.table(repaired[, Xcols, drop = FALSE])]
 
-          per_block[[bn]] <- list(
+          per_block[[bn]] = list(
             method    = "dir",
             site_cols = site_cols,
             site_lvls = levels(prot_vec),
             lambda    = pv$lambda %||% 0.5
           )
-          blocks_eff[[bn]] <- Xcols
+          blocks_eff[[bn]] = Xcols
 
         } else {
           stop(sprintf("Unknown method '%s' for block '%s'", method, bn))
         }
       }
 
-      out_dt <- dt
-      row_ids <- task$row_ids
+      out_dt = dt
+      row_ids = task$row_ids
       if (!"..row_id" %in% names(out_dt)) out_dt[, "..row_id" := row_ids]
 
       # --- bring back all non-feature-role columns from the original task
-      roles_orig <- task$col_roles
-      nonfeat_roles <- setdiff(names(roles_orig), "feature")
-      extra_cols <- unique(unlist(roles_orig[nonfeat_roles], use.names = FALSE))
-      extra_cols <- setdiff(extra_cols, names(dt))  # avoid duplicates
+      roles_orig = task$col_roles
+      nonfeat_roles = setdiff(names(roles_orig), "feature")
+      extra_cols = unique(unlist(roles_orig[nonfeat_roles], use.names = FALSE))
+      extra_cols = setdiff(extra_cols, names(dt)) # avoid duplicates
 
       if (length(extra_cols)) {
-        extra_dt <- task$data(rows = task$row_ids, cols = extra_cols)
-        dt_out <- cbind(dt, extra_dt)
+        extra_dt = task$data(rows = task$row_ids, cols = extra_cols)
+        dt_out = cbind(dt, extra_dt)
       } else {
-        dt_out <- dt
+        dt_out = dt
       }
 
-      new_task <- task$clone()
-      new_task$backend <- mlr3::as_data_backend(dt_out, primary_key = "..row_id")
+      new_task = task$clone()
+      new_task$backend = mlr3::as_data_backend(dt_out, primary_key = "..row_id")
 
       # --- features (drop referenced columns from features if keep_site_col = FALSE)
-      keep_site <- pv$keep_site_col %||% FALSE
-      all_site_cols <- unique(unlist(lapply(per_block, `[[`, "site_cols"), use.names = FALSE))
-      all_site_cols <- intersect(all_site_cols, names(dt_out))
-      feat_cols <- if (keep_site) task$feature_names else setdiff(task$feature_names, all_site_cols)
+      keep_site = pv$keep_site_col %||% FALSE
+      all_site_cols = unique(unlist(lapply(per_block, `[[`, "site_cols"), use.names = FALSE))
+      all_site_cols = intersect(all_site_cols, names(dt_out))
+      feat_cols = if (keep_site) task$feature_names else setdiff(task$feature_names, all_site_cols)
 
-      present <- names(dt_out)
-      new_roles <- roles_orig
-      new_roles$feature <- setdiff(feat_cols, "..row_id")
-      for (rn in names(new_roles)) new_roles[[rn]] <- intersect(new_roles[[rn]], present)
-      new_task$col_roles <- new_roles
+      present = names(dt_out)
+      new_roles = roles_orig
+      new_roles$feature = setdiff(feat_cols, "..row_id")
+      for (rn in names(new_roles)) new_roles[[rn]] = intersect(new_roles[[rn]], present)
+      new_task$col_roles = new_roles
 
-      self$state <- list(
+      self$state = list(
         blocks        = blocks_eff,
         per_block     = per_block,
         unknown_site  = pv$unknown_site,
@@ -527,8 +543,8 @@ PipeOpSiteCorrection = R6::R6Class(
         length(self$state$per_block),
         length(self$state$blocks),
         paste(vapply(names(self$state$per_block), function(bn) {
-          info   <- self$state$per_block[[bn]]
-          featsN <- length(self$state$blocks[[bn]])
+          info = self$state$per_block[[bn]]
+          featsN = length(self$state$blocks[[bn]])
           paste0(
             bn, "{", info$method,
             "; feats=", featsN,
@@ -538,9 +554,11 @@ PipeOpSiteCorrection = R6::R6Class(
           )
         }, character(1)), collapse = "; "),
         if (is.null(self$state$unknown_site)) "other" else self$state$unknown_site,
-        { v <- self$param_set$get_values(tags = "predict")$combat_unknown
+        {
+          v = self$param_set$get_values(tags = "predict")$combat_unknown
           if (is.null(v)) v <- self$param_set$get_values(tags = "train")$combat_unknown
-          if (is.null(v)) "noop" else v },
+          if (is.null(v)) "noop" else v
+        },
         as.character(isTRUE(self$state$keep_site_col))
       )
 
@@ -550,120 +568,121 @@ PipeOpSiteCorrection = R6::R6Class(
     # ---- predict ------------------------------------------------------------
 
     .predict_task = function(task) {
-      st <- self$state
-      pv <- utils::modifyList(paradox::default_values(self$param_set),
-                              self$param_set$get_values(tags = "predict"),
-                              keep.null = TRUE)
+      st = self$state
+      pv = utils::modifyList(paradox::default_values(self$param_set),
+        self$param_set$get_values(tags = "predict"),
+        keep.null = TRUE)
 
-      task_copy <- task$clone()
-      site_cols_needed <- unique(unlist(lapply(st$per_block, `[[`, "site_cols"), use.names = FALSE))
-      cols_needed <- unique(c(task_copy$feature_names, site_cols_needed))
-      dt <- task_copy$data(rows = task_copy$row_ids, cols = cols_needed)
+      task_copy = task$clone()
+      site_cols_needed = unique(unlist(lapply(st$per_block, `[[`, "site_cols"), use.names = FALSE))
+      cols_needed = unique(c(task_copy$feature_names, site_cols_needed))
+      dt = task_copy$data(rows = task_copy$row_ids, cols = cols_needed)
 
-      trained_feats <- unique(unlist(st$blocks, use.names = FALSE))
-      miss <- setdiff(trained_feats, names(dt))
+      trained_feats = unique(unlist(st$blocks, use.names = FALSE))
+      miss = setdiff(trained_feats, names(dt))
       if (length(miss)) dt[, (miss) := 0.0]
 
-      unknown_strategy <- pv$unknown_site %||% st$unknown_site %||% "other"
-      combat_policy    <- pv$combat_unknown %||% "noop"
+      unknown_strategy = pv$unknown_site %||% st$unknown_site %||% "other"
+      combat_policy = pv$combat_unknown %||% "noop"
 
       for (bn in names(st$blocks)) {
-        info <- st$per_block[[bn]]
+        info = st$per_block[[bn]]
         if (is.null(info)) next
 
-        Xcols <- st$blocks[[bn]]
-        X <- as.matrix(dt[, .SD, .SDcols = Xcols])
+        Xcols = st$blocks[[bn]]
+        X = as.matrix(dt[, .SD, .SDcols = Xcols])
 
         if (identical(info$method, "partial_corr")) {
           # rebuild design
           if (identical(info$design_kind, "categorical")) {
-            site_vec <- dt[[info$site_cols]]
-            s <- as.character(site_vec)
-            unseen_mask <- !(s %in% info$site_lvls) | is.na(s)
-            G <- private$.encode_site(site_vec, info$site_lvls,
-                                      strategy = ifelse(unknown_strategy == "baseline", "baseline", "other"))
-            add <- setdiff(info$design_cols, colnames(G))
+            site_vec = dt[[info$site_cols]]
+            s = as.character(site_vec)
+            unseen_mask = !(s %in% info$site_lvls) | is.na(s)
+            G = private$.encode_site(site_vec, info$site_lvls,
+              strategy = ifelse(unknown_strategy == "baseline", "baseline", "other"))
+            add = setdiff(info$design_cols, colnames(G))
             if (length(add)) G <- cbind(G, matrix(0, nrow(G), length(add), dimnames = list(NULL, add)))
-            drop <- setdiff(colnames(G), info$design_cols)
+            drop = setdiff(colnames(G), info$design_cols)
             if (length(drop)) G <- G[, setdiff(colnames(G), drop), drop = FALSE]
-            G <- G[, info$design_cols, drop = FALSE]
+            G = G[, info$design_cols, drop = FALSE]
             if (any(unseen_mask)) G[unseen_mask, ] <- 0
           } else {
-            Z_new <- dt[, .SD, .SDcols = info$site_cols]
+            Z_new = dt[, .SD, .SDcols = info$site_cols]
             for (cc in names(Z_new)) if (is.character(Z_new[[cc]])) Z_new[, (cc) := factor(get(cc))]
-            G <- stats::model.matrix(~ ., data = Z_new)
-            add  <- setdiff(info$design_cols, colnames(G))
+            G = stats::model.matrix(~., data = Z_new)
+            add = setdiff(info$design_cols, colnames(G))
             if (length(add)) G <- cbind(G, matrix(0, nrow(G), length(add), dimnames = list(NULL, add)))
-            drop <- setdiff(colnames(G), info$design_cols)
+            drop = setdiff(colnames(G), info$design_cols)
             if (length(drop)) G <- G[, setdiff(colnames(G), drop), drop = FALSE]
-            G <- G[, info$design_cols, drop = FALSE]
+            G = G[, info$design_cols, drop = FALSE]
           }
 
           if (nrow(G) != nrow(X)) {
             warning(sprintf("Block '%s' (partial_corr): cannot align rows (G %dx%d vs X %dx%d); skipping.",
-                            bn, nrow(G), ncol(G), nrow(X), ncol(X)))
+              bn, nrow(G), ncol(G), nrow(X), ncol(X)))
             next
           }
 
-          beta <- info$beta
+          beta = info$beta
           if (is.null(rownames(beta))) rownames(beta) <- info$design_cols
-          miss_r <- setdiff(colnames(G), rownames(beta))
+          miss_r = setdiff(colnames(G), rownames(beta))
           if (length(miss_r)) {
-            beta <- rbind(beta, matrix(0, nrow = length(miss_r), ncol = ncol(beta),
-                                       dimnames = list(miss_r, colnames(beta))))
+            beta = rbind(beta, matrix(0, nrow = length(miss_r), ncol = ncol(beta),
+              dimnames = list(miss_r, colnames(beta))))
           }
-          beta <- beta[colnames(G), , drop = FALSE]
+          beta = beta[colnames(G), , drop = FALSE]
 
-          miss_c <- setdiff(colnames(beta), colnames(X))
+          miss_c = setdiff(colnames(beta), colnames(X))
           if (length(miss_c)) {
-            X <- cbind(X, matrix(0, nrow = nrow(X), ncol = length(miss_c),
-                                 dimnames = list(NULL, miss_c)))
+            X = cbind(X, matrix(0, nrow = nrow(X), ncol = length(miss_c),
+              dimnames = list(NULL, miss_c)))
           }
-          extra_c <- setdiff(colnames(X), colnames(beta))
+          extra_c = setdiff(colnames(X), colnames(beta))
           if (length(extra_c)) X <- X[, setdiff(colnames(X), extra_c), drop = FALSE]
-          X <- X[, colnames(beta), drop = FALSE]
+          X = X[, colnames(beta), drop = FALSE]
 
-          GB <- G %*% beta
+          GB = G %*% beta
           if (!identical(colnames(GB), colnames(X))) {
-            miss_gb <- setdiff(colnames(X), colnames(GB))
+            miss_gb = setdiff(colnames(X), colnames(GB))
             if (length(miss_gb)) {
-              GB <- cbind(GB, matrix(0, nrow = nrow(GB), ncol = length(miss_gb),
-                                     dimnames = list(NULL, miss_gb)))
+              GB = cbind(GB, matrix(0, nrow = nrow(GB), ncol = length(miss_gb),
+                dimnames = list(NULL, miss_gb)))
             }
-            extra_gb <- setdiff(colnames(GB), colnames(X))
+            extra_gb = setdiff(colnames(GB), colnames(X))
             if (length(extra_gb)) GB <- GB[, setdiff(colnames(GB), extra_gb), drop = FALSE]
-            GB <- GB[, colnames(X), drop = FALSE]
+            GB = GB[, colnames(X), drop = FALSE]
           }
 
-          Xcorr <- if (isTRUE(info$revert)) X + GB else X - GB
+          Xcorr = if (isTRUE(info$revert)) X + GB else X - GB
           if (!isTRUE(info$zero_center) && !is.null(info$means) && length(info$means) == ncol(Xcorr)) {
-            Xcorr <- sweep(Xcorr, 2, info$means, "+")
+            Xcorr = sweep(Xcorr, 2, info$means, "+")
           }
           dt[, (Xcols) := as.data.table(Xcorr)]
 
         } else if (identical(info$method, "combat")) {
           if (!("neuroCombat" %in% loadedNamespaces())) stop("ComBat predict requires 'neuroCombat'.")
-          valid <- private$.combat_valid_batches(info$estimates)
+          valid = private$.combat_valid_batches(info$estimates)
           if (!length(valid)) next
 
           # use only the single site var for batch at predict time
-          batch_chr  <- as.character(dt[[info$site_var]])
-          known_mask <- (batch_chr %in% valid) & !is.na(batch_chr)
+          batch_chr = as.character(dt[[info$site_var]])
+          known_mask = (batch_chr %in% valid) & !is.na(batch_chr)
 
           if (identical(combat_policy, "noop")) {
-            idx <- which(known_mask)
+            idx = which(known_mask)
             if (!length(idx)) next
-            Yk  <- t(as.matrix(dt[idx, .SD, .SDcols = Xcols]))
-            bk  <- factor(batch_chr[idx], levels = valid)
-            Yck <- tryCatch(neuroCombat::neuroCombatFromTraining(
+            Yk = t(as.matrix(dt[idx, .SD, .SDcols = Xcols]))
+            bk = factor(batch_chr[idx], levels = valid)
+            Yck = tryCatch(neuroCombat::neuroCombatFromTraining(
               dat = Yk, batch = bk, estimates = info$estimates
             )$dat.combat, error = function(e) NULL)
             if (!is.null(Yck)) dt[idx, (Xcols) := as.data.table(t(Yck))]
           } else {
-            baseline <- if (!is.null(info$ref_batch) && info$ref_batch %in% valid) info$ref_batch else valid[1]
-            bmap <- batch_chr; bmap[!known_mask | is.na(bmap)] <- baseline
-            Y <- t(as.matrix(dt[, .SD, .SDcols = Xcols]))
-            Yc <- tryCatch(neuroCombat::neuroCombatFromTraining(
+            baseline = if (!is.null(info$ref_batch) && info$ref_batch %in% valid) info$ref_batch else valid[1]
+            bmap = batch_chr
+            bmap[!known_mask | is.na(bmap)] = baseline
+            Y = t(as.matrix(dt[, .SD, .SDcols = Xcols]))
+            Yc = tryCatch(neuroCombat::neuroCombatFromTraining(
               dat = Y, batch = factor(bmap, levels = valid), estimates = info$estimates
             )$dat.combat, error = function(e) NULL)
             if (!is.null(Yc)) dt[, (Xcols) := as.data.table(t(Yc))]
@@ -671,9 +690,9 @@ PipeOpSiteCorrection = R6::R6Class(
 
         } else if (identical(info$method, "dir")) {
           if (!("fairmodels" %in% loadedNamespaces())) stop("DIR predict requires 'fairmodels'.")
-          prot_vec <- factor(dt[[info$site_cols]], levels = info$site_lvls)
-          dat <- data.frame(dt[, .SD, .SDcols = Xcols], protected = prot_vec)
-          repaired <- fairmodels::disparate_impact_remover(
+          prot_vec = factor(dt[[info$site_cols]], levels = info$site_lvls)
+          dat = data.frame(dt[, .SD, .SDcols = Xcols], protected = prot_vec)
+          repaired = fairmodels::disparate_impact_remover(
             data                  = dat,
             protected             = prot_vec,
             features_to_transform = Xcols,
@@ -683,37 +702,37 @@ PipeOpSiteCorrection = R6::R6Class(
         }
       }
 
-      out_dt <- dt
-      row_ids <- task$row_ids
+      out_dt = dt
+      row_ids = task$row_ids
       if (!"..row_id" %in% names(out_dt)) out_dt[, "..row_id" := row_ids]
 
       # --- bring back all non-feature-role columns from the original task
-      roles_orig <- task$col_roles
-      nonfeat_roles <- setdiff(names(roles_orig), "feature")
-      extra_cols <- unique(unlist(roles_orig[nonfeat_roles], use.names = FALSE))
-      extra_cols <- setdiff(extra_cols, names(dt))  # avoid duplicates
+      roles_orig = task$col_roles
+      nonfeat_roles = setdiff(names(roles_orig), "feature")
+      extra_cols = unique(unlist(roles_orig[nonfeat_roles], use.names = FALSE))
+      extra_cols = setdiff(extra_cols, names(dt)) # avoid duplicates
 
       if (length(extra_cols)) {
-        extra_dt <- task$data(rows = task$row_ids, cols = extra_cols)
-        dt_out <- cbind(dt, extra_dt)
+        extra_dt = task$data(rows = task$row_ids, cols = extra_cols)
+        dt_out = cbind(dt, extra_dt)
       } else {
-        dt_out <- dt
+        dt_out = dt
       }
 
-      new_task <- task_copy$clone()
-      new_task$backend <- mlr3::as_data_backend(dt_out, primary_key = "..row_id")
+      new_task = task_copy$clone()
+      new_task$backend = mlr3::as_data_backend(dt_out, primary_key = "..row_id")
 
       # --- features (drop referenced columns from features if keep_site_col = FALSE)
-      keep_site <- pv$keep_site_col %||% FALSE
-      all_site_cols <- unique(unlist(lapply(st$per_block, `[[`, "site_cols"), use.names = FALSE))
-      all_site_cols <- intersect(all_site_cols, names(dt_out))
-      feat_cols <- if (keep_site) task$feature_names else setdiff(task$feature_names, all_site_cols)
+      keep_site = pv$keep_site_col %||% FALSE
+      all_site_cols = unique(unlist(lapply(st$per_block, `[[`, "site_cols"), use.names = FALSE))
+      all_site_cols = intersect(all_site_cols, names(dt_out))
+      feat_cols = if (keep_site) task$feature_names else setdiff(task$feature_names, all_site_cols)
 
-      present <- names(dt_out)
-      new_roles <- roles_orig
-      new_roles$feature <- setdiff(feat_cols, "..row_id")
-      for (rn in names(new_roles)) new_roles[[rn]] <- intersect(new_roles[[rn]], present)
-      new_task$col_roles <- new_roles
+      present = names(dt_out)
+      new_roles = roles_orig
+      new_roles$feature = setdiff(feat_cols, "..row_id")
+      for (rn in names(new_roles)) new_roles[[rn]] = intersect(new_roles[[rn]], present)
+      new_task$col_roles = new_roles
 
       new_task
     }
