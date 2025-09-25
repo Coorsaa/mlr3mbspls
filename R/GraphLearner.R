@@ -381,6 +381,7 @@ autoplot.GraphLearner = function(object,
     .mbspls_plot_weights_single_component(df_sub, block_levels, title = title, font = font)
   })
 
+  patch_ncol = min(patch_ncol, length(plots))
   p = Reduce(`+`, plots) + patchwork::plot_layout(ncol = patch_ncol, guides = "collect")
 
   ttl = if (identical(source, "weights")) {
