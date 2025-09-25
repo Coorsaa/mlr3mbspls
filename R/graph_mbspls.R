@@ -101,6 +101,7 @@ mbspls_graph_learner <- function(
   B = 500L,
   alpha = 0.05,
   align = c("block_sign", "score_correlation"),
+  bootstrap_selection = TRUE,
   selection_method = c("ci","frequency"),
   frequency_threshold = 0.60,
   stratify_by_block = NULL,
@@ -121,6 +122,20 @@ mbspls_graph_learner <- function(
 
   log_env <- if (is.null(log_env)) new.env(parent = emptyenv()) else log_env
 
+  if (isTRUE(bootstrap_selection)) { 
+    po_bootstrap_select = po("mbspls_bootstrap_select",
+       log_env   = log_env,
+       bootstrap = bootstrap,
+       B         = B,
+       alpha     = alpha,
+       align     = align,
+       selection_method    = selection_method,
+       frequency_threshold = frequency_threshold,
+       stratify_by_block   = stratify_by_block,
+       workers             = workers
+    )
+  }
+  
   graph <- ppl("mbspls_preproc",
                blocks = blocks,
                site_correction = site_correction,
@@ -147,19 +162,13 @@ mbspls_graph_learner <- function(
 
        # expose training snapshot for selection
        store_train_blocks = isTRUE(bootstrap),
+       append = isTRUE(bootstrap_selection),
        log_env = log_env
-    ) %>>%
-    po("mbspls_bootstrap_select",
-       log_env   = log_env,
-       bootstrap = bootstrap,
-       B         = B,
-       alpha     = alpha,
-       align     = align,
-       selection_method    = selection_method,
-       frequency_threshold = frequency_threshold,
-       stratify_by_block   = stratify_by_block,
-       workers             = workers
-    ) %>>%
+    )
+  if (isTRUE(bootstrap_selection)) { 
+    graph <- graph %>>% po_bootstrap_select
+  }
+  graph <- graph %>>%
     po("learner", learner)
 
   gl <- GraphLearner$new(graph)

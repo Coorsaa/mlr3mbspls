@@ -434,6 +434,8 @@ PipeOpMBsPLS = R6::R6Class(
             val_test_p[k]    <- as.numeric(res)
             val_test_stat[k] <- NA_real_
           }
+          lgr$info("Component %d: prediction-side permutation test p = %s",
+                   k, if (is.na(val_test_p[k])) "NA" else formatC(val_test_p[k], digits = 3, format = "f"))
         }
 
         if (val_test == "bootstrap") {
