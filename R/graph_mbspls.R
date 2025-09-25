@@ -19,7 +19,7 @@ mbspls_preproc_graph = function(
   id_suffix = NULL
 ) {
   assert_list(blocks, types = "character", names = "unique")
-  assert_list(site_correction, types = "character", names = "unique")
+  assert_list(site_correction, types = c("character", "list"), names = "unique")
   assert_list(site_correction_methods, types = "character", names = "unique")
 
   ppl_convert_types = ppl("convert_types", "character", "factor")
@@ -110,7 +110,7 @@ mbspls_graph_learner = function(
   log_env = NULL
 ) {
   checkmate::assert_list(blocks, types = "character", names = "unique")
-  checkmate::assert_list(site_correction, types = "character", names = "unique")
+  checkmate::assert_list(site_correction, types = c("character", "list"), names = "unique")
   checkmate::assert_list(site_correction_methods, types = "character", names = "unique")
   checkmate::assert_int(ncomp, lower = 1)
   performance_metric = match.arg(performance_metric)

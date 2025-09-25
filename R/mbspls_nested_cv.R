@@ -116,10 +116,9 @@ mbspls_nested_cv = function(
 
     lgr$info(paste0("  Evaluating on outer test fold ", i, "/", outer_iters, "..."))
 
-    graphlerner$train(task_tr)
-    graphleaner$predict(task_te)
+    graphlearner$train(task_tr)
+    graphlearner$predict(task_te)
     payload = log_env_te$last
-
     if (is.null(payload)) {
       res_row = data.table::data.table(
         split          = i,

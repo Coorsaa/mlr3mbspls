@@ -78,6 +78,7 @@ library(mlr3pipelines)
 library(mlr3cluster)
 library(mlr3mbspls)
 library(data.table)
+library(mlr3mbspls)
 
 set.seed(42)
 n = 200
@@ -93,7 +94,7 @@ blocks = list(
   metabol  = grep("^metabol_", names(dt), value = TRUE)
 )
 
-task = TaskClust$new("mb", backend = dt, target = "id")
+task = TaskClust$new("mb", backend = dt)
 task$select(setdiff(task$feature_names, "id"))
 
 graph = po("blockscale", param_vals = list(blocks = blocks, method = "unit_ssq")) %>>%
@@ -126,22 +127,47 @@ gl_sel = as_learner(graph_sel)
 gl_sel$train(task)
 
 # Stable (post-selection) latent columns now in the task representation
-names(gl_sel$model$pipeops$mbspls_bootstrap_select$state$weights_stable)
+gl_sel$model$mbspls_bootstrap_select$kept_blocks_per_comp
 ```
 
 ---
 ## 🛠 Higher Level Convenience Graph
 
 ```r
-# Suppose we possess site / batch columns to correct (example placeholders)
-site_corr = list(site = "site", batch = "batch")
-site_methods = list(site = "zscore", batch = "zscore")
+# --- Site / batch effect correction example ---
+# PipeOpSiteCorrection supports per-block methods: "partial_corr", "combat", "dir".
+# For "combat" supply a list with elements site=<char1>, covariates=<char_vec>.
+# For "partial_corr" supply a character vector of (site + optional covariates) columns.
+
+# Add mock site / batch / covariate columns to the data (if not already present)
+dt[, site  := sample(c("S1","S2","S3"), .N, TRUE)]
+dt[, batch := sample(c("B1","B2"),   .N, TRUE)]
+dt[, age   := rnorm(.N, 50, 8)]
+dt[, sex   := sample(c("F","M"), .N, TRUE)]
+
+# Update task backend to include new columns
+task = TaskClust$new("mb", backend = dt)
+task$select(setdiff(task$feature_names, "id"))
+
+# Per-block site correction specifications
+site_correction = list(
+  clinical = list(site = "site", covariates = c("age","sex")), # ComBat with covariates
+  genomics = c("batch"),                                          # partial correlation on batch
+  metabol  = "site"                                               # single categorical site (partial_corr)
+)
+
+# Corresponding methods per block
+site_correction_methods = list(
+  clinical = "combat",
+  genomics = "partial_corr",
+  metabol  = "partial_corr"
+)
 
 gl_full = mbspls_graph_learner(
   blocks = blocks,
-  site_correction = site_corr,
-  site_correction_methods = site_methods,
-  keep_site_col = FALSE,
+  site_correction = site_correction,
+  site_correction_methods = site_correction_methods,
+  keep_site_col = FALSE,      # drop site / covariate columns after correction
   ncomp = 3L,
   performance_metric = "mac",
   permutation_test = TRUE,
@@ -149,7 +175,7 @@ gl_full = mbspls_graph_learner(
   bootstrap = TRUE,
   B = 100L,
   selection_method = "frequency",
-  frequency_threshold = 0.5
+  frequency_threshold = 0.1
 )
 
 gl_full$train(task)
@@ -159,19 +185,19 @@ gl_full$train(task)
 ## 📊 Visualisation Examples
 
 ```r
-library(ggplot2)
+library(mlr3viz)
+autoplot(gl_sel, type = "mbspls_weights", source = "weights", top_n = 10)
 autoplot(gl_sel, type = "mbspls_weights", top_n = 5)
 autoplot(gl_sel, type = "mbspls_variance", show_total = TRUE)
-autoplot(gl_sel, type = "mbspls_scree")
-autoplot(gl_sel, type = "mbspls_heatmap", method = "spearman")
+autoplot(gl_sel, type = "mbspls_heatmap", method = "spearman", absolute = FALSE)
 # Optional network (needs igraph/ggraph installed)
-# autoplot(gl_sel, type = "mbspls_network", cutoff = 0.3)
+# autoplot(gl_sel, type = "mbspls_network", cutoff = 0.1)
 ```
 
 `mbspls_plot_block_weight_ci()` produces per‑block weight confidence intervals after bootstrap selection:
 
 ```r
-mbspls_plot_block_weight_ci(gl_sel, component = 1, top_n = 10)
+mbspls_plot_block_weight_ci(gl_sel, source = "bootstrap", alpha_by_stability = TRUE)
 ```
 
 ---
@@ -197,9 +223,10 @@ rr$aggregate()
 ## 🔄 Nested Cross-Validation
 
 ```r
+library(mlr3tuning)
 res_nested = mbspls_nested_cv(
   task = task,
-  graphlearner = gl,
+  graphlearner = gl_full,
   rs_outer = rsmp("cv", folds = 3),
   rs_inner = rsmp("cv", folds = 2),
   ncomp = 4L,
@@ -218,12 +245,13 @@ Batchtools version (for HPC) is available via `mbspls_nested_cv_batchtools()`.
 tuner = TunerSeqMBsPLS$new()
 instance = ti(
   task = task,
-  learner = gl,
+  learner = gl_full,
   resampling = rsmp("cv", folds = 2),
   measures = msr("mbspls.mac"),
   terminator = trm("evals", n_evals = 20)
 )
 # tuner$optimize(instance)
+# instance$result$learner_param_vals[[1]]$c_matrix
 ```
 
 ---

@@ -465,6 +465,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       pv = utils::modifyList(paradox::default_values(self$param_set),
         self$param_set$get_values(tags = "train"),
         keep.null = TRUE)
+
       st_env = private$.get_env_state(pv)
 
       dt_all = task$data()
@@ -482,12 +483,25 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       X_blocks_train = st_env$X_train_blocks
       if (is.null(X_blocks_train)) {
         lgr$warn("X_train_blocks not in env; rebuilding from current task for bootstrap stage.")
+      }
+      # Rebuild if row count no longer matches (e.g., upstream row filtering PipeOp)
+      if (!is.null(X_blocks_train)) {
+        n_env = unique(vapply(X_blocks_train, nrow, integer(1)))
+        if (length(n_env) != 1L) {
+          lgr$warn("Inconsistent row counts among stored X_train_blocks; rebuilding.")
+          X_blocks_train = NULL
+        } else if (n_env != nrow(dt_all)) {
+          lgr$info("Rebuilding X_train_blocks: task has %d rows, stored matrices had %d.", nrow(dt_all), n_env)
+          X_blocks_train = NULL
+        }
+      }
+      if (is.null(X_blocks_train)) {
         X_blocks_train = lapply(blocks_map, function(cols) {
           miss = setdiff(cols, names(dt_all))
-          if (length(miss)) for (m in miss) dt_all[, (m) := 0.0]
-          m = as.matrix(dt_all[, ..cols])
-          storage.mode(m) = "double"
-          m
+            if (length(miss)) for (m in miss) dt_all[, (m) := 0.0]
+            m = as.matrix(dt_all[, ..cols])
+            storage.mode(m) = "double"
+            m
         })
       }
 
@@ -594,7 +608,8 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       }
 
       # recompute training scores with deflation using W_stable
-      X_train = st_env$X_train_blocks %||% X_blocks_train
+  # Use the (potentially rebuilt) X_blocks_train to ensure alignment with current task rows
+  X_train = X_blocks_train
       rec = private$.recompute_scores_deflated(X_train, W_stable, names(blocks_map))
       T_all_dt = rec$T_mat
       P_all = rec$P
