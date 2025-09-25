@@ -57,11 +57,11 @@ PipeOpTargetLabelFilter = R6::R6Class(
     #' @param id character(1). Identifier (default: "target_label_filter").
     #' @param param_vals list. Initial ParamSet values.
     initialize = function(id = "target_label_filter", param_vals = list()) {
-      ps <- paradox::ps(
+      ps = paradox::ps(
         labels             = p_uty(tags = c("train", "predict"), default = NULL),
         target             = p_uty(tags = c("train", "predict"), default = NULL),
         invert             = p_lgl(default = FALSE, tags = c("train", "predict")),
-        drop_unused_levels = p_lgl(default = TRUE,  tags = c("train", "predict")),
+        drop_unused_levels = p_lgl(default = TRUE, tags = c("train", "predict")),
         drop_stratum       = p_lgl(default = FALSE, tags = c("train", "predict"))
       )
       super$initialize(id = id, param_set = ps, param_vals = param_vals)
@@ -71,10 +71,10 @@ PipeOpTargetLabelFilter = R6::R6Class(
   private = list(
 
     .apply_filter = function(task, stage = c("train", "predict")) {
-      stage <- match.arg(stage)
+      stage = match.arg(stage)
 
       # Resolve params for this stage
-      pv <- utils::modifyList(
+      pv = utils::modifyList(
         paradox::default_values(self$param_set),
         self$param_set$get_values(tags = stage),
         keep.null = TRUE
@@ -82,23 +82,23 @@ PipeOpTargetLabelFilter = R6::R6Class(
 
       # Optionally drop the 'stratum' role from columns that are neither features nor targets
       if (isTRUE(pv$drop_stratum)) {
-        strata_cols <- task$col_roles$stratum
+        strata_cols = task$col_roles$stratum
         if (length(strata_cols)) {
-          keep_cols <- unique(c(task$feature_names, task$target_names))
-          drop_cols <- setdiff(strata_cols, keep_cols)
+          keep_cols = unique(c(task$feature_names, task$target_names))
+          drop_cols = setdiff(strata_cols, keep_cols)
           if (length(drop_cols)) {
             # Remove ALL roles from these columns (they were not feature/target anyway)
             task$set_col_roles(drop_cols, roles = character(0))
             lgr$info("[%s] Dropped stratum role from %d column(s): %s",
-                     self$id, length(drop_cols), paste(drop_cols, collapse = ", "))
+              self$id, length(drop_cols), paste(drop_cols, collapse = ", "))
           }
         }
       }
 
       # Determine target column
-      trg <- pv$target
+      trg = pv$target
       if (is.null(trg) || !is.character(trg) || length(trg) != 1L) {
-        trg <- if (length(task$target_names)) task$target_names[1L] else NULL
+        trg = if (length(task$target_names)) task$target_names[1L] else NULL
       }
       if (is.null(trg) || !(trg %in% task$target_names)) {
         if (stage == "train") {
@@ -108,12 +108,14 @@ PipeOpTargetLabelFilter = R6::R6Class(
       }
 
       # If no labels were provided -> pass-through
-      if (is.null(pv$labels)) return(task)
+      if (is.null(pv$labels)) {
+        return(task)
+      }
 
       # Compute keep mask from current data
-      dt <- task$data(cols = trg)
-      y  <- dt[[trg]]
-      keep <- y %in% pv$labels
+      dt = task$data(cols = trg)
+      y = dt[[trg]]
+      keep = y %in% pv$labels
       if (isTRUE(pv$invert)) keep <- !keep
 
       if (!any(keep)) {
@@ -122,21 +124,21 @@ PipeOpTargetLabelFilter = R6::R6Class(
       }
 
       # Apply row filter
-      keep_ids <- task$row_ids[keep]
-      n_drop   <- length(task$row_ids) - length(keep_ids)
+      keep_ids = task$row_ids[keep]
+      n_drop = length(task$row_ids) - length(keep_ids)
       if (n_drop > 0L) {
         lgr$info("[%s] Removed %d / %d rows by target filter.",
-                 self$id, n_drop, length(task$row_ids))
+          self$id, n_drop, length(task$row_ids))
       }
       task$filter(keep_ids)
 
       # ---- Factor-level handling on the TARGET ---------------------------------
       if (is.factor(y)) {
-        orig_levels <- levels(y)
-        labels_chr  <- as.character(pv$labels)
+        orig_levels = levels(y)
+        labels_chr = as.character(pv$labels)
 
         # Desired level set after filtering
-        desired <- if (!isTRUE(pv$invert)) {
+        desired = if (!isTRUE(pv$invert)) {
           # Keep all labels (unobserved allowed), in original order where possible
           unique(c(orig_levels[orig_levels %in% labels_chr], setdiff(labels_chr, orig_levels)))
         } else {
@@ -146,34 +148,35 @@ PipeOpTargetLabelFilter = R6::R6Class(
 
         # Ensure at least two levels in the LEVEL SET (not necessarily observed)
         if (length(desired) < 2L) {
-          extra <- setdiff(orig_levels, desired)
+          extra = setdiff(orig_levels, desired)
           if (length(extra)) {
-            need <- 2L - length(desired)
-            desired <- c(desired, head(extra, need))
+            need = 2L - length(desired)
+            desired = c(desired, head(extra, need))
           }
           if (length(desired) < 2L) {
             # Still < 2 (e.g., original task itself had < 2 levels)
             lgr$warn("[%s] Target '%s' has < 2 distinct levels available; proceeding with %d level(s).",
-                     self$id, trg, length(desired))
+              self$id, trg, length(desired))
           }
         }
 
         # Apply the level set to the target only
-        levlist <- list(); levlist[[trg]] <- desired
+        levlist = list()
+        levlist[[trg]] = desired
         task$set_levels(levlist)
 
         # Optionally drop unused levels on *other* factor columns
         if (isTRUE(pv$drop_unused_levels)) {
-          ci <- task$col_info
-          other_fct <- setdiff(ci$id[ci$type %in% c("factor", "ordered")], trg)
+          ci = task$col_info
+          other_fct = setdiff(ci$id[ci$type %in% c("factor", "ordered")], trg)
           if (length(other_fct)) task$droplevels(cols = other_fct)
         }
 
         # Keep 'positive' valid if this is a classification task
         if (inherits(task, "TaskClassif")) {
-          pos <- tryCatch(task$positive, error = function(e) NA_character_)
+          pos = tryCatch(task$positive, error = function(e) NA_character_)
           if (!is.na(pos) && !(pos %in% desired) && length(desired)) {
-            task$positive <- desired[1L]
+            task$positive = desired[1L]
           }
         }
 
@@ -185,11 +188,11 @@ PipeOpTargetLabelFilter = R6::R6Class(
       task
     },
 
-    .train_task   = function(task) private$.apply_filter(task, stage = "train"),
+    .train_task = function(task) private$.apply_filter(task, stage = "train"),
     .predict_task = function(task) private$.apply_filter(task, stage = "predict"),
 
     .additional_phash_input = function() {
-      vals <- self$param_set$values
+      vals = self$param_set$values
       list(
         target = vals$target,
         labels = vals$labels,

@@ -48,8 +48,10 @@
 #'
 #' @examples
 #' \dontrun{
-#' library(mlr3); library(mlr3pipelines); library(mlr3tuning)
-#' blocks = list(eng = c("disp","hp","drat"), body = c("wt","qsec"))
+#' library(mlr3)
+#' library(mlr3pipelines)
+#' library(mlr3tuning)
+#' blocks = list(eng = c("disp", "hp", "drat"), body = c("wt", "qsec"))
 #' po = PipeOpMBsPCA$new(blocks = blocks, param_vals = list(ncomp = 3))
 #' lrn = as_learner(po %>>% po("regr.ranger"))
 #'
@@ -58,7 +60,7 @@
 #'   learner = lrn,
 #'   resampling = rsmp("holdout"),
 #'   measure = msr("regr.rmse"),
-#'   search_space = ps(),  # outer space unused; tuner overrides mbspca internals
+#'   search_space = ps(), # outer space unused; tuner overrides mbspca internals
 #'   terminator = trm("none")
 #' )
 #' TunerSeqMBsPCA$new(budget = 50)$optimize(ti)
@@ -85,13 +87,13 @@ TunerSeqMBsPCA = R6::R6Class(
     #' @param early_stopping logical(1). Enable permutation early stopping (default TRUE).
     #' @param n_perm integer(1). Number of permutations if early stopping is enabled.
     #' @param perm_alpha numeric(1). Significance level for permutation test.
-    initialize = function(tuner          = "random_search",
-                          budget         = 100L,
-                          resampling     = rsmp("cv", folds = 3),
-                          parallel       = "none",
-                          early_stopping = TRUE,
-                          n_perm         = 1000L,
-                          perm_alpha     = 0.05) {
+    initialize = function(tuner = "random_search",
+      budget = 100L,
+      resampling = rsmp("cv", folds = 3),
+      parallel = "none",
+      early_stopping = TRUE,
+      n_perm = 1000L,
+      perm_alpha = 0.05) {
 
       checkmate::assert_choice(parallel, c("none", "inner"))
       checkmate::assert_int(budget, lower = 1L)
@@ -101,16 +103,16 @@ TunerSeqMBsPCA = R6::R6Class(
 
       if (grepl("async", tuner, ignore.case = TRUE)) {
         lgr$warning("Asynchronous tuners are unsupported – using 'random_search' instead.")
-        tuner <- "random_search"
+        tuner = "random_search"
       }
 
-      private$.tuner          <- tuner
-      private$.budget         <- budget
-      private$.resampling_tpl <- resampling
-      private$.parallel       <- parallel
-      private$.early_stop     <- early_stopping
-      private$.n_perm         <- n_perm
-      private$.perm_alpha     <- perm_alpha
+      private$.tuner = tuner
+      private$.budget = budget
+      private$.resampling_tpl = resampling
+      private$.parallel = parallel
+      private$.early_stop = early_stopping
+      private$.n_perm = n_perm
+      private$.perm_alpha = perm_alpha
 
       super$initialize(
         param_set = paradox::ps(),
@@ -128,9 +130,11 @@ TunerSeqMBsPCA = R6::R6Class(
 
     # ───────────────────────── helpers ───────────────────────────────
     .pre_graph_before_mbspca = function(learner) {
-      ids <- learner$graph$ids()
-      pos <- match("mbspca", ids)
-      if (is.na(pos) || pos == 1L) return(mlr3pipelines::Graph$new())
+      ids = learner$graph$ids()
+      pos = match("mbspca", ids)
+      if (is.na(pos) || pos == 1L) {
+        return(mlr3pipelines::Graph$new())
+      }
       mlr3pipelines::as_graph(
         learner$graph$clone(deep = TRUE)$pipeops[ids[seq_len(pos - 1L)]]
       )
@@ -138,20 +142,20 @@ TunerSeqMBsPCA = R6::R6Class(
 
     .make_blocks = function(df, block_map) {
       lapply(names(block_map), function(bn) {
-        cols <- block_map[[bn]]
+        cols = block_map[[bn]]
         if (!length(cols)) stop("Block '", bn, "' is empty.")
         as.matrix(df[, ..cols])
       })
     },
 
     .deflate_blocks = function(X, W) {
-      B <- length(X)
+      B = length(X)
       for (b in seq_len(B)) {
-        t_b <- X[[b]] %*% W[[b]]
-        n   <- drop(crossprod(t_b))
+        t_b = X[[b]] %*% W[[b]]
+        n = drop(crossprod(t_b))
         if (n > 1e-10) {
-          p_b <- crossprod(X[[b]], t_b) / n
-          X[[b]] <- X[[b]] - tcrossprod(t_b, p_b)
+          p_b = crossprod(X[[b]], t_b) / n
+          X[[b]] = X[[b]] - tcrossprod(t_b, p_b)
         }
       }
       X
@@ -160,130 +164,133 @@ TunerSeqMBsPCA = R6::R6Class(
     # ───────────────────────── main loop ─────────────────────────────
     .run = function(inst) {
 
-      learner_tpl <- inst$objective$learner
-      task_full   <- inst$objective$task$clone(deep = TRUE)
+      learner_tpl = inst$objective$learner
+      task_full = inst$objective$task$clone(deep = TRUE)
 
       ## preprocessing graph (everything *before* mbspca)
-      pre_graph_tpl <- private$.pre_graph_before_mbspca(learner_tpl)
+      pre_graph_tpl = private$.pre_graph_before_mbspca(learner_tpl)
 
       ## blocks & maximum number of components requested
-      blocks <- learner_tpl$graph$pipeops$mbspca$blocks
-      K_max  <- learner_tpl$graph$pipeops$mbspca$param_set$values$ncomp %||% 1L
-      B      <- length(blocks)
+      blocks = learner_tpl$graph$pipeops$mbspca$blocks
+      K_max = learner_tpl$graph$pipeops$mbspca$param_set$values$ncomp %||% 1L
+      B = length(blocks)
       if (B == 0) stop("PipeOpMBsPCA has no blocks defined.")
 
       ## ---------- preprocess full data once -------------------------
       if (length(pre_graph_tpl$pipeops)) {
-        pre_graph_full <- pre_graph_tpl$clone(deep = TRUE)
+        pre_graph_full = pre_graph_tpl$clone(deep = TRUE)
         pre_graph_full$train(task_full)
-        df_full <- last(pre_graph_full$predict(task_full))$data()
+        df_full = last(pre_graph_full$predict(task_full))$data()
       } else {
-        df_full <- task_full$data()
+        df_full = task_full$data()
       }
-      X_residual <- private$.make_blocks(df_full, blocks)
-      names(X_residual) <- names(blocks)
+      X_residual = private$.make_blocks(df_full, blocks)
+      names(X_residual) = names(blocks)
 
       ## ---------- instantiate CV -----------------------------------
-      rs <- private$.resampling_tpl$clone()
+      rs = private$.resampling_tpl$clone()
       if (!rs$is_instantiated) rs$instantiate(task_full)
 
-      fold_tr  <- vector("list", rs$iters)
-      fold_val <- vector("list", rs$iters)
+      fold_tr = vector("list", rs$iters)
+      fold_val = vector("list", rs$iters)
 
       for (f in seq_len(rs$iters)) {
-        task_tr <- task_full$clone(deep = FALSE)$filter(rs$train_set(f))
-        task_va <- task_full$clone(deep = FALSE)$filter(rs$test_set(f))
+        task_tr = task_full$clone(deep = FALSE)$filter(rs$train_set(f))
+        task_va = task_full$clone(deep = FALSE)$filter(rs$test_set(f))
 
-        g <- pre_graph_tpl$clone(deep = TRUE)
-        df_tr <- g$train(task_tr)[[1]]$data()
-        df_va <- g$predict(task_va)[[1]]$data()
+        g = pre_graph_tpl$clone(deep = TRUE)
+        df_tr = g$train(task_tr)[[1]]$data()
+        df_va = g$predict(task_va)[[1]]$data()
 
-        fold_tr[[f]]  <- private$.make_blocks(df_tr, blocks)
-        fold_val[[f]] <- private$.make_blocks(df_va, blocks)
+        fold_tr[[f]] = private$.make_blocks(df_tr, blocks)
+        fold_val[[f]] = private$.make_blocks(df_va, blocks)
       }
 
       ## ---------- optional parallelisation --------------------------
       if (private$.parallel == "inner") {
         future::plan("multisession", workers = max(1L, future::availableCores() - 1L))
         on.exit(future::plan("sequential"), add = TRUE)
-        fold_apply <- function(X, FUN)
+        fold_apply = function(X, FUN) {
           future.apply::future_sapply(X, FUN, future.seed = TRUE)
+        }
       } else {
-        fold_apply <- function(X, FUN) sapply(X, FUN)
+        fold_apply = function(X, FUN) sapply(X, FUN)
       }
 
       ## ---------- container for optimal c per component -------------
-      C_star <- matrix(NA_real_, B, K_max,
-                       dimnames = list(names(blocks),
-                                       paste0("PC", seq_len(K_max))))
+      C_star = matrix(NA_real_, B, K_max,
+        dimnames = list(names(blocks),
+          paste0("PC", seq_len(K_max))))
 
       for (k in seq_len(K_max)) {
         lgr$info("➡️  MB-sPCA component %d / %d", k, K_max)
 
         ## ----- search space -----------------------------------------
-        ps_k <- do.call(
+        ps_k = do.call(
           paradox::ps,
-          setNames(lapply(names(blocks), function(bn)
+          setNames(lapply(names(blocks), function(bn) {
             paradox::p_int(lower = 1L,
-                           upper = ncol(X_residual[[bn]]))
-          ), paste0("c_", names(blocks)))
+              upper = ncol(X_residual[[bn]]))
+          }), paste0("c_", names(blocks)))
         )
 
         ## ----- objective (CV mean explained variance) ---------------
-        cache <- new.env(parent = emptyenv())
-        obj_fun <- bbotk::ObjectiveRFun$new(
+        cache = new.env(parent = emptyenv())
+        obj_fun = bbotk::ObjectiveRFun$new(
           fun = function(xs) {
-            key <- paste(unlist(xs, use.names = FALSE), collapse = "_")
-            if (exists(key, envir = cache, inherits = FALSE))
+            key = paste(unlist(xs, use.names = FALSE), collapse = "_")
+            if (exists(key, envir = cache, inherits = FALSE)) {
               return(list(Score = cache[[key]]))
+            }
 
-            c_vec <- sqrt(unlist(xs, use.names = FALSE))
+            c_vec = sqrt(unlist(xs, use.names = FALSE))
 
-            fold_scores <- fold_apply(seq_len(rs$iters), function(f) {
-              Wfit <- cpp_mbspca_one_lv(fold_tr[[f]], c_vec,
-                                        max_iter = 50L, tol = 1e-4)$W
+            fold_scores = fold_apply(seq_len(rs$iters), function(f) {
+              Wfit = cpp_mbspca_one_lv(fold_tr[[f]], c_vec,
+                max_iter = 50L, tol = 1e-4)$W
 
               ## project validation data
-              T_val <- lapply(seq_len(B), function(b)
-                fold_val[[f]][[b]] %*% as.numeric(Wfit[[b]]))
+              T_val = lapply(seq_len(B), function(b) {
+                fold_val[[f]][[b]] %*% as.numeric(Wfit[[b]])
+              })
 
               ## align signs (avoid cancellation)
               for (b in 2:B) {
-                s <- stats::cor(T_val[[1]], T_val[[b]])
+                s = stats::cor(T_val[[1]], T_val[[b]])
                 if (is.finite(s) && s < 0) T_val[[b]] <- -T_val[[b]]
               }
 
-              t_global <- Reduce(`+`, T_val)
-              num   <- sum(t_global^2)
-              denom <- Reduce(`+`, lapply(fold_val[[f]], \(M) sum(M^2)))
+              t_global = Reduce(`+`, T_val)
+              num = sum(t_global^2)
+              denom = Reduce(`+`, lapply(fold_val[[f]], \(M) sum(M^2)))
               if (denom < 1e-12) 0 else num / denom
             })
 
-            score <- mean(fold_scores)
-            cache[[key]] <- score
+            score = mean(fold_scores)
+            cache[[key]] = score
             list(Score = score)
           },
-          domain   = ps_k,
+          domain = ps_k,
           codomain = paradox::ps(Score = paradox::p_dbl(tags = "maximize"))
         )
 
-        inst_k <- bbotk::OptimInstanceBatchSingleCrit$new(
+        inst_k = bbotk::OptimInstanceBatchSingleCrit$new(
           obj_fun, ps_k,
           terminator = bbotk::trm("evals", n_evals = private$.budget)
         )
         bbotk::opt(private$.tuner)$optimize(inst_k)
 
-        C_star[, k] <- sqrt(unlist(inst_k$result_x_domain, use.names = FALSE))
+        C_star[, k] = sqrt(unlist(inst_k$result_x_domain, use.names = FALSE))
         lgr$info("    chosen c-vector: %s", paste(C_star[, k], collapse = ", "))
 
         ## ----- refit on full residuals ------------------------------
-        fit_full <- cpp_mbspca_one_lv(X_residual, C_star[, k],
-                                      max_iter = 50L, tol = 1e-4)
+        fit_full = cpp_mbspca_one_lv(X_residual, C_star[, k],
+          max_iter = 50L, tol = 1e-4)
 
         ## ----- permutation test -------------------------------------
-        p_val <- NA_real_
+        p_val = NA_real_
         if (private$.early_stop) {
-          p_val <- perm_test_component_mbspca(
+          p_val = perm_test_component_mbspca(
             X_residual, fit_full$W, C_star[, k],
             n_perm = private$.n_perm, alpha = private$.perm_alpha
           )
@@ -291,38 +298,39 @@ TunerSeqMBsPCA = R6::R6Class(
 
           if (p_val > private$.perm_alpha) {
             lgr$info("    🔴 early stop triggered (component not significant)")
-            if (k == 1L)         # keep PC‑1 regardless
-              C_star <- C_star[, 1, drop = FALSE]
-            else
-              C_star <- C_star[, seq_len(k - 1L), drop = FALSE]
+            if (k == 1L) { # keep PC‑1 regardless
+              C_star = C_star[, 1, drop = FALSE]
+            } else {
+              C_star = C_star[, seq_len(k - 1L), drop = FALSE]
+            }
             break
           }
         }
 
         ## ----- deflate residuals (all folds & full) ----------------
-        X_residual <- private$.deflate_blocks(X_residual, fit_full$W)
+        X_residual = private$.deflate_blocks(X_residual, fit_full$W)
         for (f in seq_len(rs$iters)) {
-          fold_tr[[f]]  <- private$.deflate_blocks(fold_tr[[f]],  fit_full$W)
-          fold_val[[f]] <- private$.deflate_blocks(fold_val[[f]], fit_full$W)
+          fold_tr[[f]] = private$.deflate_blocks(fold_tr[[f]], fit_full$W)
+          fold_val[[f]] = private$.deflate_blocks(fold_val[[f]], fit_full$W)
         }
       }
 
       ## ---------- store result into TuningInstance -----------------
       inst$assign_result(
         xdt = data.table::data.table(),
-        y   = setNames(max(inst_k$archive$data$Score), "mbspca.mean_ev"),
+        y = setNames(max(inst_k$archive$data$Score), "mbspca.mean_ev"),
         learner_param_vals = list(c_matrix = C_star)
       )
       invisible(inst)
     },
 
     # configuration slots
-    .tuner          = NULL,
-    .budget         = NULL,
+    .tuner = NULL,
+    .budget = NULL,
     .resampling_tpl = NULL,
-    .parallel       = NULL,
-    .early_stop     = NULL,
-    .n_perm         = NULL,
-    .perm_alpha     = NULL
+    .parallel = NULL,
+    .early_stop = NULL,
+    .n_perm = NULL,
+    .perm_alpha = NULL
   )
 )
