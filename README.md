@@ -77,8 +77,8 @@ library(mlr3)
 library(mlr3pipelines)
 library(mlr3cluster)
 library(mlr3mbspls)
+library(mlr3viz)
 library(data.table)
-library(mlr3mbspls)
 
 set.seed(42)
 n = 200
@@ -104,6 +104,10 @@ graph = po("blockscale", param_vals = list(blocks = blocks, method = "unit_ssq")
 gl = as_learner(graph)
 gl$train(task)
 pred = gl$predict(task)
+
+autoplot(gl, type = "mbspls_weights", source = "weights", top_n = 10)
+autoplot(gl, type = "mbspls_variance", show_total = TRUE)
+autoplot(gl, type = "mbspls_heatmap", method = "spearman", absolute = FALSE)
 ```
 
 ---
@@ -187,7 +191,7 @@ gl_full$train(task)
 ```r
 library(mlr3viz)
 autoplot(gl_sel, type = "mbspls_weights", source = "weights", top_n = 10)
-autoplot(gl_sel, type = "mbspls_weights", top_n = 5)
+autoplot(gl_sel, type = "mbspls_weights", source = "bootstrap", alpha_by_stability = TRUE)
 autoplot(gl_sel, type = "mbspls_variance", show_total = TRUE)
 autoplot(gl_sel, type = "mbspls_heatmap", method = "spearman", absolute = FALSE)
 # Optional network (needs igraph/ggraph installed)
