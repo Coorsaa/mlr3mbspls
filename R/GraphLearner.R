@@ -22,18 +22,22 @@ autoplot.GraphLearner = function(object,
     top_n = dots$top_n %||% NULL
     patch_ncol = as.integer(dots$patch_ncol %||% 3L)
     font = dots$font %||% "sans"
+    alpha_by_stability = dots$alpha_by_stability %||% FALSE
 
+    # Always attempt to locate a selection node so we can optionally map
+    # alpha to stability frequencies even when source == "weights".
     nodes = .mbspls_locate_nodes_general(object,
       select_id = if (identical(source, "bootstrap")) select_id else NULL)
 
     return(
       .mbspls_plot_weights_patchwork(
-        fit_state  = nodes$fit_state,
-        sel_state  = if (identical(source, "bootstrap")) nodes$sel_state else NULL,
-        source     = source,
-        top_n      = top_n,
-        patch_ncol = patch_ncol,
-        font       = font
+        fit_state          = nodes$fit_state,
+        sel_state          = nodes$sel_state, # may be NULL
+        source             = source,
+        top_n              = top_n,
+        patch_ncol         = patch_ncol,
+        font               = font,
+        alpha_by_stability = alpha_by_stability
       )
     )
   }
@@ -276,7 +280,7 @@ autoplot.GraphLearner = function(object,
 
 # -------- weights plot (single + patchwork) -----------------------------------
 
-.mbspls_plot_weights_single_component = function(df_sub, block_levels, title = "", font = "sans") {
+.mbspls_plot_weights_single_component = function(df_sub, block_levels, title = "", font = "sans", alpha_by_stability = FALSE) {
   if (!nrow(df_sub)) {
     return(ggplot2::ggplot() + ggplot2::theme_void() + ggplot2::ggtitle("No non-zero weights"))
   }
@@ -300,8 +304,15 @@ autoplot.GraphLearner = function(object,
   has_ci = all(c("ci_lower", "ci_upper") %in% names(df_sub)) &&
     any(is.finite(df_sub$ci_lower) | is.finite(df_sub$ci_upper))
 
-  g = ggplot2::ggplot(df_sub, ggplot2::aes(x = axis_id, y = mean, fill = signpos)) +
-    ggplot2::geom_col(width = 0.85, show.legend = FALSE)
+  # Optional alpha mapping when stability frequencies were merged upstream.
+  if (isTRUE(alpha_by_stability) && "alpha_freq" %in% names(df_sub)) {
+    g = ggplot2::ggplot(df_sub, ggplot2::aes(x = axis_id, y = mean, fill = signpos)) +
+      ggplot2::geom_col(ggplot2::aes(alpha = alpha_freq), width = 0.85, show.legend = FALSE) +
+      ggplot2::scale_alpha_identity()
+  } else {
+    g = ggplot2::ggplot(df_sub, ggplot2::aes(x = axis_id, y = mean, fill = signpos)) +
+      ggplot2::geom_col(width = 0.85, show.legend = FALSE)
+  }
 
   if (has_ci) {
     g = g + ggplot2::geom_errorbar(
@@ -336,7 +347,8 @@ autoplot.GraphLearner = function(object,
   source = c("weights", "bootstrap"),
   top_n = NULL,
   patch_ncol = 1L,
-  font = "sans"
+  font = "sans",
+  alpha_by_stability = FALSE
 ) {
   requireNamespace("patchwork")
   source = match.arg(source)
@@ -356,6 +368,22 @@ autoplot.GraphLearner = function(object,
     df = df[is.finite(df$mean) & df$mean != 0, , drop = FALSE]
   }
   if (!nrow(df)) stop("No weights to plot.")
+
+  # Attach stability frequency (selection proportion) if available & requested.
+  if (isTRUE(alpha_by_stability) && !is.null(sel_state) && !is.null(sel_state$weights_selectfreq)) {
+    freq_tbl = try(as.data.frame(sel_state$weights_selectfreq), silent = TRUE)
+    if (!inherits(freq_tbl, "try-error") && nrow(freq_tbl)) {
+      needed = c("component", "block", "feature", "freq")
+      if (all(needed %in% names(freq_tbl))) {
+        freq_tbl$component = gsub("^LC_0?", "LC ", freq_tbl$component)
+        df$component = gsub("^LC_0?", "LC ", df$component)
+        df = merge(df, freq_tbl[, needed], by = c("component", "block", "feature"), all.x = TRUE)
+        df$alpha_freq = df$freq
+        df$alpha_freq[!is.finite(df$alpha_freq)] = 1
+        df$alpha_freq = pmin(pmax(df$alpha_freq, 0), 1)
+      }
+    }
+  }
 
   # top N per block×component
   if (!is.null(top_n) && is.numeric(top_n) && top_n > 0) {
@@ -378,7 +406,7 @@ autoplot.GraphLearner = function(object,
     } else {
       sprintf("%s", cc)
     }
-    .mbspls_plot_weights_single_component(df_sub, block_levels, title = title, font = font)
+    .mbspls_plot_weights_single_component(df_sub, block_levels, title = title, font = font, alpha_by_stability = alpha_by_stability)
   })
 
   patch_ncol = min(patch_ncol, length(plots))

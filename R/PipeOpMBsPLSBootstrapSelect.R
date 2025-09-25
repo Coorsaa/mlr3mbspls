@@ -498,10 +498,10 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       if (is.null(X_blocks_train)) {
         X_blocks_train = lapply(blocks_map, function(cols) {
           miss = setdiff(cols, names(dt_all))
-            if (length(miss)) for (m in miss) dt_all[, (m) := 0.0]
-            m = as.matrix(dt_all[, ..cols])
-            storage.mode(m) = "double"
-            m
+          if (length(miss)) for (m in miss) dt_all[, (m) := 0.0]
+          m = as.matrix(dt_all[, ..cols])
+          storage.mode(m) = "double"
+          m
         })
       }
 
@@ -608,8 +608,8 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       }
 
       # recompute training scores with deflation using W_stable
-  # Use the (potentially rebuilt) X_blocks_train to ensure alignment with current task rows
-  X_train = X_blocks_train
+      # Use the (potentially rebuilt) X_blocks_train to ensure alignment with current task rows
+      X_train = X_blocks_train
       rec = private$.recompute_scores_deflated(X_train, W_stable, names(blocks_map))
       T_all_dt = rec$T_mat
       P_all = rec$P
