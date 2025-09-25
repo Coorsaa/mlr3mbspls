@@ -4,7 +4,7 @@
 #' machine learning framework. This package provides custom PipeOp components for
 #' MB-sPLS projection and dimensionality reduction in multi-block data analysis
 #' workflows, with support for classification and clustering pipelines.
-#' 
+#'
 #' @section Key Features:
 #' \itemize{
 #'   \item Custom PipeOpMBsPLS for dimensionality reduction
@@ -13,7 +13,7 @@
 #'   \item Visualization and interpretation tools
 #'   \item Hyperparameter tuning support
 #' }
-#' 
+#'
 #' @section Main Functions:
 #' \itemize{
 #'   \item \code{\link{PipeOpMBsPLS}}: Main PipeOp for MB-sPLS transformation

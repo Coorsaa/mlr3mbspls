@@ -48,7 +48,7 @@
 #' if (requireNamespace("mlr3", quietly = TRUE)) {
 #'   library(mlr3)
 #'   task = tsk("iris")
-#'   lrn  = lrn("classif.knngower", k = 7, predict_type = "prob")
+#'   lrn = lrn("classif.knngower", k = 7, predict_type = "prob")
 #'   lrn$train(task)
 #'   p = lrn$predict(task)
 #'   p$score(msr("classif.mlogloss"))
@@ -74,7 +74,7 @@ LearnerClassifKNNGower = R6::R6Class("LearnerClassifKNNGower",
           default = "pairwise", tags = c("train", "predict"))
       )
       ps$set_values(k = 5L, weights = "inverse",
-                    min_feature_frac = 0.2, na_handling = "pairwise")
+        min_feature_frac = 0.2, na_handling = "pairwise")
 
       super$initialize(
         id = "classif.knngower",
@@ -95,7 +95,7 @@ LearnerClassifKNNGower = R6::R6Class("LearnerClassifKNNGower",
       # numeric
       if (length(num_cols)) {
         Xn = as.matrix(df[, num_cols, with = FALSE])
-        storage.mode(Xn) <- "double"
+        storage.mode(Xn) = "double"
         if (is.null(ref)) {
           r_min = suppressWarnings(apply(Xn, 2, min, na.rm = TRUE))
           r_max = suppressWarnings(apply(Xn, 2, max, na.rm = TRUE))
@@ -129,7 +129,7 @@ LearnerClassifKNNGower = R6::R6Class("LearnerClassifKNNGower",
           }
           Xc[, j] = code
         }
-        storage.mode(Xc) <- "integer"
+        storage.mode(Xc) = "integer"
       } else {
         Xc = matrix(integer(0), nrow = n, ncol = 0)
         cat_levels = list()
@@ -159,7 +159,7 @@ LearnerClassifKNNGower = R6::R6Class("LearnerClassifKNNGower",
             Xo[, j] = (as.numeric(code) - 1) / (L - 1)
           }
         }
-        storage.mode(Xo) <- "double"
+        storage.mode(Xo) = "double"
       } else {
         Xo = matrix(numeric(0), nrow = n, ncol = 0)
         ord_levels = list()
@@ -189,8 +189,9 @@ LearnerClassifKNNGower = R6::R6Class("LearnerClassifKNNGower",
       enc = private$.encode_blocks(df, num_cols, cat_cols, ord_cols, ref = NULL)
 
       y = task$truth()
-      levs = levels(y); if (is.null(levs)) levs = sort(unique(as.character(y)))
-      y_int0 = as.integer(factor(y, levels = levs)) - 1L  # 0..C-1
+      levs = levels(y)
+      if (is.null(levs)) levs = sort(unique(as.character(y)))
+      y_int0 = as.integer(factor(y, levels = levs)) - 1L # 0..C-1
 
       tab = table(factor(y, levels = levs))
       priors = as.numeric(tab) / sum(tab)
@@ -243,7 +244,7 @@ LearnerClassifKNNGower = R6::R6Class("LearnerClassifKNNGower",
       colnames(prob) = st$class_levels
 
       response = factor(st$class_levels[max.col(prob, ties.method = "first")],
-                        levels = st$class_levels)
+        levels = st$class_levels)
 
       if (self$predict_type == "prob") {
         mlr3::PredictionClassif$new(task = task, response = response, prob = prob)

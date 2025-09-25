@@ -1,7 +1,7 @@
 # nocov start
 #' @importFrom mlr3 mlr_learners
 
-.onLoad = function(libname, pkgname) {                       # nocov start
+.onLoad = function(libname, pkgname) { # nocov start
   mlr3pipelines::mlr_pipeops$add("sitecorr", PipeOpSiteCorrection)
   mlr3pipelines::mlr_pipeops$add("mbspls", PipeOpMBsPLS)
   mlr3pipelines::mlr_pipeops$add("mbspls_bootstrap_select", PipeOpMBsPLSBootstrapSelect)
@@ -25,19 +25,19 @@
   mlr3::mlr_learners$add("classif.knngower", function() LearnerClassifKNNGower$new())
 
   # a discoverable default graph: site correction ➜ MB‑sPLS ➜ dummy learner
-  #mlr3pipelines::mlr_graphs$add("mbspls_default", graph_mbspls)
-} 
+  # mlr3pipelines::mlr_graphs$add("mbspls_default", graph_mbspls)
+}
 .onUnload = function(libpath) {
   # Remove PipeOps from mlr3pipelines dictionary
   x = utils::getFromNamespace("mlr_pipeops", ns = "mlr3pipelines")
-  
+
   pipeops_to_remove = c("sitecorr", "mbspls", "mbsplsxy", "mbspca", "blockscale")
   for (pipeop in pipeops_to_remove) {
     if (pipeop %in% x$keys()) {
       x$remove(pipeop)
     }
   }
-  
+
   # Remove measures from mlr3 dictionary
   y = utils::getFromNamespace("mlr_measures", ns = "mlr3")
   measures_to_remove = c("mbspls.ev", "mbspls.block_ev", "mbspls.mac", "mbspls.mac_evwt", "mbspca.mean_ev")
@@ -46,7 +46,7 @@
       y$remove(measure)
     }
   }
-  
+
   # Remove learners from mlr3 dictionary
   z = utils::getFromNamespace("mlr_learners", ns = "mlr3")
   learners_to_remove = c("regr.knngower", "classif.knngower")

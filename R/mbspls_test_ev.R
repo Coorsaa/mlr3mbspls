@@ -33,7 +33,7 @@ compute_test_ev = function(X_blocks_test, W_all, P_all, deflate = TRUE, performa
   K = length(W_all)
   n_test = nrow(X_blocks_test[[1]])
 
-  method <- match.arg(correlation_method, c("pearson","spearman"))
+  method = match.arg(correlation_method, c("pearson", "spearman"))
 
   stopifnot(
     is.list(X_blocks_test), B >= 1L,
@@ -48,14 +48,14 @@ compute_test_ev = function(X_blocks_test, W_all, P_all, deflate = TRUE, performa
   # initialize output structures
   ev_block_test = matrix(NA_real_, K, B)
   ev_comp_test = numeric(K)
-  mac_comp_test = numeric(K)  # mean absolute correlation per component
+  mac_comp_test = numeric(K) # mean absolute correlation per component
   T_all_test = matrix(numeric(0), n_test, 0)
 
   # make a working copy for deflation
   X_work = if (deflate) {
-    lapply(X_blocks_test, function(x) x)  # deep copy
+    lapply(X_blocks_test, function(x) x) # deep copy
   } else {
-    X_blocks_test  # use original data for all components
+    X_blocks_test # use original data for all components
   }
 
   for (k in seq_len(K)) {
@@ -90,30 +90,32 @@ compute_test_ev = function(X_blocks_test, W_all, P_all, deflate = TRUE, performa
     ev_comp_test[k] = ss_exp_total / sum(ss_tot_test)
 
     # compute mean absolute correlation between block scores (matches training objective)
-    use_frob <- (match.arg(performance_metric, c("mac","frobenius")) == "frobenius")
+    use_frob = (match.arg(performance_metric, c("mac", "frobenius")) == "frobenius")
     mac_k = 0.0 # will store either ⟨|r|⟩ or Frobenius
     valid_pairs = 0L
     if (B > 1) {
       for (i in seq_len(B - 1)) {
         for (j in (i + 1):B) {
           # compute correlation between block scores
-          r <- stats::cor(Tk_test[, i], Tk_test[, j], method = method)
+          r = stats::cor(Tk_test[, i], Tk_test[, j], method = method)
           if (is.finite(r)) {
             if (use_frob) {
-              mac_k <- mac_k + r*r          # Σ r²
+              mac_k = mac_k + r * r # Σ r²
             } else {
-              mac_k <- mac_k + abs(r)       # Σ |r|
+              mac_k = mac_k + abs(r) # Σ |r|
             }
-            valid_pairs <- valid_pairs + 1L
+            valid_pairs = valid_pairs + 1L
           }
         }
       }
     }
     if (valid_pairs) {
-      mac_comp_test[k] <- if (use_frob)
-        sqrt(mac_k)                   # mac_k already holds Σ r²
-      else
-        mac_k / valid_pairs           # mean |r|
+      mac_comp_test[k] = if (use_frob) {
+        sqrt(mac_k)
+      } # mac_k already holds Σ r²
+      else {
+        mac_k / valid_pairs
+      } # mean |r|
     }
 
     # store test scores
@@ -123,7 +125,7 @@ compute_test_ev = function(X_blocks_test, W_all, P_all, deflate = TRUE, performa
   list(
     ev_block = ev_block_test,
     ev_comp  = ev_comp_test,
-    mac_comp = mac_comp_test,  # mean absolute correlation (matches training objective)
+    mac_comp = mac_comp_test, # mean absolute correlation (matches training objective)
     T_mat    = T_all_test
   )
 }
@@ -156,4 +158,3 @@ compute_pipeop_test_ev = function(X_blocks_test, state) {
     correlation_method = state$correlation_method %||% "pearson"
   )
 }
-

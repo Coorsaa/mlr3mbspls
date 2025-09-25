@@ -30,7 +30,7 @@ mbspls_preproc_graph = function(
     ppl_impute$update_ids(postfix = paste0("_", id_suffix))
   }
 
-  graph <- ppl_convert_types %>>%
+  graph = ppl_convert_types %>>%
     po("encode",
       id = paste0("encode_", id_suffix),
       method = "treatment",
@@ -77,22 +77,22 @@ mbspls_preproc_graph = function(
 #' @return [mlr3pipelines::GraphLearner]
 #' @import mlr3 mlr3cluster mlr3pipelines checkmate
 #' @export
-mbspls_graph_learner <- function(
+mbspls_graph_learner = function(
   blocks,
   site_correction,
   site_correction_methods,
   keep_site_col = FALSE,
   ncomp,
   k = 5,
-  performance_metric = c("mac","frobenius"),
-  correlation_method = c("pearson","spearman"),
+  performance_metric = c("mac", "frobenius"),
+  correlation_method = c("pearson", "spearman"),
   learner = lrn("clust.kmeans", centers = 1L),
   c_matrix = NULL,
 
   permutation_test = FALSE,
   n_perm = 500L,
   perm_alpha = 0.05,
-  val_test = c("none","permutation","bootstrap"),
+  val_test = c("none", "permutation", "bootstrap"),
   val_test_alpha = 0.05,
   val_test_n = 1000L,
   val_test_permute_all = TRUE,
@@ -102,7 +102,7 @@ mbspls_graph_learner <- function(
   alpha = 0.05,
   align = c("block_sign", "score_correlation"),
   bootstrap_selection = TRUE,
-  selection_method = c("ci","frequency"),
+  selection_method = c("ci", "frequency"),
   frequency_threshold = 0.60,
   stratify_by_block = NULL,
   workers = max(1L, getOption("mc.cores", 1L)),
@@ -113,66 +113,66 @@ mbspls_graph_learner <- function(
   checkmate::assert_list(site_correction, types = "character", names = "unique")
   checkmate::assert_list(site_correction_methods, types = "character", names = "unique")
   checkmate::assert_int(ncomp, lower = 1)
-  performance_metric <- match.arg(performance_metric)
-  correlation_method <- match.arg(correlation_method)
-  val_test           <- match.arg(val_test)
-  align              <- match.arg(align)
-  selection_method   <- match.arg(selection_method)
+  performance_metric = match.arg(performance_metric)
+  correlation_method = match.arg(correlation_method)
+  val_test = match.arg(val_test)
+  align = match.arg(align)
+  selection_method = match.arg(selection_method)
   checkmate::assert_class(learner, "Learner")
 
-  log_env <- if (is.null(log_env)) new.env(parent = emptyenv()) else log_env
+  log_env = if (is.null(log_env)) new.env(parent = emptyenv()) else log_env
 
-  if (isTRUE(bootstrap_selection)) { 
+  if (isTRUE(bootstrap_selection)) {
     po_bootstrap_select = po("mbspls_bootstrap_select",
-       log_env   = log_env,
-       bootstrap = bootstrap,
-       B         = B,
-       alpha     = alpha,
-       align     = align,
-       selection_method    = selection_method,
-       frequency_threshold = frequency_threshold,
-       stratify_by_block   = stratify_by_block,
-       workers             = workers
+      log_env = log_env,
+      bootstrap = bootstrap,
+      B = B,
+      alpha = alpha,
+      align = align,
+      selection_method = selection_method,
+      frequency_threshold = frequency_threshold,
+      stratify_by_block = stratify_by_block,
+      workers = workers
     )
   }
-  
-  graph <- ppl("mbspls_preproc",
-               blocks = blocks,
-               site_correction = site_correction,
-               site_correction_methods = site_correction_methods,
-               keep_site_col = keep_site_col,
-               k = k) %>>%
+
+  graph = ppl("mbspls_preproc",
+    blocks = blocks,
+    site_correction = site_correction,
+    site_correction_methods = site_correction_methods,
+    keep_site_col = keep_site_col,
+    k = k) %>>%
     po("mbspls",
-       blocks = blocks,
-       ncomp = ncomp,
-       performance_metric = performance_metric,
-       correlation_method = correlation_method,
-       c_matrix = c_matrix,
+      blocks = blocks,
+      ncomp = ncomp,
+      performance_metric = performance_metric,
+      correlation_method = correlation_method,
+      c_matrix = c_matrix,
 
-       # optional train-time permutation
-       permutation_test = permutation_test,
-       n_perm = n_perm,
-       perm_alpha = perm_alpha,
+      # optional train-time permutation
+      permutation_test = permutation_test,
+      n_perm = n_perm,
+      perm_alpha = perm_alpha,
 
-       # optional prediction-side validation
-       val_test = val_test,
-       val_test_alpha = val_test_alpha,
-       val_test_n = val_test_n,
-       val_test_permute_all = val_test_permute_all,
+      # optional prediction-side validation
+      val_test = val_test,
+      val_test_alpha = val_test_alpha,
+      val_test_n = val_test_n,
+      val_test_permute_all = val_test_permute_all,
 
-       # expose training snapshot for selection
-       store_train_blocks = isTRUE(bootstrap),
-       append = isTRUE(bootstrap_selection),
-       log_env = log_env
+      # expose training snapshot for selection
+      store_train_blocks = isTRUE(bootstrap),
+      append = isTRUE(bootstrap_selection),
+      log_env = log_env
     )
-  if (isTRUE(bootstrap_selection)) { 
-    graph <- graph %>>% po_bootstrap_select
+  if (isTRUE(bootstrap_selection)) {
+    graph = graph %>>% po_bootstrap_select
   }
-  graph <- graph %>>%
+  graph = graph %>>%
     po("learner", learner)
 
-  gl <- GraphLearner$new(graph)
-  attr(gl, "log_env") <- log_env
+  gl = GraphLearner$new(graph)
+  attr(gl, "log_env") = log_env
   gl
 }
 
@@ -183,7 +183,7 @@ mbspls_graph_learner <- function(
 #' @return [`Graph`]
 #' @import mlr3 mlr3pipelines checkmate
 #' @export
-impute_knn_graph <- function(k = 5) {
+impute_knn_graph = function(k = 5) {
   checkmate::assert_integerish(k, lower = 1, len = 1)
   imp_num = po("imputelearner",
     learner = lrn("regr.knngower", k = k),
@@ -197,4 +197,3 @@ impute_knn_graph <- function(k = 5) {
   imp_fac$id = "impute_fac_knn"
   imp_num %>>% imp_fac
 }
-
