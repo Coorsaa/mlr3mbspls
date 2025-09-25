@@ -69,12 +69,12 @@ mbspls_preproc_graph = function(
 #' @param alpha Numeric; CI alpha (default 0.05).
 #' @param align "global_correlation" (default) or "block_sign".
 #' @param selection_method "ci" (default) or "frequency".
-#' @param frequency_threshold Numeric in [0,1]; only if selection_method="frequency" (default 0.6).
+#' @param frequency_threshold Numeric in `[0,1]`; only if selection_method="frequency" (default 0.6).
 #' @param stratify_by_block Optional dummy block for stratified bootstrap (e.g., "Studygroup").
 #' @param workers Integer; Unix workers (default cores‑1).
 #' @param log_env Shared environment (created if NULL).
 #'
-#' @return [mlr3::GraphLearner]
+#' @return [mlr3pipelines::GraphLearner]
 #' @import mlr3 mlr3cluster mlr3pipelines checkmate
 #' @export
 mbspls_graph_learner <- function(

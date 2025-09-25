@@ -26,7 +26,7 @@
 #' * `ncomp`: number of retained components.
 #' * `weights`: list(`PCk` → list(`block` → numeric named vector)).
 #' * `loadings`: same shape as `weights`, block-wise loadings used for deflation.
-#' * `ev_block`: matrix [components × blocks] of variance explained by each PC
+#' * `ev_block`: matrix `[components × blocks]` of variance explained by each PC
 #'   within each block.
 #' * `ev_comp`: numeric vector of total variance explained by each PC.
 #' * `T_mat`: numeric matrix of appended latent scores (column names match the
@@ -289,7 +289,7 @@ PipeOpMBsPCA = R6::R6Class(
     },
 
     #' @description Network of score correlations between PCs with |r| above a cutoff.
-    #' @param cutoff numeric(1). Absolute correlation threshold in [0, 1] (default 0.3).
+    #' @param cutoff numeric(1). Absolute correlation threshold in `[0, 1]` (default 0.3).
     #' @param method character(1). Correlation method, e.g. "spearman" (default) or "pearson".
     #' @return A ggplot object.
     plot_score_network = function(cutoff = 0.3, method = "spearman") {

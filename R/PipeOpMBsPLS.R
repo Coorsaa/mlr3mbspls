@@ -88,6 +88,20 @@
 #' @param log_env \code{environment} or \code{NULL}. If not \code{NULL}, writes payloads to \code{log_env$last} and saves a training snapshot in \code{log_env$mbspls_state}.
 #' @param append \code{logical(1)}. If \code{TRUE}, keep original features and append LV columns
 #'   (both in training and prediction). If \code{FALSE} (default), output only LV columns.
+#' @param id character(1). Identifier of the resulting object.
+#' @param param_vals named list. List of hyperparameter settings, overwriting the hyperparameter settings that would otherwise be set during construction.
+#'
+#'
+#' @section Construction:
+#' `PipeOpMBsPLS$new(id = "mbspls", blocks, param_vals = list())`
+#'
+#' @section Methods:
+#' * `$new(id, blocks, param_vals)` : Initialize the PipeOpMBsPLS.
+#'
+#' @section Fields:
+#' * `blocks` : Named list mapping block names to character vectors of feature names. Set during initialization.
+#'
+#' @param blocks Named list mapping block names to character vectors of feature names. Set during initialization.
 #'
 #' @return
 #' A \code{PipeOpMBsPLS} that outputs either only \code{LVk_<block>} columns
@@ -106,8 +120,13 @@ PipeOpMBsPLS = R6::R6Class(
   inherit = mlr3pipelines::PipeOpTaskPreproc,
 
   public = list(
+    #' @field blocks Named list mapping block names to character vectors of feature names.
     blocks = NULL,
 
+    #' @description Initialize the PipeOpMBsPLS.
+    #' @param id character(1). Identifier of the resulting object.
+    #' @param blocks named list. Map of block names to feature column names.
+    #' @param param_vals named list. List of hyperparameter settings.
     initialize = function(id = "mbspls", blocks, param_vals = list()) {
 
       checkmate::assert_list(blocks, types = "character", min.len = 1L, names = "unique")

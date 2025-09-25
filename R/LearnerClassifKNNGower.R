@@ -9,7 +9,7 @@
 #' (Rcpp/Armadillo backend). Handles numeric, unordered factors, and
 #' ordered factors: numeric features are range-normalized, unordered
 #' factors contribute 0/1 mismatches, and ordered factors are mapped to
-#' [0, 1] and compared by absolute differences. Missing values are
+#' `[0, 1]` and compared by absolute differences. Missing values are
 #' skipped pairwise in the distance.
 #'
 #' @details

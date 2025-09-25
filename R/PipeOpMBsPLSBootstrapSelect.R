@@ -19,19 +19,17 @@
 #' only the kept stable LV columns remain downstream. No fallback to upstream LVs.
 #'
 #' @section Parameters:
-#' \describe{
-#'   \item{\code{log_env}}{Environment shared with upstream \code{po("mbspls")} (required).}
-#'   \item{\code{bootstrap}}{Run bootstrap selection (default \code{TRUE}).}
-#'   \item{\code{B}}{Bootstrap replicates (default \code{500}).}
-#'   \item{\code{alpha}}{CI alpha (default \code{0.05} → 95\% CI).}
-#'   \item{\code{align}}{\code{"score_correlation"} (default) or \code{"block_sign"}.}
-#'   \item{\code{selection_method}}{\code{"ci"} (default) or \code{"frequency"}.}
-#'   \item{\code{frequency_threshold}}{Only for \code{"frequency"}; default \code{0.60}.}
-#'   \item{\code{stratify_by_block}}{Optional dummy‑encoded block name for stratified bootstrap (e.g., "Studygroup").}
-#'   \item{\code{workers}}{\#Unix workers for \code{mclapply}; default cores−1.}
-#' }
-#'
-#' @return Replaces task LV columns with kept components’ LV columns (renumbered).
+#' @param log_env Environment shared with upstream \code{po("mbspls")} (required).
+#' @param bootstrap Run bootstrap selection (default \code{TRUE}).
+#' @param B Bootstrap replicates (default \code{500}).
+#' @param alpha CI alpha (default \code{0.05} → 95\% CI).
+#' @param align \code{"block_sign"} (default) or \code{"score_correlation"}.
+#' @param selection_method \code{"ci"} (default) or \code{"frequency"}.
+#' @param frequency_threshold Only for \code{"frequency"}; default \code{0.60}.
+#' @param stratify_by_block Optional dummy‑encoded block name for stratified bootstrap (e.g., "Studygroup").
+#' @param workers \#Unix workers for \code{mclapply}; default cores−1.
+#' 
+#' @return Replaces task LV columns with kept components' LV columns (renumbered).
 #' Stores \code{weights_ci}, \code{weights_selectfreq}, \code{weights_stable},
 #' \code{loadings_stable}, \code{kept_components}, \code{kept_blocks_per_comp}.
 #'
@@ -46,8 +44,10 @@
 PipeOpMBsPLSBootstrapSelect <- R6::R6Class(
   "PipeOpMBsPLSBootstrapSelect",
   inherit = mlr3pipelines::PipeOpTaskPreproc,
-
   public = list(
+    #' @description Initialize the PipeOpMBsPLSBootstrapSelect.
+    #' @param id character(1). Identifier of the resulting object.
+    #' @param param_vals named list. List of hyperparameter settings.
     initialize = function(id = "mbspls_bootstrap_select", param_vals = list()) {
       ncore_default <- 1L
       try({ ncore_default <- max(1L, parallel::detectCores(logical = TRUE) - 1L) }, silent = TRUE)

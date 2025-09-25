@@ -15,6 +15,15 @@
 #' @param error_on_collision logical(1). If TRUE (default), error if
 #'   any new names would collide with non-feature columns or create duplicates.
 #'
+#' @section Construction:
+#' `PipeOpFeatureSuffix$new(id = "feature_suffix", param_vals = list())`
+#'
+#' @section Methods:
+#' * `$new(id, param_vals)` : Initialize the PipeOpFeatureSuffix.
+#'
+#' @param id character(1). Identifier of the resulting object.
+#' @param param_vals named list. List of hyperparameter settings, overwriting the hyperparameter settings that would otherwise be set during construction.
+#'
 #' @importFrom R6 R6Class
 #' @import lgr
 #' @importFrom checkmate assert_string assert_flag
@@ -26,6 +35,9 @@ PipeOpFeatureSuffix = R6::R6Class(
   inherit = mlr3pipelines::PipeOpTaskPreproc,
 
   public = list(
+    #' @description Initialize the PipeOpFeatureSuffix.
+    #' @param id character(1). Identifier of the resulting object.
+    #' @param param_vals named list. List of hyperparameter settings.
     initialize = function(id = "feature_suffix", param_vals = list()) {
       ps <- paradox::ps(
         suffix                 = p_uty(tags = c("train","predict"), default = "_sfx"),
