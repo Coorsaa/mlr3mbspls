@@ -1,11 +1,11 @@
 Package: mlr3mbspls
 Title: Multi-Block Sparse Partial Least Squares for mlr3
-Version: 0.2.3
+Version: 0.2.4
 Authors@R: 
     c(
       person("Stefan", "Coors", email = "mail@stefancoors.de", role = c("aut", "cre"),
              comment = c(ORCID = "0000-0002-7465-2146")),
-      person("Clara", "Vetter", email = "clara.vetter@med.uni-muenchen.de", role = "aut",
+      person("Clara Sophie", "Vetter", email = "clara.vetter@med.uni-muenchen.de", role = "aut",
              comment = c(ORCID = "0000-0003-4268-2890"))
     )
 Description: Integration of multi-block sparse partial least squares (MB-sPLS) 
