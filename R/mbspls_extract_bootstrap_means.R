@@ -6,8 +6,8 @@
 #'   - "ci": keep features whose CI is >= 0 or <= 0.
 #'   - "frequency": keep features with selection freq >= filter_level using model$weights_selectfreq.
 #' @param filter_level Numeric threshold:
-#'   - if filter_method == "ci": confidence level in (0,1), default 0.95.
-#'   - if filter_method == "frequency": minimum freq in [0,1], default 0.5.
+#'   - if filter_method == "ci": confidence level in `(0,1)`, default 0.95.
+#'   - if filter_method == "frequency": minimum freq in `[0,1]`, default 0.5.
 #' @return A tibble with rows (block, feature) that pass the filter, including
 #'         mean, ci_low, ci_high, and freq (if available), sorted by block and |mean| desc.
 #'

@@ -1,6 +1,6 @@
 Package: mlr3mbspls
 Title: Multi-Block Sparse Partial Least Squares for mlr3
-Version: 0.2.2
+Version: 0.2.3
 Authors@R: 
     c(
       person("Stefan", "Coors", email = "mail@stefancoors.de", role = c("aut", "cre"),
@@ -21,7 +21,7 @@ Encoding: UTF-8
 Config/testthat/edition: 3
 Config/testthat/parallel: false
 Roxygen: list(markdown = TRUE, r6 = TRUE)
-RoxygenNote: 7.3.2
+RoxygenNote: 7.3.3
 Depends: 
     R (>= 4.3.3),
     mlr3 (>= 1.0.0),
@@ -40,7 +40,8 @@ Imports:
     mlr3misc (>= 0.7.0),
     ggplot2 (>= 3.5.2),
     lgr (>= 0.4.4),
-    rlang (>= 1.0.0)
+    rlang (>= 1.0.0),
+    clue
 Suggests:
     mlr3learners (>= 0.12.0),
     future.apply (>= 1.10.0),

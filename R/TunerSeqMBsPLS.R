@@ -35,7 +35,7 @@
 #'   (e.g. `"random_search"`, `"grid_search"`).
 #' @param budget (`integer(1)`)
 #'   Maximum number of candidate evaluations **per component**.
-#' @param resampling ([\code{mlr3::Resampling}])
+#' @param resampling (\code{mlr3::Resampling})
 #'   Inner resampling strategy (default `rsmp("cv", folds = 3)`).
 #' @param parallel (`character(1)`)
 #'   `"none"` (default) or `"inner"` to parallelise CV folds via **future**.
@@ -117,7 +117,7 @@ TunerSeqMBsPLS = R6::R6Class(
 
     #' @description (optional) setter if you want to supply it later
     #' than at construction time.
-    #' @param task ([\code{mlr3::Task}])
+    #' @param task (\code{mlr3::Task})
     #'   The additional task to be used for tuning.
     set_additional_task = function(task) {
       checkmate::assert_class(task, "Task")
@@ -131,7 +131,7 @@ TunerSeqMBsPLS = R6::R6Class(
     #' sparsity matrix is available afterwards as
     #' \code{$result$learner_param_vals$c_matrix}.
     #'
-    #' @param instance ([\code{mlr3tuning::TuningInstanceBatchSingleCrit}])
+    #' @param instance (\code{mlr3tuning::TuningInstanceBatchSingleCrit})
     optimize = function(instance) private$.run(instance)
   ),
 
