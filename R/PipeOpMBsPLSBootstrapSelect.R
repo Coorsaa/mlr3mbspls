@@ -104,19 +104,23 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
     },
 
     # helper to construct stable weights & kept blocks from summaries
-    .build_stable_from = function(method) {
+    .build_stable_from = function(method, K, bn, blocks_map, sum_df, freq_df, frequency_threshold) {
       W_stable_local = list()
       kept_blocks_per_comp_local = list()
+
       for (k in seq_len(K)) {
         k_lab = sprintf("LC_%02d", k)
         Wk_out = list()
         kept_blocks = character(0)
+
         for (b in bn) {
           feats = blocks_map[[b]]
           if (is.null(feats) || !length(feats)) next
 
+          # means + CIs
           sb = sum_df[sum_df$component == k_lab & sum_df$block == b,
-            c("feature", "boot_mean", "ci_lower", "ci_upper"), drop = FALSE]
+            c("feature", "boot_mean", "ci_lower", "ci_upper"),
+            drop = FALSE]
           mu_map = if (nrow(sb)) stats::setNames(sb$boot_mean, sb$feature) else setNames(numeric(0), character(0))
           lo_map = if (nrow(sb)) stats::setNames(sb$ci_lower, sb$feature) else setNames(numeric(0), character(0))
           hi_map = if (nrow(sb)) stats::setNames(sb$ci_upper, sb$feature) else setNames(numeric(0), character(0))
@@ -131,11 +135,12 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
           if (identical(method, "ci")) {
             keep = ((lo >= 0) | (hi <= 0)) & (abs(mu) > 1e-3)
           } else {
-            fb = freq_df[freq_df$component == k_lab & freq_df$block == b, c("feature", "freq"), drop = FALSE]
+            fb = freq_df[freq_df$component == k_lab & freq_df$block == b,
+              c("feature", "freq"), drop = FALSE]
             fq_map = if (nrow(fb)) stats::setNames(fb$freq, fb$feature) else setNames(numeric(0), character(0))
             fv = as.numeric(fq_map[feats])
             fv[is.na(fv)] = 0
-            keep = (fv >= as.numeric(pv$frequency_threshold))
+            keep = (fv >= as.numeric(frequency_threshold))
           }
 
           mu[!keep] = 0
@@ -144,11 +149,13 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
             kept_blocks = c(kept_blocks, b)
           }
         }
+
         if (length(Wk_out)) {
           W_stable_local[[length(W_stable_local) + 1L]] = Wk_out
           kept_blocks_per_comp_local[[length(kept_blocks_per_comp_local) + 1L]] = kept_blocks
         }
       }
+
       names(W_stable_local) = sprintf("LC_%02d", seq_along(W_stable_local))
       names(kept_blocks_per_comp_local) = sprintf("LC_%02d", seq_along(W_stable_local))
       list(W = W_stable_local, kept = kept_blocks_per_comp_local)
@@ -577,8 +584,25 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       K = length(st_env$weights)
 
       # Build both sets for env storage
-      built_ci = private$.build_stable_from("ci")
-      built_freq = private$.build_stable_from("frequency")
+      built_ci = private$.build_stable_from(
+        method = "ci",
+        K = K,
+        bn = bn,
+        blocks_map = blocks_map,
+        sum_df = sum_df,
+        freq_df = freq_df,
+        frequency_threshold = pv$frequency_threshold
+      )
+      built_freq = private$.build_stable_from(
+        method = "frequency",
+        K = K,
+        bn = bn,
+        blocks_map = blocks_map,
+        sum_df = sum_df,
+        freq_df = freq_df,
+        frequency_threshold = pv$frequency_threshold
+      )
+
 
       # Existing path: pick the configured selection_method to rewrite the task
       if (pv$selection_method == "ci") {
@@ -602,15 +626,10 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         self$state$weights_ci = sum_df
         self$state$weights_selectfreq = freq_df
         self$state$weights_stable = W_stable
-        self$state$loadings_stable = P_all
         # also store both variants for prediction switching
         st_env$weights_stable = W_stable
-        st_env$loadings_stable = P_all
         st_env$weights_stable_ci = built_ci$W
         st_env$weights_stable_frequency = built_freq$W
-        # if you also want to keep aligned loadings per variant, set:
-        st_env$loadings_stable_ci = P_all # same deflation alignment used
-        st_env$loadings_stable_frequency = P_all
 
         st_env$kept_blocks_per_comp = kept_blocks_per_comp
         st_env$kept_blocks_per_comp_ci = built_ci$kept
