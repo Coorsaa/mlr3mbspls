@@ -417,69 +417,42 @@ PipeOpMBsPLS = R6::R6Class(
       P_active = st$loadings
       K_active = length(W_active)
 
-      # ----- Normalize/pad weights to full block set & current column order -----
-      for (k in seq_len(K_active)) {
-        for (bnm in block_names) {
-          feats = colnames(X_for_ev[[bnm]])
-          wb = W_active[[k]][[bnm]]
-          if (is.null(wb)) {
-            # missing block -> all zeros of correct length
-            W_active[[k]][[bnm]] = stats::setNames(numeric(length(feats)), feats)
-          } else if (!is.null(names(wb))) {
-            tmp = as.numeric(wb[feats])
-            tmp[is.na(tmp)] = 0
-            W_active[[k]][[bnm]] = stats::setNames(tmp, feats)
-          } else {
-            # unnamed numeric: trust only if length matches; else zero-pad
-            if (length(wb) != length(feats)) {
-              W_active[[k]][[bnm]] = stats::setNames(numeric(length(feats)), feats)
-            } else {
-              W_active[[k]][[bnm]] = stats::setNames(as.numeric(wb), feats)
-            }
-          }
-        }
-      }
-
       st_env = NULL
       if (!is.null(pv$log_env) && inherits(pv$log_env, "environment")) {
         st_env = pv$log_env$mbspls_state
       }
 
-      # Helper: pick from env if available
       use_env_weights = function(ci = FALSE, freq = FALSE) {
         if (is.null(st_env)) {
           return(FALSE)
         }
         if (ci) {
-          if (!is.null(st_env$weights_stable_ci) && length(st_env$weights_stable_ci)) {
+          if (length(st_env$weights_stable_ci)) {
             W_active <<- st_env$weights_stable_ci
-            P_active <<- if (!is.null(st_env$loadings_stable_ci)) st_env$loadings_stable_ci else NULL
+            P_active <<- st_env$loadings_stable_ci %||% NULL
             K_active <<- length(W_active)
             used_source <<- "stable_ci"
             return(TRUE)
           }
-          # backward‑compat: single set saved by chosen selection_method
-          if (identical(st_env$selection_method, "ci") &&
-            !is.null(st_env$weights_stable) && length(st_env$weights_stable)) {
+          if (identical(st_env$selection_method, "ci") && length(st_env$weights_stable)) {
             W_active <<- st_env$weights_stable
-            P_active <<- if (!is.null(st_env$loadings_stable)) st_env$loadings_stable else NULL
+            P_active <<- st_env$loadings_stable %||% NULL
             K_active <<- length(W_active)
             used_source <<- "stable_ci"
             return(TRUE)
           }
         }
         if (freq) {
-          if (!is.null(st_env$weights_stable_frequency) && length(st_env$weights_stable_frequency)) {
+          if (length(st_env$weights_stable_frequency)) {
             W_active <<- st_env$weights_stable_frequency
-            P_active <<- if (!is.null(st_env$loadings_stable_frequency)) st_env$loadings_stable_frequency else NULL
+            P_active <<- st_env$loadings_stable_frequency %||% NULL
             K_active <<- length(W_active)
             used_source <<- "stable_frequency"
             return(TRUE)
           }
-          if (identical(st_env$selection_method, "frequency") &&
-            !is.null(st_env$weights_stable) && length(st_env$weights_stable)) {
+          if (identical(st_env$selection_method, "frequency") && length(st_env$weights_stable)) {
             W_active <<- st_env$weights_stable
-            P_active <<- if (!is.null(st_env$loadings_stable)) st_env$loadings_stable else NULL
+            P_active <<- st_env$loadings_stable %||% NULL
             K_active <<- length(W_active)
             used_source <<- "stable_frequency"
             return(TRUE)
@@ -488,17 +461,14 @@ PipeOpMBsPLS = R6::R6Class(
         FALSE
       }
 
-      pick = pv$predict_weights
-      if (is.null(pick)) pick <- "auto"
-
+      pick = pv$predict_weights %||% "auto"
       if (identical(pick, "auto")) {
-        # prefer the trained method, if stable weights exist
-        if (!is.null(st_env) && !is.null(st_env$weights_stable) && length(st_env$weights_stable)) {
+        if (!is.null(st_env) && length(st_env$weights_stable)) {
           W_active = st_env$weights_stable
-          P_active = if (!is.null(st_env$loadings_stable)) st_env$loadings_stable else NULL
+          P_active = st_env$loadings_stable %||% NULL
           K_active = length(W_active)
-          used_source = paste0("stable_", if (is.null(st_env$selection_method)) "ci" else st_env$selection_method)
-        } # else remain on raw
+          used_source = paste0("stable_", st_env$selection_method %||% "ci")
+        }
       } else if (identical(pick, "stable_ci")) {
         if (!use_env_weights(ci = TRUE, freq = FALSE)) {
           lgr$warn("predict_weights='stable_ci' requested but not available; falling back to raw.")
@@ -510,16 +480,37 @@ PipeOpMBsPLS = R6::R6Class(
           used_source = "raw"
         }
       } else {
-        used_source = "raw" # explicit 'raw'
+        used_source = "raw"
       }
 
-      # Prepare an 'active state' for EV/MAC based on chosen weights
+      # ---- NOW normalize/pad the *final* chosen weights ----
+      for (k in seq_len(K_active)) {
+        for (bnm in block_names) {
+          feats = colnames(X_for_ev[[bnm]])
+          wb = W_active[[k]][[bnm]]
+          if (is.null(wb)) {
+            W_active[[k]][[bnm]] = stats::setNames(numeric(length(feats)), feats)
+          } else if (!is.null(names(wb))) {
+            tmp = as.numeric(wb[feats])
+            tmp[is.na(tmp)] = 0
+            W_active[[k]][[bnm]] = stats::setNames(tmp, feats)
+          } else {
+            if (length(wb) != length(feats)) {
+              W_active[[k]][[bnm]] = stats::setNames(numeric(length(feats)), feats)
+            } else {
+              W_active[[k]][[bnm]] = stats::setNames(as.numeric(wb), feats)
+            }
+          }
+        }
+      }
+
+      # Prepare active state for EV/MAC on the sanitized weights
       st_active = st
       st_active$weights = W_active
       st_active$loadings = P_active
       st_active$ncomp = K_active
 
-      # ----------------- compute test EV/MAC for chosen weights -----------------
+      # Then compute EV/MAC safely
       test_ev_results = compute_pipeop_test_ev(X_for_ev, st_active)
 
       use_frob = identical(self$state$performance_metric, "frobenius")
