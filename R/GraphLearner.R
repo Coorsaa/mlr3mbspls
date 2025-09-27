@@ -15,7 +15,7 @@ autoplot.GraphLearner = function(object,
   type = match.arg(type)
   dots = list(...)
 
-  # -- weights path unchanged ---------------------------------------------------
+  # -- weights path with freq_min support for *bootstrap means* ----------------
   if (type == "mbspls_weights") {
     source = (dots$source %||% "bootstrap") # "weights" | "bootstrap"
     select_id = dots$select_id %||% "mbspls_bootstrap_select"
@@ -23,21 +23,22 @@ autoplot.GraphLearner = function(object,
     patch_ncol = as.integer(dots$patch_ncol %||% 3L)
     font = dots$font %||% "sans"
     alpha_by_stability = dots$alpha_by_stability %||% FALSE
+    freq_min = dots$freq_min %||% NULL
 
-    # Always attempt to locate a selection node so we can optionally map
-    # alpha to stability frequencies even when source == "weights".
+    # locate nodes; only require selection node when source == "bootstrap"
     nodes = .mbspls_locate_nodes_general(object,
       select_id = if (identical(source, "bootstrap")) select_id else NULL)
 
     return(
       .mbspls_plot_weights_patchwork(
         fit_state          = nodes$fit_state,
-        sel_state          = nodes$sel_state, # may be NULL
+        sel_state          = nodes$sel_state, # may be NULL for raw weights
         source             = source,
         top_n              = top_n,
         patch_ncol         = patch_ncol,
         font               = font,
-        alpha_by_stability = alpha_by_stability
+        alpha_by_stability = alpha_by_stability,
+        freq_min           = freq_min
       )
     )
   }
@@ -58,17 +59,11 @@ autoplot.GraphLearner = function(object,
   mod_nodes = .mbspls_locate_nodes_general(object, select_id = NULL)
   model_for_others = mod_nodes$fit_state
 
-  # -- NEW: preferred val_task, legacy val_task as alias ------------------------
+  # NEW: optional validation task (val_task)
   val_task = dots$val_task %||% NULL
   mbspls_id = dots$mbspls_id %||% NULL
-  title_suffix =
-    if (!is.null(dots$val_task)) {
-      " (validation task)"
-    } else {
-      ""
-    }
+  title_suffix = if (!is.null(dots$val_task)) " (validation task)" else ""
 
-  # internal dispatcher you already had
   .mbspls_eval_newdata_dispatch = function(gl, task, mbspls_id = NULL) {
     fn = get0("mbspls_eval_new_data", mode = "function") %||%
       get0("mbspls_eval_on_new", mode = "function")
@@ -76,13 +71,11 @@ autoplot.GraphLearner = function(object,
     fn(gl, task, mbspls_id)
   }
 
-  # Only these types use val_task
   needs_eval = !is.null(val_task) && type %in% c("mbspls_variance", "mbspls_heatmap", "mbspls_network")
   eval_payload = NULL
   if (needs_eval) {
     eval_payload = .mbspls_eval_newdata_dispatch(object, val_task, mbspls_id)
   }
-
   dots$val_task = NULL
 
   switch(
@@ -112,11 +105,10 @@ autoplot.GraphLearner = function(object,
         title_suffix = title_suffix
       ), .keep_formals(dots, fun)))
     },
-    # The rest behave as before (no val_task awareness)
     mbspls_scree = {
       fun = .mbspls_plot_scree_from_model
       do.call(fun, c(list(model = model_for_others,
-        obj_override = NULL, # left NULL; train-time metric
+        obj_override = NULL,
         title_suffix = title_suffix),
       .keep_formals(dots, fun)))
     },
@@ -223,6 +215,33 @@ autoplot.GraphLearner = function(object,
       )
     }))
   }))
+}
+
+.mbspls_df_from_bootstrap_ci = function(sel_state) {
+  .canon = function(x) gsub("^LC_0?", "LC ", x)
+
+  ci = as.data.frame(sel_state$weights_ci)
+  if (is.null(ci) || !nrow(ci)) {
+    stop("No 'weights_ci' found in selection state (need bootstrap_select with summaries).")
+  }
+
+  # Expect columns: component, block, feature, boot_mean, ci_lower, ci_upper
+  need = c("component", "block", "feature", "boot_mean", "ci_lower", "ci_upper")
+  miss = setdiff(need, names(ci))
+  if (length(miss)) {
+    stop("weights_ci missing columns: ", paste(miss, collapse = ", "))
+  }
+
+  df = ci |>
+    dplyr::transmute(
+      component = .canon(.data$component),
+      block     = .data$block,
+      feature   = .data$feature,
+      mean      = .data$boot_mean,
+      ci_lower  = .data$ci_lower,
+      ci_upper  = .data$ci_upper
+    )
+  df
 }
 
 .mbspls_df_from_bootstrap_stable = function(sel_state) {
@@ -348,7 +367,8 @@ autoplot.GraphLearner = function(object,
   top_n = NULL,
   patch_ncol = 1L,
   font = "sans",
-  alpha_by_stability = FALSE
+  alpha_by_stability = FALSE,
+  freq_min = NULL # <- only meaningful for source == "bootstrap"
 ) {
   requireNamespace("patchwork")
   source = match.arg(source)
@@ -356,36 +376,118 @@ autoplot.GraphLearner = function(object,
   blocks = fit_state$blocks
   block_levels = names(blocks)
 
-  # Data
   if (source == "weights") {
+    # RAW weights path: unchanged (no freq filter here)
+    if (!is.null(freq_min)) {
+      message("freq_min is ignored for source='weights'; it only applies to bootstrap means.")
+    }
     df = .mbspls_df_from_fit(fit_state)
     df = df[is.finite(df$mean) & df$mean != 0, , drop = FALSE]
-  } else {
-    if (is.null(sel_state)) {
-      stop("Bootstrap selection state not found; set source='weights' or pass a valid select_id.")
-    }
-    df = .mbspls_df_from_bootstrap_stable(sel_state)
-    df = df[is.finite(df$mean) & df$mean != 0, , drop = FALSE]
-  }
-  if (!nrow(df)) stop("No weights to plot.")
 
-  # Attach stability frequency (selection proportion) if available & requested.
-  if (isTRUE(alpha_by_stability) && !is.null(sel_state) && !is.null(sel_state$weights_selectfreq)) {
-    freq_tbl = try(as.data.frame(sel_state$weights_selectfreq), silent = TRUE)
-    if (!inherits(freq_tbl, "try-error") && nrow(freq_tbl)) {
-      needed = c("component", "block", "feature", "freq")
-      if (all(needed %in% names(freq_tbl))) {
-        freq_tbl$component = gsub("^LC_0?", "LC ", freq_tbl$component)
-        df$component = gsub("^LC_0?", "LC ", df$component)
-        df = merge(df, freq_tbl[, needed], by = c("component", "block", "feature"), all.x = TRUE)
+    # Optionally map alpha from stability if selection state present
+    if (isTRUE(alpha_by_stability) && !is.null(sel_state) && !is.null(sel_state$weights_selectfreq)) {
+      freq_tbl = try(as.data.frame(sel_state$weights_selectfreq), silent = TRUE)
+      if (!inherits(freq_tbl, "try-error") && nrow(freq_tbl)) {
+        need = c("component", "block", "feature", "freq")
+        if (all(need %in% names(freq_tbl))) {
+          freq_tbl$component = gsub("^LC_0?", "LC ", freq_tbl$component)
+          df$component = gsub("^LC_0?", "LC ", df$component)
+          df = merge(df, freq_tbl[, need], by = c("component", "block", "feature"), all.x = TRUE)
+          if (!any(is.finite(df$freq))) {
+            freq_bf = aggregate(freq ~ block + feature, data = freq_tbl, FUN = function(z) {
+              z = z[is.finite(z)]
+              if (!length(z)) NA_real_ else max(z)
+            })
+            df = merge(df[, setdiff(names(df), "freq"), drop = FALSE],
+              freq_bf, by = c("block", "feature"), all.x = TRUE)
+          }
+          df$alpha_freq = df$freq
+          df$alpha_freq[!is.finite(df$alpha_freq)] = 1
+          df$alpha_freq = pmin(pmax(df$alpha_freq, 0), 1)
+        }
+      }
+    }
+
+  } else { # source == "bootstrap"
+    if (is.null(sel_state)) {
+      stop("Bootstrap selection state not found; pass a valid select_id and train with bootstrap selection.")
+    }
+
+    if (!is.null(freq_min)) {
+      # ---- NEW: frequency filter on UNFILTERED bootstrap means (weights_ci) ----
+      df = .mbspls_df_from_bootstrap_ci(sel_state)
+      # Join selection frequencies
+      freq_tbl = try(as.data.frame(sel_state$weights_selectfreq), silent = TRUE)
+      if (inherits(freq_tbl, "try-error") || !nrow(freq_tbl)) {
+        stop("freq_min provided, but weights_selectfreq is missing from selection state.")
+      }
+      need = c("component", "block", "feature", "freq")
+      if (!all(need %in% names(freq_tbl))) {
+        stop("weights_selectfreq must have columns: component, block, feature, freq.")
+      }
+      freq_tbl$component = gsub("^LC_0?", "LC ", freq_tbl$component)
+      df$component = gsub("^LC_0?", "LC ", df$component)
+
+      # primary join: component+block+feature
+      df = merge(df, freq_tbl[, need], by = c("component", "block", "feature"), all.x = TRUE)
+      # fallback to block+feature if all NA (edge cases)
+      if (!any(is.finite(df$freq))) {
+        freq_bf = aggregate(freq ~ block + feature, data = freq_tbl, FUN = function(z) {
+          z = z[is.finite(z)]
+          if (!length(z)) NA_real_ else max(z)
+        })
+        df = merge(df[, setdiff(names(df), "freq"), drop = FALSE],
+          freq_bf, by = c("block", "feature"), all.x = TRUE)
+      }
+
+      # keep only features with freq >= freq_min
+      df = df[is.finite(df$freq) & df$freq >= as.numeric(freq_min), , drop = FALSE]
+      if (!nrow(df)) stop(sprintf("No bootstrap-mean weights pass freq_min = %.3f.", as.numeric(freq_min)))
+
+      # Optional alpha mapping
+      if (isTRUE(alpha_by_stability)) {
         df$alpha_freq = df$freq
         df$alpha_freq[!is.finite(df$alpha_freq)] = 1
         df$alpha_freq = pmin(pmax(df$alpha_freq, 0), 1)
       }
+
+      # finally, drop strict zeros (avoid empty rows)
+      df = df[is.finite(df$mean) & df$mean != 0, , drop = FALSE]
+
+    } else {
+      # default: STABLE weights (previous behavior)
+      df = .mbspls_df_from_bootstrap_stable(sel_state)
+      df = df[is.finite(df$mean) & df$mean != 0, , drop = FALSE]
+
+      # Optional alpha mapping from frequency (purely visual)
+      if (isTRUE(alpha_by_stability) && !is.null(sel_state$weights_selectfreq)) {
+        freq_tbl = try(as.data.frame(sel_state$weights_selectfreq), silent = TRUE)
+        if (!inherits(freq_tbl, "try-error") && nrow(freq_tbl)) {
+          need = c("component", "block", "feature", "freq")
+          if (all(need %in% names(freq_tbl))) {
+            freq_tbl$component = gsub("^LC_0?", "LC ", freq_tbl$component)
+            df$component = gsub("^LC_0?", "LC ", df$component)
+            df = merge(df, freq_tbl[, need], by = c("component", "block", "feature"), all.x = TRUE)
+            if (!any(is.finite(df$freq))) {
+              freq_bf = aggregate(freq ~ block + feature, data = freq_tbl, FUN = function(z) {
+                z = z[is.finite(z)]
+                if (!length(z)) NA_real_ else max(z)
+              })
+              df = merge(df[, setdiff(names(df), "freq"), drop = FALSE],
+                freq_bf, by = c("block", "feature"), all.x = TRUE)
+            }
+            df$alpha_freq = df$freq
+            df$alpha_freq[!is.finite(df$alpha_freq)] = 1
+            df$alpha_freq = pmin(pmax(df$alpha_freq, 0), 1)
+          }
+        }
+      }
     }
   }
 
-  # top N per block×component
+  if (!nrow(df)) stop("No weights to plot.")
+
+  # top N per block×component (after any filtering)
   if (!is.null(top_n) && is.numeric(top_n) && top_n > 0) {
     df = df |>
       dplyr::mutate(abs_m = abs(.data$mean)) |>
@@ -403,10 +505,15 @@ autoplot.GraphLearner = function(object,
     df_sub = df[df$component == cc, , drop = FALSE]
     title = if (identical(source, "weights")) {
       sprintf("MB-sPLS raw weights - %s", cc)
+    } else if (!is.null(freq_min)) {
+      sprintf("%s (bootstrap means; freq ≥ %.2f)", cc, as.numeric(freq_min))
     } else {
       sprintf("%s", cc)
     }
-    .mbspls_plot_weights_single_component(df_sub, block_levels, title = title, font = font, alpha_by_stability = alpha_by_stability)
+    .mbspls_plot_weights_single_component(
+      df_sub, block_levels, title = title, font = font,
+      alpha_by_stability = alpha_by_stability
+    )
   })
 
   patch_ncol = min(patch_ncol, length(plots))
@@ -414,6 +521,8 @@ autoplot.GraphLearner = function(object,
 
   ttl = if (identical(source, "weights")) {
     "MB-sPLS raw weights per block"
+  } else if (!is.null(freq_min)) {
+    "MB-sPLS bootstrap MEANS per block (freq-filtered)"
   } else {
     "MB-sPLS bootstrap STABLE weights per block"
   }

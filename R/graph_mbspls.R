@@ -62,12 +62,14 @@ mbspls_preproc_graph = function(
 #' @param c_matrix Optional L1 constraint matrix for MB‑sPLS.
 #'
 #' @param permutation_test,n_perm,perm_alpha Train‑time permutation test (MB‑sPLS).
+#' @param prediction_weights character; one of "auto","raw","stable_ci","stable_frequency".
+#'   Controls which weights PipeOpMBsPLS uses at predict/validation time.
 #' @param val_test,val_test_alpha,val_test_n,val_test_permute_all Prediction‑side validation (MB‑sPLS).
 #'
 #' @param bootstrap Logical; run bootstrap selection (default TRUE).
 #' @param B Integer; bootstrap replicates (default 500).
 #' @param alpha Numeric; CI alpha (default 0.05).
-#' @param align "global_correlation" (default) or "block_sign".
+#' @param align "block_sign" (default) or "global_correlation".
 #' @param selection_method "ci" (default) or "frequency".
 #' @param frequency_threshold Numeric in `[0,1]`; only if selection_method="frequency" (default 0.6).
 #' @param stratify_by_block Optional dummy block for stratified bootstrap (e.g., "Studygroup").
@@ -92,6 +94,7 @@ mbspls_graph_learner = function(
   permutation_test = FALSE,
   n_perm = 500L,
   perm_alpha = 0.05,
+  prediction_weights = c("auto", "raw", "stable_ci", "stable_frequency"),
   val_test = c("none", "permutation", "bootstrap"),
   val_test_alpha = 0.05,
   val_test_n = 1000L,
@@ -115,6 +118,7 @@ mbspls_graph_learner = function(
   checkmate::assert_int(ncomp, lower = 1)
   performance_metric = match.arg(performance_metric)
   correlation_method = match.arg(correlation_method)
+  prediction_weights = match.arg(prediction_weights)
   val_test = match.arg(val_test)
   align = match.arg(align)
   selection_method = match.arg(selection_method)
@@ -153,6 +157,9 @@ mbspls_graph_learner = function(
       permutation_test = permutation_test,
       n_perm = n_perm,
       perm_alpha = perm_alpha,
+
+      # which weights to use at predict/validation time?
+      predict_weights = prediction_weights,
 
       # optional prediction-side validation
       val_test = val_test,

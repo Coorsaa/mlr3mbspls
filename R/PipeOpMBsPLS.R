@@ -43,7 +43,7 @@
 #'   \item{\code{c_matrix}}{If provided/derived, the block-by-component sparsity matrix.}
 #'   \item{\code{T_mat}}{Training score matrix (per-component deflation applied);
 #'         columns ordered \code{LV1_<block1>, ..., LV1_<blockB>, LV2_<block1>, ...}.}
-#'   \item{\code{weights_stability_filtered}}{Optional stability-filtered weights (from the bootstrap PipeOp).}
+#'   \item{\code{weights_stable}}{Optional stability-filtered weights (from the bootstrap PipeOp).}
 #' }
 #'
 #' @section Prediction-side logging (\code{log_env$last}):
@@ -81,6 +81,8 @@
 #' @param c_matrix \code{matrix}. Optional matrix of L¹ limits (rows = blocks, cols = components).
 #' @param store_train_blocks \code{logical(1)}. If \code{TRUE} and \code{log_env} is provided,
 #'   store preprocessed training block matrices and sparsity settings in \code{log_env$mbspls_state}.
+#' @param prediction_weights character; one of "auto","raw","stable_ci","stable_frequency".
+#'   Controls which weights PipeOpMBsPLS uses at predict/validation time.
 #' @param val_test \code{character(1)}. Prediction-side validation: \code{"none"}, \code{"permutation"}, \code{"bootstrap"}.
 #' @param val_test_n \code{integer(1)}. Number of permutations / bootstrap replicates for prediction-side validation.
 #' @param val_test_alpha \code{numeric(1)}. Early-stop threshold for permutation and CI level for bootstrap validation.
@@ -142,6 +144,7 @@ PipeOpMBsPLS = R6::R6Class(
         n_perm = p_int(lower = 1L, default = 100L, tags = "train"),
         perm_alpha = p_dbl(lower = 0, upper = 1, default = 0.05, tags = "train"),
         store_train_blocks = p_lgl(default = FALSE, tags = "train"),
+        predict_weights = p_fct(c("auto", "raw", "stable_ci", "stable_frequency"), default = "auto", tags = "predict"),
         val_test = p_fct(c("none", "permutation", "bootstrap"), default = "none", tags = "predict"),
         val_test_alpha = p_dbl(lower = 0, upper = 1, default = 0.05, tags = "predict"),
         val_test_n = p_int(lower = 1L, default = 1000L, tags = "predict"),
@@ -389,7 +392,6 @@ PipeOpMBsPLS = R6::R6Class(
       st = self$state
       block_names = names(st$blocks)
       B = length(block_names)
-      K = st$ncomp
 
       # Ensure trained columns exist
       missing_cols = setdiff(unlist(st$blocks), names(dt))
@@ -409,12 +411,93 @@ PipeOpMBsPLS = R6::R6Class(
       # Preserve copy for EV/MAC logging
       X_for_ev = lapply(X_cur, identity)
 
-      # ALWAYS use raw training weights at predict time (no stability mixing here)
+      # ----------------- choose which weights to use -----------------
+      used_source = "raw"
       W_active = st$weights
       P_active = st$loadings
+      K_active = length(W_active)
 
-      # Test EVs + objective
-      test_ev_results = compute_pipeop_test_ev(X_for_ev, st)
+      st_env = NULL
+      if (!is.null(pv$log_env) && inherits(pv$log_env, "environment")) {
+        st_env = pv$log_env$mbspls_state
+      }
+
+      # Helper: pick from env if available
+      use_env_weights = function(ci = FALSE, freq = FALSE) {
+        if (is.null(st_env)) {
+          return(FALSE)
+        }
+        if (ci) {
+          if (!is.null(st_env$weights_stable_ci) && length(st_env$weights_stable_ci)) {
+            W_active <<- st_env$weights_stable_ci
+            P_active <<- if (!is.null(st_env$loadings_stable_ci)) st_env$loadings_stable_ci else NULL
+            K_active <<- length(W_active)
+            used_source <<- "stable_ci"
+            return(TRUE)
+          }
+          # backward‑compat: single set saved by chosen selection_method
+          if (identical(st_env$selection_method, "ci") &&
+            !is.null(st_env$weights_stable) && length(st_env$weights_stable)) {
+            W_active <<- st_env$weights_stable
+            P_active <<- if (!is.null(st_env$loadings_stable)) st_env$loadings_stable else NULL
+            K_active <<- length(W_active)
+            used_source <<- "stable_ci"
+            return(TRUE)
+          }
+        }
+        if (freq) {
+          if (!is.null(st_env$weights_stable_frequency) && length(st_env$weights_stable_frequency)) {
+            W_active <<- st_env$weights_stable_frequency
+            P_active <<- if (!is.null(st_env$loadings_stable_frequency)) st_env$loadings_stable_frequency else NULL
+            K_active <<- length(W_active)
+            used_source <<- "stable_frequency"
+            return(TRUE)
+          }
+          if (identical(st_env$selection_method, "frequency") &&
+            !is.null(st_env$weights_stable) && length(st_env$weights_stable)) {
+            W_active <<- st_env$weights_stable
+            P_active <<- if (!is.null(st_env$loadings_stable)) st_env$loadings_stable else NULL
+            K_active <<- length(W_active)
+            used_source <<- "stable_frequency"
+            return(TRUE)
+          }
+        }
+        FALSE
+      }
+
+      pick = pv$predict_weights
+      if (is.null(pick)) pick <- "auto"
+
+      if (identical(pick, "auto")) {
+        # prefer the trained method, if stable weights exist
+        if (!is.null(st_env) && !is.null(st_env$weights_stable) && length(st_env$weights_stable)) {
+          W_active = st_env$weights_stable
+          P_active = if (!is.null(st_env$loadings_stable)) st_env$loadings_stable else NULL
+          K_active = length(W_active)
+          used_source = paste0("stable_", if (is.null(st_env$selection_method)) "ci" else st_env$selection_method)
+        } # else remain on raw
+      } else if (identical(pick, "stable_ci")) {
+        if (!use_env_weights(ci = TRUE, freq = FALSE)) {
+          lgr$warn("predict_weights='stable_ci' requested but not available; falling back to raw.")
+          used_source = "raw"
+        }
+      } else if (identical(pick, "stable_frequency")) {
+        if (!use_env_weights(ci = FALSE, freq = TRUE)) {
+          lgr$warn("predict_weights='stable_frequency' requested but not available; falling back to raw.")
+          used_source = "raw"
+        }
+      } else {
+        used_source = "raw" # explicit 'raw'
+      }
+
+      # Prepare an 'active state' for EV/MAC based on chosen weights
+      st_active = st
+      st_active$weights = W_active
+      st_active$loadings = P_active
+      st_active$ncomp = K_active
+
+      # ----------------- compute test EV/MAC for chosen weights -----------------
+      test_ev_results = compute_pipeop_test_ev(X_for_ev, st_active)
 
       use_frob = identical(self$state$performance_metric, "frobenius")
       use_spear = identical(pv$correlation_method, "spearman")
@@ -423,11 +506,11 @@ PipeOpMBsPLS = R6::R6Class(
       val_test_n = pv$val_test_n
       val_test_permute_all = pv$val_test_permute_all
 
-      val_test_p = rep(NA_real_, K)
-      val_test_stat = rep(NA_real_, K)
+      val_test_p = rep(NA_real_, K_active)
+      val_test_stat = rep(NA_real_, K_active)
 
-      score_tables = vector("list", K)
-      for (k in seq_len(K)) {
+      score_tables = vector("list", K_active)
+      for (k in seq_len(K_active)) {
         Wk = W_active[[k]]
         Tk = matrix(0, nrow(dt), B)
         bi = 0L
@@ -452,7 +535,7 @@ PipeOpMBsPLS = R6::R6Class(
         colnames(Tk) = paste0("LV", k, "_", block_names)
         score_tables[[k]] = data.table::as.data.table(Tk)
 
-        # Optional prediction-side validation
+        # -------- optional prediction-side validation (permutation) --------
         if (val_test == "permutation" && B >= 2L) {
           Xk_list = lapply(X_cur, function(x) {
             storage.mode(x) = "double"
@@ -478,6 +561,7 @@ PipeOpMBsPLS = R6::R6Class(
             k, if (is.na(val_test_p[k])) "NA" else formatC(val_test_p[k], digits = 3, format = "f"))
         }
 
+        # -------- optional prediction-side validation (bootstrap) --------
         if (val_test == "bootstrap") {
           Xk_list = lapply(X_cur, function(x) {
             storage.mode(x) = "double"
@@ -573,8 +657,8 @@ PipeOpMBsPLS = R6::R6Class(
           }
         }
 
-        # Deflate for next component
-        if (k < K) {
+        # Deflate for next component if loadings are available
+        if (k < K_active) {
           Pk = P_active[[k]]
           if (!is.null(Pk)) {
             bi = 0L
@@ -594,7 +678,7 @@ PipeOpMBsPLS = R6::R6Class(
       ev_block_test = as.matrix(test_ev_results$ev_block)
       ev_comp_test = as.numeric(test_ev_results$ev_comp)
       mac_comp_test = as.numeric(test_ev_results$mac_comp)
-      comp_names = sprintf("LC_%02d", seq_len(K))
+      comp_names = sprintf("LC_%02d", seq_len(K_active))
       colnames(ev_block_test) = block_names
       rownames(ev_block_test) = comp_names
       names(ev_comp_test) = comp_names
@@ -603,13 +687,14 @@ PipeOpMBsPLS = R6::R6Class(
       log_env = self$param_set$values$log_env
       if (!is.null(log_env) && inherits(log_env, "environment")) {
         payload = list(
-          mac_comp    = mac_comp_test,
-          ev_block    = ev_block_test,
-          ev_comp     = ev_comp_test,
-          T_mat       = T_mat_test,
-          blocks      = block_names,
+          mac_comp = mac_comp_test,
+          ev_block = ev_block_test,
+          ev_comp = ev_comp_test,
+          T_mat = T_mat_test,
+          blocks = block_names,
           perf_metric = self$state$performance_metric,
-          time        = Sys.time()
+          weights_source = used_source, # <- NEW
+          time = Sys.time()
         )
         if (exists("val_test_p", inherits = FALSE) && pv$val_test != "none") {
           names(val_test_p) = comp_names
@@ -629,7 +714,7 @@ PipeOpMBsPLS = R6::R6Class(
         log_env$last = payload
       }
 
-      # ---- output: append or replace
+      # Output (append vs replace) as before
       if (isTRUE(pv$append)) {
         dt_out = cbind(data.table::as.data.table(dt), dt_lat)
         data.table::setDT(dt_out)

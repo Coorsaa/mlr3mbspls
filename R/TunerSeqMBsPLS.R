@@ -374,6 +374,12 @@ TunerSeqMBsPLS = R6::R6Class(
       X_blocks_residual = private$.make_blocks(pre_df_full, blocks, allow_encoded = FALSE)
       names(X_blocks_residual) = names(blocks)
 
+      if (!is.null(private$.additional_task)) {
+        df_add_full = pre_graph_full$predict(private$.additional_task)[[1L]]$data()
+        X_add_full = private$.make_blocks(df_add_full, blocks, allow_encoded = FALSE)
+        X_blocks_residual = private$.rbind_blocks(X_blocks_residual, X_add_full)
+      }
+
       # instantiate inner resampling
       rs = private$.resampling_tpl$clone()
       if (!rs$is_instantiated) rs$instantiate(task_full)
