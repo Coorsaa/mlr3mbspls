@@ -110,14 +110,19 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
 
       for (k in seq_len(K)) {
         k_lab = sprintf("LC_%02d", k)
-        Wk_out = list()
+        Wk_out = vector("list", length(bn))
+        names(Wk_out) = bn
         kept_blocks = character(0)
 
         for (b in bn) {
           feats = blocks_map[[b]]
-          if (is.null(feats) || !length(feats)) next
+          if (is.null(feats) || !length(feats)) {
+            # keep a zero-length named numeric to be safe
+            Wk_out[[b]] = setNames(numeric(0), character(0))
+            next
+          }
 
-          # means + CIs
+          # means + CIs for this (k,b)
           sb = sum_df[sum_df$component == k_lab & sum_df$block == b,
             c("feature", "boot_mean", "ci_lower", "ci_upper"),
             drop = FALSE]
@@ -126,34 +131,35 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
           hi_map = if (nrow(sb)) stats::setNames(sb$ci_upper, sb$feature) else setNames(numeric(0), character(0))
 
           mu = as.numeric(mu_map[feats])
-          mu[is.na(mu)] = 0
+          if (length(mu) == 0L) mu = numeric(length(feats))
           lo = as.numeric(lo_map[feats])
-          lo[is.na(lo)] = 0
+          if (length(lo) == 0L) lo = numeric(length(feats))
           hi = as.numeric(hi_map[feats])
+          if (length(hi) == 0L) hi = numeric(length(feats))
+          mu[is.na(mu)] = 0
+          lo[is.na(lo)] = 0
           hi[is.na(hi)] = 0
 
           if (identical(method, "ci")) {
             keep = ((lo >= 0) | (hi <= 0)) & (abs(mu) > 1e-3)
           } else {
-            fb = freq_df[freq_df$component == k_lab & freq_df$block == b,
-              c("feature", "freq"), drop = FALSE]
+            fb = freq_df[freq_df$component == k_lab & freq_df$block == b, c("feature", "freq"), drop = FALSE]
             fq_map = if (nrow(fb)) stats::setNames(fb$freq, fb$feature) else setNames(numeric(0), character(0))
             fv = as.numeric(fq_map[feats])
+            if (length(fv) == 0L) fv = numeric(length(feats))
             fv[is.na(fv)] = 0
             keep = (fv >= as.numeric(frequency_threshold))
           }
 
           mu[!keep] = 0
-          if (any(mu != 0)) {
-            Wk_out[[b]] = stats::setNames(mu, feats)
-            kept_blocks = c(kept_blocks, b)
-          }
+          # Always create an entry for *every* block with correct length & names
+          Wk_out[[b]] = stats::setNames(mu, feats)
+          if (any(mu != 0)) kept_blocks = c(kept_blocks, b)
         }
 
-        if (length(Wk_out)) {
-          W_stable_local[[length(W_stable_local) + 1L]] = Wk_out
-          kept_blocks_per_comp_local[[length(kept_blocks_per_comp_local) + 1L]] = kept_blocks
-        }
+        # Even if all-zero across all blocks, keep a (named) list to maintain shape
+        W_stable_local[[length(W_stable_local) + 1L]] = Wk_out
+        kept_blocks_per_comp_local[[length(kept_blocks_per_comp_local) + 1L]] = kept_blocks
       }
 
       names(W_stable_local) = sprintf("LC_%02d", seq_along(W_stable_local))
@@ -583,28 +589,22 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       freq_df = as.data.frame(bt$select_freq)
       K = length(st_env$weights)
 
-      # Build both sets for env storage
+      # Iterate over the full block set so all components have all blocks (zero-padded if filtered)
+      bn_full = names(blocks_map)
+
+      # ---- Build BOTH stable variants for env storage
       built_ci = private$.build_stable_from(
-        method = "ci",
-        K = K,
-        bn = bn,
-        blocks_map = blocks_map,
-        sum_df = sum_df,
-        freq_df = freq_df,
-        frequency_threshold = pv$frequency_threshold
+        method = "ci", K = K, bn = bn_full,
+        blocks_map = blocks_map, sum_df = sum_df,
+        freq_df = freq_df, frequency_threshold = pv$frequency_threshold
       )
       built_freq = private$.build_stable_from(
-        method = "frequency",
-        K = K,
-        bn = bn,
-        blocks_map = blocks_map,
-        sum_df = sum_df,
-        freq_df = freq_df,
-        frequency_threshold = pv$frequency_threshold
+        method = "frequency", K = K, bn = bn_full,
+        blocks_map = blocks_map, sum_df = sum_df,
+        freq_df = freq_df, frequency_threshold = pv$frequency_threshold
       )
 
-
-      # Existing path: pick the configured selection_method to rewrite the task
+      # ---- Choose which set governs the graph output (according to selection_method)
       if (pv$selection_method == "ci") {
         W_stable = built_ci$W
         kept_blocks_per_comp = built_ci$kept
@@ -621,39 +621,44 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         keep_features = setdiff(task$feature_names, c(old_lv, orig_feats))
         task$select(keep_features)
 
+        # Persist minimal info
         self$state$kept_components = integer(0)
         self$state$kept_blocks_per_comp = list()
         self$state$weights_ci = sum_df
         self$state$weights_selectfreq = freq_df
         self$state$weights_stable = W_stable
-        # also store both variants for prediction switching
+
+        # Store both weight variants for prediction switching (empty or not)
         st_env$weights_stable = W_stable
         st_env$weights_stable_ci = built_ci$W
         st_env$weights_stable_frequency = built_freq$W
-
         st_env$kept_blocks_per_comp = kept_blocks_per_comp
         st_env$kept_blocks_per_comp_ci = built_ci$kept
         st_env$kept_blocks_per_comp_frequency = built_freq$kept
         st_env$selection_method = pv$selection_method
         st_env$frequency_threshold = pv$frequency_threshold
-        pv$log_env$mbspls_state = st_env
+        # Safe empty training LV matrices
+        st_env$T_mat_train = matrix(0, nrow = nrow(X_blocks_train[[1]]), ncol = 0)
+        st_env$T_mat_train_kept = st_env$T_mat_train
 
+        pv$log_env$mbspls_state = st_env
         return(task)
       }
 
-      # recompute training scores with deflation using W_stable
-      # Use the (potentially rebuilt) X_blocks_train to ensure alignment with current task rows
+      # ---- Recompute TRAINING scores by deflation for BOTH variants and for the chosen one
       X_train = X_blocks_train
-      rec = private$.recompute_scores_deflated(X_train, W_stable, names(blocks_map))
-      T_all_dt = rec$T_mat
-      P_all = rec$P
+      rec_ci = private$.recompute_scores_deflated(X_train, built_ci$W, names(blocks_map))
+      rec_freq = private$.recompute_scores_deflated(X_train, built_freq$W, names(blocks_map))
+      rec_sel = if (pv$selection_method == "ci") rec_ci else rec_freq
 
-      # keep only non-empty block columns
+      T_all_dt = rec_sel$T_mat
+      P_all = rec_sel$P
+
+      # keep only non-empty block columns for the chosen variant
       keep_cols = character(0)
       for (newk in seq_along(W_stable)) {
-        for (b in kept_blocks_per_comp[[newk]]) {
-          keep_cols = c(keep_cols, paste0("LV", newk, "_", b))
-        }
+        kb = kept_blocks_per_comp[[newk]]
+        if (length(kb)) keep_cols = c(keep_cols, paste0("LV", newk, "_", kb))
       }
       T_all = as.matrix(T_all_dt)
       if (length(keep_cols)) {
@@ -672,7 +677,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       lgr$info("Bootstrap-select (train): dropped %d original block features and %d upstream LV columns; kept %d stable LV columns.",
         length(orig_feats), length(old_lv), ncol(T_keep))
 
-      # persist to state + env
+      # ------- Persist to state + env
       self$state$kept_components = seq_along(W_stable)
       self$state$kept_blocks_per_comp = kept_blocks_per_comp
       self$state$weights_ci = sum_df
@@ -683,6 +688,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       self$state$selection_method = pv$selection_method
       self$state$frequency_threshold = pv$frequency_threshold
 
+      # chosen variant, used by downstream predict unless overridden
       st_env$weights_stable = W_stable
       st_env$loadings_stable = P_all
       st_env$ncomp = length(W_stable)
@@ -694,6 +700,16 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       st_env$alignment_method = pv$align
       st_env$selection_method = pv$selection_method
       st_env$frequency_threshold = pv$frequency_threshold
+
+      # store BOTH variants for prediction switching
+      st_env$weights_stable_ci = built_ci$W
+      st_env$loadings_stable_ci = rec_ci$P
+      st_env$kept_blocks_per_comp_ci = built_ci$kept
+
+      st_env$weights_stable_frequency = built_freq$W
+      st_env$loadings_stable_frequency = rec_freq$P
+      st_env$kept_blocks_per_comp_frequency = built_freq$kept
+
       pv$log_env$mbspls_state = st_env
 
       task

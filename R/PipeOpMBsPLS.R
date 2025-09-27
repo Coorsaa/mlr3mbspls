@@ -417,6 +417,29 @@ PipeOpMBsPLS = R6::R6Class(
       P_active = st$loadings
       K_active = length(W_active)
 
+      # ----- Normalize/pad weights to full block set & current column order -----
+      for (k in seq_len(K_active)) {
+        for (bnm in block_names) {
+          feats = colnames(X_for_ev[[bnm]])
+          wb = W_active[[k]][[bnm]]
+          if (is.null(wb)) {
+            # missing block -> all zeros of correct length
+            W_active[[k]][[bnm]] = stats::setNames(numeric(length(feats)), feats)
+          } else if (!is.null(names(wb))) {
+            tmp = as.numeric(wb[feats])
+            tmp[is.na(tmp)] = 0
+            W_active[[k]][[bnm]] = stats::setNames(tmp, feats)
+          } else {
+            # unnamed numeric: trust only if length matches; else zero-pad
+            if (length(wb) != length(feats)) {
+              W_active[[k]][[bnm]] = stats::setNames(numeric(length(feats)), feats)
+            } else {
+              W_active[[k]][[bnm]] = stats::setNames(as.numeric(wb), feats)
+            }
+          }
+        }
+      }
+
       st_env = NULL
       if (!is.null(pv$log_env) && inherits(pv$log_env, "environment")) {
         st_env = pv$log_env$mbspls_state
