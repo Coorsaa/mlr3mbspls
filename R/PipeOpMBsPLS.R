@@ -81,7 +81,7 @@
 #' @param c_matrix \code{matrix}. Optional matrix of L¹ limits (rows = blocks, cols = components).
 #' @param store_train_blocks \code{logical(1)}. If \code{TRUE} and \code{log_env} is provided,
 #'   store preprocessed training block matrices and sparsity settings in \code{log_env$mbspls_state}.
-#' @param prediction_weights character; one of "auto","raw","stable_ci","stable_frequency".
+#' @param predict_weights character; one of "auto","raw","stable_ci","stable_frequency".
 #'   Controls which weights PipeOpMBsPLS uses at predict/validation time.
 #' @param val_test \code{character(1)}. Prediction-side validation: \code{"none"}, \code{"permutation"}, \code{"bootstrap"}.
 #' @param val_test_n \code{integer(1)}. Number of permutations / bootstrap replicates for prediction-side validation.
