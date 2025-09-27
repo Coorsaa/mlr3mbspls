@@ -481,7 +481,8 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
 
       inc_dt = if (nrow(draws)) {
         tmp = copy(draws)
-        tmp[, sel := as.integer(abs(weight) > 0)]
+        EPS = 1e-12
+        tmp[, sel := as.integer(abs(weight) > EPS)]
         tmp[, .(sel = sum(sel, na.rm = TRUE)), by = .(component, block, feature)]
       } else {
         data.table::data.table(component = character(0), block = character(0), feature = character(0), sel = integer(0))
