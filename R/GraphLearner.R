@@ -506,7 +506,7 @@ autoplot.GraphLearner = function(object,
     title = if (identical(source, "weights")) {
       sprintf("MB-sPLS raw weights - %s", cc)
     } else if (!is.null(freq_min)) {
-      sprintf("%s (bootstrap means; freq ≥ %.2f)", cc, as.numeric(freq_min))
+      sprintf("%s (bootstrap means; freq >= %.2f)", cc, as.numeric(freq_min))
     } else {
       sprintf("%s", cc)
     }
