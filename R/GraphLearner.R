@@ -1,7 +1,7 @@
-#' Autoplot for GraphLearner with MB-sPLS (generalized, branch-aware)
+#' Autoplot for GraphLearner with MB-sPLS (branch-aware, source-consistent)
 #'
-#' See usage notes in the body text. Requires: ggplot2, dplyr, tibble.
-#' Optional: patchwork, ggraph, igraph, RColorBrewer, scales, hexbin.
+#' Requires: ggplot2, dplyr, tibble
+#' Optional: patchwork, ggraph, igraph, RColorBrewer, scales, hexbin
 #'
 #' @importFrom ggplot2 autoplot
 #' @export
@@ -15,128 +15,202 @@ autoplot.GraphLearner = function(object,
   type = match.arg(type)
   dots = list(...)
 
-  # -- weights path with freq_min support for *bootstrap means* ----------------
-  if (type == "mbspls_weights") {
-    source = (dots$source %||% "bootstrap") # "weights" | "bootstrap"
-    select_id = dots$select_id %||% "mbspls_bootstrap_select"
-    top_n = dots$top_n %||% NULL
-    patch_ncol = as.integer(dots$patch_ncol %||% 3L)
-    font = dots$font %||% "sans"
-    alpha_by_stability = dots$alpha_by_stability %||% FALSE
-    freq_min = dots$freq_min %||% NULL
-
-    # locate nodes; only require selection node when source == "bootstrap"
-    nodes = .mbspls_locate_nodes_general(object,
-      select_id = if (identical(source, "bootstrap")) select_id else NULL)
-
-    return(
-      .mbspls_plot_weights_patchwork(
-        fit_state          = nodes$fit_state,
-        sel_state          = nodes$sel_state, # may be NULL for raw weights
-        source             = source,
-        top_n              = top_n,
-        patch_ncol         = patch_ncol,
-        font               = font,
-        alpha_by_stability = alpha_by_stability,
-        freq_min           = freq_min
-      )
-    )
-  }
-
-  # -- helper: keep only arguments a function actually accepts ------------------
-  .keep_formals = function(d, fun) {
-    if (!length(d)) {
-      return(d)
+  # --- safe merge of ... with explicit arguments (prevents duplicate formals)
+  .args_merge = function(explicit, dots, fun) {
+    if (!length(dots)) {
+      return(explicit)
     }
     fml = names(formals(fun))
-    if (is.null(fml)) {
-      return(d)
-    }
-    d[names(d) %in% fml]
+    if (is.null(fml)) fml <- character(0)
+    keep = intersect(setdiff(names(dots), names(explicit)), fml)
+    c(explicit, dots[keep])
   }
 
-  # -- locate MB-sPLS node once -------------------------------------------------
-  mod_nodes = .mbspls_locate_nodes_general(object, select_id = NULL)
-  model_for_others = mod_nodes$fit_state
-
-  # NEW: optional validation task (val_task)
-  val_task = dots$val_task %||% NULL
-  mbspls_id = dots$mbspls_id %||% NULL
-  title_suffix = if (!is.null(dots$val_task)) " (validation task)" else ""
-
-  .mbspls_eval_newdata_dispatch = function(gl, task, mbspls_id = NULL) {
-    fn = get0("mbspls_eval_new_data", mode = "function") %||%
-      get0("mbspls_eval_on_new", mode = "function")
-    if (is.null(fn)) stop("Need mbspls_eval_new_data() or mbspls_eval_on_new().")
-    fn(gl, task, mbspls_id)
-  }
-
-  needs_eval = !is.null(val_task) && type %in% c("mbspls_variance", "mbspls_heatmap", "mbspls_network")
-  eval_payload = NULL
-  if (needs_eval) {
-    eval_payload = .mbspls_eval_newdata_dispatch(object, val_task, mbspls_id)
-  }
-  dots$val_task = NULL
-
-  switch(
-    type,
-    mbspls_heatmap = {
-      fun = .mbspls_plot_heatmap_from_model
-      do.call(fun, c(list(
-        model = model_for_others,
-        T_override = if (!is.null(eval_payload)) eval_payload$T_mat else NULL,
-        title_suffix = title_suffix
-      ), .keep_formals(dots, fun)))
-    },
-    mbspls_network = {
-      fun = .mbspls_plot_network_from_model
-      do.call(fun, c(list(
-        model = model_for_others,
-        T_override = if (!is.null(eval_payload)) eval_payload$T_mat else NULL,
-        title_suffix = title_suffix
-      ), .keep_formals(dots, fun)))
-    },
-    mbspls_variance = {
-      fun = .mbspls_plot_variance_from_model
-      do.call(fun, c(list(
-        model = model_for_others,
-        ev_block_override = if (!is.null(eval_payload)) eval_payload$ev_block else NULL,
-        ev_comp_override = if (!is.null(eval_payload)) eval_payload$ev_comp else NULL,
-        title_suffix = title_suffix
-      ), .keep_formals(dots, fun)))
-    },
-    mbspls_scree = {
-      fun = .mbspls_plot_scree_from_model
-      do.call(fun, c(list(model = model_for_others,
-        obj_override = NULL,
-        title_suffix = title_suffix),
-      .keep_formals(dots, fun)))
-    },
-    mbspls_scores = {
-      fun = .mbspls_plot_scores_from_model
-      do.call(fun, c(list(model = model_for_others,
-        T_override = NULL,
-        title_suffix = title_suffix),
-      .keep_formals(dots, fun)))
-    },
-    mbspls_bootstrap_component = {
-      fun = .mbspls_plot_bootstrap_component
-      do.call(fun, c(list(model = object,
-        payload = NULL,
-        mbspls_id = mbspls_id),
-      .keep_formals(dots, fun)))
-    },
-    mbspls_bootstrap_comp = {
-      fun = .mbspls_plot_bootstrap_component
-      do.call(fun, c(list(model = object,
-        payload = NULL,
-        mbspls_id = mbspls_id),
-      .keep_formals(dots, fun)))
-    }
+  # --- locate MB-sPLS fit and (optional) selection nodes + their log_env
+  nodes = .mbspls_locate_nodes_general(
+    object,
+    mbspls_id = dots$mbspls_id %||% NULL,
+    select_id = dots$select_id %||% NULL
   )
+  use_env = nodes$fit_env %||% nodes$sel_env
+
+  # ----------------- weights ---------------------------------------------------
+  if (type == "mbspls_weights") {
+    fun = .mbspls_plot_weights_patchwork
+    explicit = list(
+      fit_state          = nodes$fit_state,
+      sel_state          = nodes$sel_state,
+      source             = (dots$source %||% "bootstrap"),
+      top_n              = dots$top_n %||% NULL,
+      patch_ncol         = as.integer(dots$patch_ncol %||% 3L),
+      font               = dots$font %||% "sans",
+      alpha_by_stability = isTRUE(dots$alpha_by_stability %||% FALSE),
+      freq_min           = dots$freq_min %||% NULL,
+      ci_filter          = dots$ci_filter %||% "excludes_zero"
+    )
+    return(do.call(fun, .args_merge(explicit, dots, fun)))
+  }
+
+  # -------- all other types use the same node resolution -----------------------
+  if (type == "mbspls_heatmap") {
+    fun = .mbspls_plot_heatmap_general
+    explicit = list(
+      model        = nodes$fit_state,
+      sel_state    = nodes$sel_state,
+      log_env      = use_env,
+      source       = (dots$source %||% "bootstrap"),
+      freq_min     = dots$freq_min %||% NULL,
+      ci_filter    = dots$ci_filter %||% "excludes_zero",
+      compare      = dots$compare %||% "lv", # "lv" | "lc"
+      method       = dots$method %||% "spearman",
+      absolute     = isTRUE(dots$absolute %||% TRUE),
+      title_suffix = ""
+    )
+    return(do.call(fun, .args_merge(explicit, dots, fun)))
+  }
+
+  if (type == "mbspls_network") {
+    fun = .mbspls_plot_network_general
+    explicit = list(
+      model        = nodes$fit_state,
+      sel_state    = nodes$sel_state,
+      log_env      = use_env,
+      source       = (dots$source %||% "bootstrap"),
+      freq_min     = dots$freq_min %||% NULL,
+      ci_filter    = dots$ci_filter %||% "excludes_zero",
+      compare      = dots$compare %||% "lv", # "lv" | "lc"
+      method       = dots$method %||% "spearman",
+      absolute     = isTRUE(dots$absolute %||% TRUE),
+      cutoff       = as.numeric(dots$cutoff %||% 0.3),
+      title_suffix = ""
+    )
+    return(do.call(fun, .args_merge(explicit, dots, fun)))
+  }
+
+  if (type == "mbspls_variance") {
+    fun = .mbspls_plot_variance_general
+    explicit = list(
+      model        = nodes$fit_state,
+      sel_state    = nodes$sel_state,
+      log_env      = use_env,
+      source       = (dots$source %||% "bootstrap"),
+      freq_min     = dots$freq_min %||% NULL,
+      ci_filter    = dots$ci_filter %||% "excludes_zero",
+      layout       = dots$layout %||% "grouped",
+      show_values  = isTRUE(dots$show_values %||% TRUE),
+      show_total   = isTRUE(dots$show_total %||% TRUE),
+      accuracy     = as.numeric(dots$accuracy %||% 1),
+      title_suffix = ""
+    )
+    return(do.call(fun, .args_merge(explicit, dots, fun)))
+  }
+
+  if (type == "mbspls_scree") {
+    fun = .mbspls_plot_scree_general
+    explicit = list(
+      model        = nodes$fit_state,
+      sel_state    = nodes$sel_state,
+      log_env      = use_env,
+      source       = (dots$source %||% "bootstrap"),
+      freq_min     = dots$freq_min %||% NULL,
+      ci_filter    = dots$ci_filter %||% "excludes_zero",
+      cumulative   = isTRUE(dots$cumulative %||% FALSE),
+      title_suffix = ""
+    )
+    return(do.call(fun, .args_merge(explicit, dots, fun)))
+  }
+
+  if (type == "mbspls_scores") {
+    fun = .mbspls_plot_scores_general
+    explicit = list(
+      model        = nodes$fit_state,
+      sel_state    = nodes$sel_state,
+      log_env      = use_env,
+      source       = (dots$source %||% "bootstrap"),
+      freq_min     = dots$freq_min %||% NULL,
+      ci_filter    = dots$ci_filter %||% "excludes_zero",
+      component    = as.integer(dots$component %||% 1L),
+      standardize  = isTRUE(dots$standardize %||% TRUE),
+      density      = dots$density %||% "none",
+      annotate     = isTRUE(dots$annotate %||% TRUE),
+      title_suffix = ""
+    )
+    return(do.call(fun, .args_merge(explicit, dots, fun)))
+  }
+
+  if (type %in% c("mbspls_bootstrap_component", "mbspls_bootstrap_comp")) {
+    fun = .mbspls_plot_bootstrap_component
+    explicit = list(
+      model      = object,
+      payload    = NULL,
+      mbspls_id  = dots$mbspls_id %||% NULL
+    )
+    return(do.call(fun, .args_merge(explicit, dots, fun)))
+  }
+
+  stop("Unknown type: ", type)
 }
 
-# ---------- helpers (generalized node locator, data builders, plotting) -------
+# ------------------------------------------------------------------------------
+# Node location (fit + selection + their log_env)
+# ------------------------------------------------------------------------------
+.mbspls_locate_nodes_general = function(gl, mbspls_id = NULL, select_id = NULL) {
+  if (!inherits(gl, "GraphLearner")) stop("Expected a GraphLearner.", call. = FALSE)
+  mod = gl$model
+  if (is.null(mod)) stop("GraphLearner appears to be untrained (model is NULL).", call. = FALSE)
+
+  # Fit node
+  if (is.null(mbspls_id)) {
+    cand = names(gl$graph$pipeops)[vapply(gl$graph$pipeops, inherits, logical(1), "PipeOpMBsPLS")]
+    if (!length(cand)) stop("No PipeOpMBsPLS node found in the graph.")
+    mbspls_id = cand[1]
+  }
+  fit_po = gl$graph$pipeops[[mbspls_id]]
+  fit = mod[[mbspls_id]] %||% fit_po
+  if (is.null(fit)) stop("Cannot locate MB-sPLS node '", mbspls_id, "'.")
+  fit_state = if (!is.null(fit$state)) fit$state else fit
+  fit_env = tryCatch({
+    ve = fit_po$param_set$values$log_env
+    if (inherits(ve, "environment")) ve else NULL
+  }, error = function(e) NULL)
+
+  # Selection node
+  sel_state = NULL
+  sel_env = NULL
+  if (!is.null(select_id)) {
+    sel_po = gl$graph$pipeops[[select_id]]
+    sel = mod[[select_id]] %||% sel_po
+    if (is.null(sel)) stop("Cannot locate selection node '", select_id, "'.")
+    sel_state = if (!is.null(sel$state)) sel$state else sel
+    sel_env = tryCatch({
+      ve = sel_po$param_set$values$log_env
+      if (inherits(ve, "environment")) ve else NULL
+    }, error = function(e) NULL)
+  } else {
+    sel = mod$mbspls_bootstrap_select %||% gl$graph$pipeops$mbspls_bootstrap_select
+    sel_po = gl$graph$pipeops$mbspls_bootstrap_select
+    if (is.null(sel)) {
+      hits = names(gl$graph$pipeops)[vapply(gl$graph$pipeops, inherits, logical(1), "PipeOpMBsPLSBootstrapSelect")]
+      if (length(hits)) {
+        sel = mod[[hits[1]]] %||% gl$graph$pipeops[[hits[1]]]
+        sel_po = gl$graph$pipeops[[hits[1]]]
+      }
+    }
+    if (!is.null(sel)) {
+      sel_state = if (!is.null(sel$state)) sel$state else sel
+      sel_env = tryCatch({
+        ve = sel_po$param_set$values$log_env
+        if (inherits(ve, "environment")) ve else NULL
+      }, error = function(e) NULL)
+    }
+  }
+
+  list(fit_state = fit_state, sel_state = sel_state, fit_env = fit_env, sel_env = sel_env)
+}
+
+# ------------------------------------------------------------------------------
+# Palette helpers
+# ------------------------------------------------------------------------------
 .mbspls_pal = function() {
   if (!requireNamespace("RColorBrewer", quietly = TRUE)) {
     return(c(`TRUE` = "#1b9e77", `FALSE` = "#d95f02"))
@@ -145,668 +219,504 @@ autoplot.GraphLearner = function(object,
   c(`TRUE` = pal[1], `FALSE` = pal[3])
 }
 
-# Back-compat shim for legacy code that still calls .locate_mbspls_model()
-.locate_mbspls_model = function(gl) {
-  .mbspls_locate_nodes_general(gl)$fit_state
-}
+.nice_label = function(x) gsub("_", " ", x, fixed = TRUE)
 
-# Find MB-sPLS (fit) and optional bootstrap-select node by id or by class scan
-.mbspls_locate_nodes_general = function(gl, mbspls_id = NULL, select_id = NULL) {
-  if (!inherits(gl, "GraphLearner")) {
-    stop("Expected a GraphLearner.", call. = FALSE)
-  }
-  mod = gl$model
-  if (is.null(mod)) {
-    stop("GraphLearner appears to be untrained (model is NULL).", call. = FALSE)
-  }
-
-  # --- MB-sPLS fit node (first PipeOpMBsPLS if id not given)
-  if (is.null(mbspls_id)) {
-    cand = names(gl$graph$pipeops)[vapply(gl$graph$pipeops, inherits, logical(1), "PipeOpMBsPLS")]
-    if (!length(cand)) stop("No PipeOpMBsPLS node found in the graph.")
-    mbspls_id = cand[1]
-  }
-  fit = mod[[mbspls_id]] %||% gl$graph$pipeops[[mbspls_id]]
-  if (is.null(fit)) stop("Cannot locate MB-sPLS node '", mbspls_id, "' in model/graph.")
-  fit_state = if (!is.null(fit$state)) fit$state else fit
-
-  # --- Selection node (optional)
-  sel_state = NULL
-  if (!is.null(select_id)) {
-    sel = mod[[select_id]] %||% gl$graph$pipeops[[select_id]]
-    if (is.null(sel)) stop("Cannot locate selection node '", select_id, "'.")
-    sel_state = if (!is.null(sel$state)) sel$state else sel
-  } else {
-    # try canonical id; else scan for any PipeOpMBsPLSBootstrapSelect
-    sel = mod$mbspls_bootstrap_select %||% gl$graph$pipeops$mbspls_bootstrap_select
-    if (is.null(sel)) {
-      hits = names(gl$graph$pipeops)[vapply(gl$graph$pipeops, inherits, logical(1), "PipeOpMBsPLSBootstrapSelect")]
-      if (length(hits)) {
-        sel = mod[[hits[1]]] %||% gl$graph$pipeops[[hits[1]]]
-        message("Using selection node '", hits[1], "' (pass select_id= to pick another branch).")
-      }
-    }
-    if (!is.null(sel)) sel_state <- if (!is.null(sel$state)) sel$state else sel
-  }
-
-  list(fit_state = fit_state, sel_state = sel_state)
-}
-
-# -------- data builders for weights -------------------------------------------
-
-.mbspls_df_from_fit = function(fit_state) {
+# ------------------------------------------------------------------------------
+# Weights source resolver
+# ------------------------------------------------------------------------------
+# Returns a list-of-lists W_use[[k]][[block]] = named numeric vector (full length)
+.mbspls_weights_from_source = function(fit_state, sel_state = NULL,
+  source = c("weights", "bootstrap"),
+  freq_min = NULL,
+  ci_filter = c("excludes_zero", "none", "overlaps_zero")) {
+  source = match.arg(source)
+  ci_filter = match.arg(ci_filter)
   blocks = fit_state$blocks
-  comps = names(fit_state$weights)
-  if (is.null(comps)) comps <- sprintf("LC_%02d", seq_len(fit_state$ncomp %||% 1L))
+  bn = names(blocks)
 
-  dplyr::bind_rows(lapply(comps, function(cn) {
-    blist = fit_state$weights[[cn]]
-    dplyr::bind_rows(lapply(names(blist), function(b) {
-      w = blist[[b]]
-      nm = names(w)
-      if (is.null(nm)) nm <- rep.int("", length(w))
-      tibble::tibble(
-        component = gsub("^LC_0?", "LC ", cn),
-        block     = b,
-        feature   = nm,
-        mean      = as.numeric(w),
-        ci_lower  = NA_real_,
-        ci_upper  = NA_real_
-      )
-    }))
-  }))
-}
-
-.mbspls_df_from_bootstrap_ci = function(sel_state) {
-  .canon = function(x) gsub("^LC_0?", "LC ", x)
-
-  ci = as.data.frame(sel_state$weights_ci)
-  if (is.null(ci) || !nrow(ci)) {
-    stop("No 'weights_ci' found in selection state (need bootstrap_select with summaries).")
+  .fullvec = function(vals_map, block) {
+    feats = blocks[[block]]
+    out = as.numeric(vals_map[feats])
+    out[is.na(out)] = 0
+    stats::setNames(out, feats)
   }
 
-  # Expect columns: component, block, feature, boot_mean, ci_lower, ci_upper
-  need = c("component", "block", "feature", "boot_mean", "ci_lower", "ci_upper")
-  miss = setdiff(need, names(ci))
-  if (length(miss)) {
-    stop("weights_ci missing columns: ", paste(miss, collapse = ", "))
+  if (identical(source, "weights")) {
+    return(fit_state$weights)
   }
 
-  df = ci |>
-    dplyr::transmute(
-      component = .canon(.data$component),
-      block     = .data$block,
-      feature   = .data$feature,
-      mean      = .data$boot_mean,
-      ci_lower  = .data$ci_lower,
-      ci_upper  = .data$ci_upper
-    )
-  df
-}
+  if (is.null(sel_state)) {
+    stop("Bootstrap selection state not found; pass a valid 'select_id' and train with bootstrap selection.")
+  }
 
-.mbspls_df_from_bootstrap_stable = function(sel_state) {
-  .canon = function(x) gsub("^LC_0?", "LC ", x)
+  if (!is.null(freq_min)) {
+    ci = as.data.frame(sel_state$weights_ci)
+    fr = as.data.frame(sel_state$weights_selectfreq)
+    if (is.null(ci) || !nrow(ci)) stop("weights_ci missing for freq_min path.")
+    if (is.null(fr) || !nrow(fr)) stop("weights_selectfreq missing for freq_min path.")
+
+    ci$component = as.character(ci$component)
+    fr$component = as.character(fr$component)
+
+    Klabs = unique(ci$component)
+    W_use = vector("list", length(Klabs))
+    names(W_use) = Klabs
+
+    for (k in Klabs) {
+      Wk = list()
+      for (b in bn) {
+        mu_b = ci[ci$component == k & ci$block == b, c("feature", "boot_mean"), drop = FALSE]
+        fq_b = fr[fr$component == k & fr$block == b, c("feature", "freq"), drop = FALSE]
+        if (!nrow(mu_b)) {
+          Wk[[b]] = stats::setNames(numeric(length(blocks[[b]])), blocks[[b]])
+          next
+        }
+        mu_map = stats::setNames(mu_b$boot_mean, mu_b$feature)
+        if (nrow(fq_b)) {
+          fq_map = stats::setNames(fq_b$freq, fq_b$feature)
+          keep = fq_map[names(mu_map)] >= as.numeric(freq_min)
+          keep[is.na(keep)] = FALSE
+          mu_map[!keep] = 0
+        } else {
+          mu_map[] = 0
+        }
+        Wk[[b]] = .fullvec(mu_map, b)
+      }
+      W_use[[k]] = Wk
+    }
+    if (!is.null(sel_state$weights_stable) && length(sel_state$weights_stable)) {
+      W_use = lapply(names(sel_state$weights_stable), function(k) {
+        lapply(names(blocks), function(b) .fullvec(sel_state$weights_stable[[k]][[b]], b))
+      })
+      names(W_use) = names(sel_state$weights_stable)
+      names(W_use[[1]]) = names(blocks)
+      return(W_use)
+    }
+  }
 
   if (!is.null(sel_state$weights_stable) && length(sel_state$weights_stable)) {
-    ws = sel_state$weights_stable
-    comps = names(ws)
-    df = dplyr::bind_rows(lapply(comps, function(cn) {
-      blist = ws[[cn]]
-      dplyr::bind_rows(lapply(names(blist), function(b) {
-        v = as.numeric(blist[[b]])
-        nm = names(blist[[b]])
-        tibble::tibble(
-          component_code = cn,
-          component      = .canon(cn),
-          block          = b,
-          feature        = nm,
-          mean           = v
-        )
-      }))
-    })) |>
-      dplyr::filter(is.finite(.data$mean) & .data$mean != 0)
-
-    # Optional: join CI bounds if present
-    if (!is.null(sel_state$weights_ci) && nrow(sel_state$weights_ci)) {
-      ci = as.data.frame(sel_state$weights_ci)
-      df = df |>
-        dplyr::left_join(ci[, c("component", "block", "feature", "ci_lower", "ci_upper")],
-          by = c("component_code" = "component", "block", "feature"))
-    }
-    df$component_code = NULL
-    return(df)
+    return(sel_state$weights_stable)
   }
 
-  # Fallback to CI table (apply excludes-zero & |mean|>1e-3)
   ci = as.data.frame(sel_state$weights_ci)
   if (is.null(ci) || !nrow(ci)) {
-    stop("No bootstrap selection output found (weights_stable/weights_ci).")
+    stop("No bootstrap summaries available: both weights_stable and weights_ci missing.")
   }
 
-  df = ci |>
-    dplyr::transmute(
-      component = .canon(.data$component),
-      block     = .data$block,
-      feature   = .data$feature,
-      mean      = .data$boot_mean,
-      ci_lower  = .data$ci_lower,
-      ci_upper  = .data$ci_upper
-    ) |>
-    dplyr::filter((.data$ci_lower >= 0 | .data$ci_upper <= 0) & abs(.data$mean) > 1e-3)
+  Klabs = unique(ci$component)
+  W_use = vector("list", length(Klabs))
+  names(W_use) = Klabs
 
-  df
+  for (k in Klabs) {
+    Wk = list()
+    for (b in bn) {
+      sb = ci[ci$component == k & ci$block == b,
+        c("feature", "boot_mean", "ci_lower", "ci_upper"), drop = FALSE]
+      if (!nrow(sb)) {
+        Wk[[b]] = stats::setNames(numeric(length(blocks[[b]])), blocks[[b]])
+        next
+      }
+      keep = switch(match.arg(ci_filter),
+        excludes_zero = ((sb$ci_lower >= 0) | (sb$ci_upper <= 0)) & (abs(sb$boot_mean) > 1e-3),
+        overlaps_zero = (sb$ci_lower <= 0 & sb$ci_upper >= 0),
+        none          = rep(TRUE, nrow(sb))
+      )
+      mu_map = stats::setNames(ifelse(keep, sb$boot_mean, 0), sb$feature)
+      Wk[[b]] = .fullvec(mu_map, b)
+    }
+    W_use[[k]] = Wk
+  }
+  W_use
 }
 
-# -------- weights plot (single + patchwork) -----------------------------------
+# ------------------------------------------------------------------------------
+# Scores + EV + objective recomputation (deflation)
+# ------------------------------------------------------------------------------
+# Returns list(T_mat, ev_block, ev_comp, obj_vec)
+.mbspls_recompute_from_weights = function(fit_state, W_use, log_env = NULL) {
 
-.mbspls_plot_weights_single_component = function(df_sub, block_levels, title = "", font = "sans", alpha_by_stability = FALSE) {
-  if (!nrow(df_sub)) {
-    return(ggplot2::ggplot() + ggplot2::theme_void() + ggplot2::ggtitle("No non-zero weights"))
+  # --- find X by blocks (robust paths)
+  X_list = fit_state$X_train_blocks %||%
+    fit_state$X_blocks_train %||%
+    (if (inherits(log_env, "environment")) log_env$mbspls_state$X_train_blocks else NULL) %||%
+    (if (inherits(log_env, "environment")) log_env$mbspls_state$X_blocks_train else NULL) %||%
+    (if (inherits(log_env, "environment")) log_env$X_train_blocks else NULL)
+
+  # also resolve blocks order from env if needed
+  blocks_map = fit_state$blocks %||%
+    (if (inherits(log_env, "environment")) log_env$mbspls_state$blocks else NULL)
+
+  if (is.null(X_list) || is.null(blocks_map)) {
+    stop("Cannot recompute from weights: X_train_blocks missing. Train with store_train_blocks=TRUE and pass the matching mbspls_id/select_id.")
   }
 
-  block_pretty = gsub("_", " ", block_levels, fixed = TRUE)
-  df_sub$block_lab = factor(gsub("_", " ", df_sub$block, fixed = TRUE), levels = block_pretty)
+  blocks = names(blocks_map)
+  K = length(W_use)
+  if (!K) stop("No components in W_use.")
 
-  df_sub = df_sub |>
-    dplyr::mutate(abs_m = abs(.data$mean), signpos = .data$mean >= 0) |>
-    dplyr::group_by(.data$block_lab) |>
-    dplyr::arrange(.data$abs_m, .by_group = TRUE) |>
-    dplyr::ungroup() |>
-    dplyr::mutate(
-      feat_lab = stringr::str_wrap(.data$feature, width = 28),
-      axis_id  = paste(.data$block_lab, .data$feature, sep = "___")
-    )
-
-  df_sub$axis_id = factor(df_sub$axis_id, levels = df_sub$axis_id)
-  lab_map = stats::setNames(df_sub$feat_lab, df_sub$axis_id)
-
-  has_ci = all(c("ci_lower", "ci_upper") %in% names(df_sub)) &&
-    any(is.finite(df_sub$ci_lower) | is.finite(df_sub$ci_upper))
-
-  # Optional alpha mapping when stability frequencies were merged upstream.
-  if (isTRUE(alpha_by_stability) && "alpha_freq" %in% names(df_sub)) {
-    g = ggplot2::ggplot(df_sub, ggplot2::aes(x = axis_id, y = mean, fill = signpos)) +
-      ggplot2::geom_col(ggplot2::aes(alpha = alpha_freq), width = 0.85, show.legend = FALSE) +
-      ggplot2::scale_alpha_identity()
-  } else {
-    g = ggplot2::ggplot(df_sub, ggplot2::aes(x = axis_id, y = mean, fill = signpos)) +
-      ggplot2::geom_col(width = 0.85, show.legend = FALSE)
-  }
-
-  if (has_ci) {
-    g = g + ggplot2::geom_errorbar(
-      ggplot2::aes(ymin = .data$ci_lower, ymax = .data$ci_upper),
-      width = 0.20, linewidth = 0.25, colour = "grey15"
-    )
-  }
-
-  g +
-    ggplot2::geom_hline(yintercept = 0, linewidth = 0.25, colour = "grey70") +
-    ggplot2::facet_grid(rows = ggplot2::vars(block_lab),
-      scales = "free_y", space = "free_y", switch = "y") +
-    ggplot2::scale_fill_manual(values = .mbspls_pal()) +
-    ggplot2::scale_x_discrete(labels = function(x) lab_map[as.character(x)]) +
-    ggplot2::coord_flip(clip = "off") +
-    ggplot2::labs(x = NULL, y = "Weight", title = title) +
-    ggplot2::theme_minimal(base_family = font) +
-    ggplot2::theme(
-      panel.border       = ggplot2::element_rect(colour = "grey80", fill = NA, linewidth = 0.5),
-      panel.spacing      = grid::unit(0.6, "lines"),
-      panel.grid.major.y = ggplot2::element_blank(),
-      panel.grid.minor   = ggplot2::element_blank(),
-      strip.placement    = "outside",
-      strip.background   = ggplot2::element_rect(fill = NA, colour = NA),
-      strip.text.y.left  = ggplot2::element_text(angle = 0, face = "bold")
-    )
-}
-
-.mbspls_plot_weights_patchwork = function(
-  fit_state,
-  sel_state = NULL,
-  source = c("weights", "bootstrap"),
-  top_n = NULL,
-  patch_ncol = 1L,
-  font = "sans",
-  alpha_by_stability = FALSE,
-  freq_min = NULL # <- only meaningful for source == "bootstrap"
-) {
-  requireNamespace("patchwork")
-  source = match.arg(source)
-
-  blocks = fit_state$blocks
-  block_levels = names(blocks)
-
-  if (source == "weights") {
-    # RAW weights path: unchanged (no freq filter here)
-    if (!is.null(freq_min)) {
-      message("freq_min is ignored for source='weights'; it only applies to bootstrap means.")
-    }
-    df = .mbspls_df_from_fit(fit_state)
-    df = df[is.finite(df$mean) & df$mean != 0, , drop = FALSE]
-
-    # Optionally map alpha from stability if selection state present
-    if (isTRUE(alpha_by_stability) && !is.null(sel_state) && !is.null(sel_state$weights_selectfreq)) {
-      freq_tbl = try(as.data.frame(sel_state$weights_selectfreq), silent = TRUE)
-      if (!inherits(freq_tbl, "try-error") && nrow(freq_tbl)) {
-        need = c("component", "block", "feature", "freq")
-        if (all(need %in% names(freq_tbl))) {
-          freq_tbl$component = gsub("^LC_0?", "LC ", freq_tbl$component)
-          df$component = gsub("^LC_0?", "LC ", df$component)
-          df = merge(df, freq_tbl[, need], by = c("component", "block", "feature"), all.x = TRUE)
-          if (!any(is.finite(df$freq))) {
-            freq_bf = aggregate(freq ~ block + feature, data = freq_tbl, FUN = function(z) {
-              z = z[is.finite(z)]
-              if (!length(z)) NA_real_ else max(z)
-            })
-            df = merge(df[, setdiff(names(df), "freq"), drop = FALSE],
-              freq_bf, by = c("block", "feature"), all.x = TRUE)
-          }
-          df$alpha_freq = df$freq
-          df$alpha_freq[!is.finite(df$alpha_freq)] = 1
-          df$alpha_freq = pmin(pmax(df$alpha_freq, 0), 1)
-        }
-      }
-    }
-
-  } else { # source == "bootstrap"
-    if (is.null(sel_state)) {
-      stop("Bootstrap selection state not found; pass a valid select_id and train with bootstrap selection.")
-    }
-
-    if (!is.null(freq_min)) {
-      # ---- NEW: frequency filter on UNFILTERED bootstrap means (weights_ci) ----
-      df = .mbspls_df_from_bootstrap_ci(sel_state)
-      # Join selection frequencies
-      freq_tbl = try(as.data.frame(sel_state$weights_selectfreq), silent = TRUE)
-      if (inherits(freq_tbl, "try-error") || !nrow(freq_tbl)) {
-        stop("freq_min provided, but weights_selectfreq is missing from selection state.")
-      }
-      need = c("component", "block", "feature", "freq")
-      if (!all(need %in% names(freq_tbl))) {
-        stop("weights_selectfreq must have columns: component, block, feature, freq.")
-      }
-      freq_tbl$component = gsub("^LC_0?", "LC ", freq_tbl$component)
-      df$component = gsub("^LC_0?", "LC ", df$component)
-
-      # primary join: component+block+feature
-      df = merge(df, freq_tbl[, need], by = c("component", "block", "feature"), all.x = TRUE)
-      # fallback to block+feature if all NA (edge cases)
-      if (!any(is.finite(df$freq))) {
-        freq_bf = aggregate(freq ~ block + feature, data = freq_tbl, FUN = function(z) {
-          z = z[is.finite(z)]
-          if (!length(z)) NA_real_ else max(z)
-        })
-        df = merge(df[, setdiff(names(df), "freq"), drop = FALSE],
-          freq_bf, by = c("block", "feature"), all.x = TRUE)
-      }
-
-      # keep only features with freq >= freq_min
-      df = df[is.finite(df$freq) & df$freq >= as.numeric(freq_min), , drop = FALSE]
-      if (!nrow(df)) stop(sprintf("No bootstrap-mean weights pass freq_min = %.3f.", as.numeric(freq_min)))
-
-      # Optional alpha mapping
-      if (isTRUE(alpha_by_stability)) {
-        df$alpha_freq = df$freq
-        df$alpha_freq[!is.finite(df$alpha_freq)] = 1
-        df$alpha_freq = pmin(pmax(df$alpha_freq, 0), 1)
-      }
-
-      # finally, drop strict zeros (avoid empty rows)
-      df = df[is.finite(df$mean) & df$mean != 0, , drop = FALSE]
-
-    } else {
-      # default: STABLE weights (previous behavior)
-      df = .mbspls_df_from_bootstrap_stable(sel_state)
-      df = df[is.finite(df$mean) & df$mean != 0, , drop = FALSE]
-
-      # Optional alpha mapping from frequency (purely visual)
-      if (isTRUE(alpha_by_stability) && !is.null(sel_state$weights_selectfreq)) {
-        freq_tbl = try(as.data.frame(sel_state$weights_selectfreq), silent = TRUE)
-        if (!inherits(freq_tbl, "try-error") && nrow(freq_tbl)) {
-          need = c("component", "block", "feature", "freq")
-          if (all(need %in% names(freq_tbl))) {
-            freq_tbl$component = gsub("^LC_0?", "LC ", freq_tbl$component)
-            df$component = gsub("^LC_0?", "LC ", df$component)
-            df = merge(df, freq_tbl[, need], by = c("component", "block", "feature"), all.x = TRUE)
-            if (!any(is.finite(df$freq))) {
-              freq_bf = aggregate(freq ~ block + feature, data = freq_tbl, FUN = function(z) {
-                z = z[is.finite(z)]
-                if (!length(z)) NA_real_ else max(z)
-              })
-              df = merge(df[, setdiff(names(df), "freq"), drop = FALSE],
-                freq_bf, by = c("block", "feature"), all.x = TRUE)
-            }
-            df$alpha_freq = df$freq
-            df$alpha_freq[!is.finite(df$alpha_freq)] = 1
-            df$alpha_freq = pmin(pmax(df$alpha_freq, 0), 1)
-          }
-        }
-      }
-    }
-  }
-
-  if (!nrow(df)) stop("No weights to plot.")
-
-  # top N per block×component (after any filtering)
-  if (!is.null(top_n) && is.numeric(top_n) && top_n > 0) {
-    df = df |>
-      dplyr::mutate(abs_m = abs(.data$mean)) |>
-      dplyr::group_by(.data$component, .data$block) |>
-      dplyr::slice_max(.data$abs_m, n = top_n, with_ties = FALSE) |>
-      dplyr::ungroup()
-  }
-
-  # component order "LC 1", "LC 2", ...
-  lc_order = sprintf("LC %d", seq_len(99))
-  comp_levels = intersect(lc_order, unique(df$component))
-  if (!length(comp_levels)) comp_levels <- unique(df$component)
-
-  plots = lapply(comp_levels, function(cc) {
-    df_sub = df[df$component == cc, , drop = FALSE]
-    title = if (identical(source, "weights")) {
-      sprintf("MB-sPLS raw weights - %s", cc)
-    } else if (!is.null(freq_min)) {
-      sprintf("%s (bootstrap means; freq >= %.2f)", cc, as.numeric(freq_min))
-    } else {
-      sprintf("%s", cc)
-    }
-    .mbspls_plot_weights_single_component(
-      df_sub, block_levels, title = title, font = font,
-      alpha_by_stability = alpha_by_stability
-    )
+  # copy matrices for deflation
+  X_cur = lapply(X_list, function(m) {
+    storage.mode(m) = "double"
+    m
   })
+  T_tabs = vector("list", K)
+  ev_blk = matrix(0, nrow = K, ncol = length(blocks))
+  colnames(ev_blk) = blocks
+  rownames(ev_blk) = sprintf("LC_%02d", seq_len(K))
+  obj_vec = numeric(K)
 
-  patch_ncol = min(patch_ncol, length(plots))
-  p = Reduce(`+`, plots) + patchwork::plot_layout(ncol = patch_ncol, guides = "collect")
+  ss_tot_orig = vapply(blocks, function(b) sum(X_list[[b]]^2), numeric(1))
+  for (k in seq_len(K)) {
+    Tk = matrix(0, nrow = nrow(X_cur[[1]]), ncol = length(blocks))
+    colnames(Tk) = paste0("LV", k, "_", blocks)
 
-  ttl = if (identical(source, "weights")) {
-    "MB-sPLS raw weights per block"
-  } else if (!is.null(freq_min)) {
-    "MB-sPLS bootstrap MEANS per block (freq-filtered)"
-  } else {
-    "MB-sPLS bootstrap STABLE weights per block"
+    for (bi in seq_along(blocks)) {
+      b = blocks[bi]
+      w_b = W_use[[k]][[b]]
+      if (is.null(w_b) || !any(is.finite(w_b)) || all(w_b == 0)) {
+        Tk[, bi] = 0
+        next
+      }
+      cols = colnames(X_cur[[b]])
+      wv = if (!is.null(names(w_b))) as.numeric(w_b[cols]) else as.numeric(w_b)
+      wv[is.na(wv)] = 0
+      t_b = drop(X_cur[[b]] %*% wv)
+      Tk[, bi] = t_b
+
+      denom = sum(t_b * t_b)
+      pb = if (denom > 0) drop(crossprod(X_cur[[b]], t_b) / denom) else rep(0, ncol(X_cur[[b]]))
+      if (ss_tot_orig[bi] > 0 && denom > 0) {
+        X_hat = tcrossprod(t_b, pb)
+        ev_blk[k, b] = if (denom > 0 && ss_tot_orig[bi] > 0) sum(X_hat^2) / ss_tot_orig[bi] else 0
+
+      } else {
+        ev_blk[k, b] = 0
+      }
+    }
+
+    if (ncol(Tk) >= 2) {
+      Ck = suppressWarnings(stats::cor(Tk, use = "pairwise.complete.obs"))
+      Ck[!is.finite(Ck)] = 0
+      obj_vec[k] = mean(abs(Ck[upper.tri(Ck)]))
+    } else {
+      obj_vec[k] = 0
+    }
+
+    # deflation
+    for (bi in seq_along(blocks)) {
+      b = blocks[bi]
+      t_b = Tk[, bi]
+      denom = sum(t_b * t_b)
+      if (denom <= 0) next
+      pb = drop(crossprod(X_cur[[b]], t_b) / denom)
+      X_cur[[b]] = X_cur[[b]] - tcrossprod(t_b, pb)
+    }
+
+    T_tabs[[k]] = Tk
   }
-  p + patchwork::plot_annotation(title = ttl)
+
+  T_mat = do.call(cbind, T_tabs)
+  w_blocks = ss_tot_orig / sum(ss_tot_orig)
+  ev_comp = as.numeric(ev_blk %*% w_blocks)
+
+
+  list(T_mat = as.matrix(T_mat), ev_block = ev_blk, ev_comp = ev_comp, obj_vec = obj_vec)
 }
 
-# -------- HEATMAP (new, so your "mbspls_heatmap" type works) -------------------
-
-.mbspls_plot_heatmap_from_model = function(
-  model,
+# ------------------------------------------------------------------------------
+# ------------------- HEATMAP (compare = "lv" | "lc") ---------------------------
+# ------------------------------------------------------------------------------
+.mbspls_plot_heatmap_general = function(
+  model, sel_state = NULL, log_env = NULL,
+  source = c("bootstrap", "weights"),
+  freq_min = NULL,
+  ci_filter = c("excludes_zero", "none", "overlaps_zero"),
+  compare = c("lv", "lc"),
   method = c("spearman", "pearson"),
   absolute = TRUE,
-  cluster = FALSE,
-  label = TRUE,
-  digits = 2,
-  T_override = NULL,
   title_suffix = "",
   font = "sans"
 ) {
-  if (!requireNamespace("ggplot2", quietly = TRUE)) {
-    stop("Package 'ggplot2' is required for this plot.")
-  }
+  requireNamespace("ggplot2")
+  requireNamespace("scales")
+
+  source = match.arg(source)
+  ci_filter = match.arg(ci_filter)
+  compare = match.arg(compare)
   method = match.arg(method)
 
-  scores = T_override %||% model$T_mat
-  if (is.null(scores)) {
-    stop("No latent score matrix (T_mat) available; train or pass T_override.", call. = FALSE)
+  W_use = .mbspls_weights_from_source(model, sel_state, source, freq_min, ci_filter)
+  rec = .mbspls_recompute_from_weights(model, W_use, log_env = log_env)
+  Tmat = rec$T_mat
+
+  blocks = names(model$blocks)
+  K = length(W_use)
+  cols_for_k = function(k) grep(paste0("^LV", k, "_"), colnames(Tmat), value = TRUE)
+
+  if (compare == "lv") {
+    dfl = lapply(seq_len(K), function(k) {
+      cn = cols_for_k(k)
+      if (length(cn) < 2) {
+        return(NULL)
+      }
+      S = as.data.frame(Tmat[, cn, drop = FALSE])
+      colnames(S) = sub("^LV\\d+_", "", cn)
+      C = suppressWarnings(stats::cor(S, method = method, use = "pairwise.complete.obs"))
+      df = as.data.frame(as.table(C), stringsAsFactors = FALSE)
+      names(df) = c("block_x", "block_y", "r")
+      df$component = sprintf("LC %d", k)
+      df
+    })
+    dfl = Filter(Negate(is.null), dfl)
+    if (!length(dfl)) stop("Not enough LV block-columns to compute correlations.")
+    df = do.call(rbind, dfl)
+    df$block_x = factor(df$block_x, levels = blocks)
+    df$block_y = factor(df$block_y, levels = blocks)
+
+    p = ggplot2::ggplot(df, ggplot2::aes(block_x, block_y, fill = if (absolute) abs(r) else r)) +
+      ggplot2::geom_tile(color = "white", linewidth = 0.15) +
+      ggplot2::geom_text(
+        ggplot2::aes(label = ifelse(is.na(r), "", formatC(if (absolute) abs(r) else r, format = "f", digits = 2))),
+        size = 3, na.rm = TRUE
+      ) +
+      {
+        if (absolute) {
+          ggplot2::scale_fill_viridis_c(limits = c(0, 1), na.value = "white")
+        } else {
+          ggplot2::scale_fill_gradient2(
+            low = scales::muted("blue", l = 30, c = 80),
+            high = scales::muted("red", l = 50, c = 100),
+            limits = c(-1, 1), midpoint = 0,
+            na.value = "white"
+          )
+        }
+      } +
+      ggplot2::facet_wrap(~component) +
+      ggplot2::coord_equal() +
+      ggplot2::labs(
+        x = NULL, y = NULL, fill = if (absolute) "|r|" else "r",
+        title = paste0("Cross-block LV correlation heatmap", title_suffix),
+        subtitle = sprintf("Method: %s; one panel per component", method)
+      ) +
+      ggplot2::theme_minimal(base_size = 11, base_family = font) +
+      ggplot2::theme(panel.spacing = grid::unit(0.7, "lines"),
+        axis.text.x = ggplot2::element_text(angle = 45, hjust = 1))
+    return(p)
   }
 
-  # Ensure LV naming "LV##_<block>" if missing
-  if (is.null(colnames(scores))) {
-    colnames(scores) = unlist(lapply(seq_len(model$ncomp), function(k) {
-      paste0("LV", sprintf("%02d", k), "_", names(model$blocks))
-    }))
-  }
-
-  blks = names(model$blocks)
-  ncomp = as.integer(model$ncomp %||% 1L)
-
-  # Helper: pull columns for LV k (accept both LV1_ and LV01_ styles)
-  cols_for_k = function(k) {
-    patt = paste0("^LV0*", k, "_")
-    cn = grep(patt, colnames(scores), value = TRUE)
-    # If still nothing, try "LVk" without underscore (rare)
-    if (!length(cn)) cn <- grep(paste0("^LV0*", k), colnames(scores), value = TRUE)
-    cn
-  }
-
-  # Build long heatmap data for each component
-  dfl = lapply(seq_len(ncomp), function(k) {
+  # compare == "lc": LC-by-LC
+  LC = matrix(NA_real_, nrow = nrow(Tmat), ncol = K)
+  colnames(LC) = paste0("LC_", sprintf("%02d", seq_len(K)))
+  for (k in seq_len(K)) {
     cn = cols_for_k(k)
-    # Keep only columns that correspond to known blocks (suffix after first "_")
-    blk_of = function(x) sub("^.*?_", "", x)
-    keep = blk_of(cn) %in% blks
-    cn = cn[keep]
-    if (length(cn) < 2) {
-      return(NULL)
-    }
-
-    S = as.data.frame(scores[, cn, drop = FALSE])
-    # Name columns by block only (easier plotting)
-    colnames(S) = blk_of(cn)
-
-    # Robust correlation (pairwise complete)
-    C = suppressWarnings(stats::cor(S, method = method, use = "pairwise.complete.obs"))
-    if (absolute) C <- abs(C)
-
-    # Order blocks for display
-    ord_blocks = blks
-    if (isTRUE(cluster) && ncol(C) > 1) {
-      # cluster by 1 - |r|
-      D = try(as.dist(1 - abs(C)), silent = TRUE)
-      if (!inherits(D, "try-error")) {
-        ord = try(stats::hclust(D)$order, silent = TRUE)
-        if (!inherits(ord, "try-error")) ord_blocks <- colnames(C)[ord]
-      }
-    }
-
-    C = C[ord_blocks, ord_blocks, drop = FALSE]
-    df = as.data.frame(as.table(C), stringsAsFactors = FALSE)
-    colnames(df) = c("block_x", "block_y", "r")
-
-    df$component = sprintf("LC %d", k)
-    df
-  })
-
-  dfl = Filter(Negate(is.null), dfl)
-  if (!length(dfl)) {
-    stop("Need at least two LV block-columns for one component to draw a heatmap.", call. = FALSE)
+    if (!length(cn)) next
+    Z = scale(Tmat[, cn, drop = FALSE])
+    Z = as.matrix(Z)
+    LC[, k] = rowMeans(Z, na.rm = TRUE)
   }
 
-  df = do.call(rbind, dfl)
-  df$block_x = factor(df$block_x, levels = blks)
-  df$block_y = factor(df$block_y, levels = blks)
+  C = suppressWarnings(stats::cor(LC, method = method, use = "pairwise.complete.obs"))
+  df = as.data.frame(as.table(C), stringsAsFactors = FALSE)
+  names(df) = c("lc_x", "lc_y", "r")
+  df$lc_x = factor(df$lc_x, levels = colnames(LC))
+  df$lc_y = factor(df$lc_y, levels = colnames(LC))
 
-  p = ggplot2::ggplot(df, ggplot2::aes(block_x, block_y, fill = r)) +
+  ggplot2::ggplot(df, ggplot2::aes(lc_x, lc_y, fill = if (absolute) abs(r) else r)) +
     ggplot2::geom_tile(color = "white", linewidth = 0.15) +
-    {
-      if (isTRUE(label)) {
-        ggplot2::geom_text(ggplot2::aes(label = formatC(r, format = "f", digits = digits)), size = 3)
-      } else {
-        ggplot2::geom_blank()
-      }
-    } +
+    ggplot2::geom_text(
+      ggplot2::aes(label = formatC(if (absolute) abs(r) else r, format = "f", digits = 2)),
+      size = 3, na.rm = TRUE
+    ) +
     {
       if (absolute) {
-        ggplot2::scale_fill_viridis_c(limits = c(0, 1))
+        ggplot2::scale_fill_viridis_c(limits = c(0, 1), na.value = "white")
       } else {
-        ggplot2::scale_fill_gradient2(low = scales::muted("blue", l = 30, c = 80), high = scales::muted("red", l = 50, c = 100), limits = c(-1, 1), midpoint = 0)
+        ggplot2::scale_fill_gradient2(
+          low = scales::muted("blue", l = 30, c = 80),
+          high = scales::muted("red", l = 50, c = 100),
+          limits = c(-1, 1), midpoint = 0,
+          na.value = "white"
+        )
       }
-      # else ggplot2::scale_fill_gradient2(low = "blue", high = "red", limits = c(-1, 1), midpoint = 0)
     } +
-    ggplot2::facet_wrap(~component) +
     ggplot2::coord_equal() +
     ggplot2::labs(
       x = NULL, y = NULL, fill = if (absolute) "|r|" else "r",
-      title = paste0("Cross-block LV correlation heatmap", title_suffix),
-      subtitle = sprintf("Method: %s; one matrix per component", method)
+      title = paste0("LC-by-LC correlation heatmap", title_suffix),
+      subtitle = sprintf("Method: %s; whole components", method)
     ) +
-    ggplot2::theme_minimal(base_size = 11, base_family = font) +
-    ggplot2::theme(
-      panel.spacing = grid::unit(0.7, "lines"),
-      axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)
-    )
-
-  p
+    ggplot2::theme_minimal(base_size = 11, base_family = font)
 }
 
-# -------- Network --------------------------------------------------------------
-
-.mbspls_plot_network_from_model = function(model, cutoff = 0.3, method = "spearman",
-  T_override = NULL, title_suffix = "", font = "sans") {
+# ------------------------------------------------------------------------------
+# ------------------- NETWORK (compare = "lv" | "lc") --------------------------
+# ------------------------------------------------------------------------------
+.mbspls_plot_network_general = function(
+  model, sel_state = NULL, log_env = NULL,
+  source = c("bootstrap", "weights"),
+  freq_min = NULL,
+  ci_filter = c("excludes_zero", "none", "overlaps_zero"),
+  compare = c("lv", "lc"),
+  method = c("spearman", "pearson"),
+  absolute = TRUE,
+  cutoff = 0.3,
+  title_suffix = "",
+  font = "sans"
+) {
   requireNamespace("igraph")
   requireNamespace("ggraph")
   requireNamespace("ggplot2")
+  requireNamespace("scales")
 
-  scores = T_override %||% model$T_mat
-  if (is.null(scores) || NCOL(scores) < 2) {
-    stop("Need at least two latent variables to draw a network.", call. = FALSE)
+  source = match.arg(source)
+  ci_filter = match.arg(ci_filter)
+  compare = match.arg(compare)
+  method = match.arg(method)
+  cutoff = as.numeric(cutoff)
+
+  W_use = .mbspls_weights_from_source(model, sel_state, source, freq_min, ci_filter)
+  rec = .mbspls_recompute_from_weights(model, W_use, log_env = log_env)
+  Tmat = rec$T_mat
+
+  if (compare == "lc") {
+    K = length(W_use)
+    cols_for_k = function(k) grep(paste0("^LV", k, "_"), colnames(Tmat), value = TRUE)
+    LC = matrix(NA_real_, nrow = nrow(Tmat), ncol = K)
+    colnames(LC) = paste0("LC_", sprintf("%02d", seq_len(K)))
+    for (k in seq_len(K)) {
+      cn = cols_for_k(k)
+      if (!length(cn)) next
+      Z = scale(Tmat[, cn, drop = FALSE])
+      Z = as.matrix(Z)
+      LC[, k] = rowMeans(Z, na.rm = TRUE)
+    }
+    S = LC
+    node_names = colnames(S)
+  } else {
+    S = Tmat
+    node_names = colnames(S)
   }
 
-  if (is.null(colnames(scores))) {
-    colnames(scores) = unlist(lapply(seq_len(model$ncomp), function(k) {
-      paste0("LV", sprintf("%02d", k), "_", names(model$blocks))
-    }))
-  }
-
-  C = stats::cor(scores, method = method, use = "pairwise.complete.obs")
+  C = suppressWarnings(stats::cor(S, method = method, use = "pairwise.complete.obs"))
   diag(C) = 0
   idx = which(abs(C) >= cutoff, arr.ind = TRUE)
   idx = idx[idx[, 1] < idx[, 2], , drop = FALSE]
-  if (nrow(idx) == 0) {
-    max_cor = max(abs(C[upper.tri(C)]))
-    stop(sprintf("No LV pairs exceed cutoff (%.2f). Maximum correlation is %.3f",
-      cutoff, max_cor), call. = FALSE)
+  if (!nrow(idx)) {
+    max_cor = max(abs(C[upper.tri(C)]), na.rm = TRUE)
+    stop(sprintf("No pairs exceed cutoff (%.2f). Max |r| = %.3f", cutoff, max_cor), call. = FALSE)
   }
 
   edges = data.frame(
-    from = rownames(C)[idx[, 1]],
-    to = colnames(C)[idx[, 2]],
+    from = node_names[idx[, 1]],
+    to = node_names[idx[, 2]],
     r = C[idx],
     stringsAsFactors = FALSE
   )
   g = igraph::graph_from_data_frame(edges, directed = FALSE)
 
+  # cross-version edge guide detection
   edge_guide_fun = get0("guide_edge_colourbar", asNamespace("ggraph"))
-  if (is.null(edge_guide_fun)) {
-    edge_guide_fun = get0("guide_edge_colorbar", asNamespace("ggraph"))
-  }
+  if (is.null(edge_guide_fun)) edge_guide_fun <- get0("guide_edge_colorbar", asNamespace("ggraph"))
   guide_obj = if (is.null(edge_guide_fun)) ggplot2::guide_colourbar() else edge_guide_fun()
 
-  ggraph::ggraph(g, layout = "fr") +
-    ggraph::geom_edge_link(ggplot2::aes(width = abs(.data$r), colour = .data$r)) +
-    ggraph::scale_edge_width(range = c(0.3, 3)) +
+  edge_col_scale = if (absolute) {
+    ggraph::scale_edge_colour_viridis_c(
+      name = "|r|", limits = c(0, 1), guide = guide_obj
+    )
+  } else {
     ggraph::scale_edge_colour_gradient2(
+      name = "r",
       limits = c(-1, 1), midpoint = 0,
-      low = "blue", mid = "grey", high = "red",
+      low = scales::muted("blue", l = 30, c = 80),
+      high = scales::muted("red", l = 50, c = 100),
       guide = guide_obj
-    ) +
+    )
+  }
+
+  ggraph::ggraph(g, layout = "fr") +
+    ggraph::geom_edge_link(ggplot2::aes(width = abs(.data$r), colour = if (absolute) abs(.data$r) else .data$r)) +
+    ggraph::scale_edge_width(range = c(0.3, 3), guide = "none") +
+    edge_col_scale +
     ggraph::geom_node_point(size = 4, colour = "grey30") +
     ggraph::geom_node_text(ggplot2::aes(label = name), repel = TRUE, size = 3) +
     ggplot2::theme_void(base_family = font) +
-    ggplot2::labs(title = sprintf("LV network |r| \u2265 %.2f (%s)%s", cutoff, method, title_suffix))
+    ggplot2::labs(
+      title = if (compare == "lc") {
+        sprintf("Component network (|r| >= %.2f, %s)%s", cutoff, method, title_suffix)
+      } else {
+        sprintf("LV network (|r| >= %.2f, %s)%s", cutoff, method, title_suffix)
+      }
+    )
 }
 
-# -------- Variance, Scree, Scores ---------------------------------------------
-
-.mbspls_plot_variance_from_model = function(
-  model,
+# ------------------------------------------------------------------------------
+# -------------------- VARIANCE (recomputed) -----------------------------------
+# ------------------------------------------------------------------------------
+.mbspls_plot_variance_general = function(
+  model, sel_state = NULL, log_env = NULL,
+  source = c("bootstrap", "weights"),
+  freq_min = NULL,
+  ci_filter = c("excludes_zero", "none", "overlaps_zero"),
   show_total = TRUE,
   viridis_option = "D",
   layout = c("grouped", "facet"),
   show_values = TRUE,
   accuracy = 1,
-  flip = FALSE,
-  ev_block_override = NULL,
-  ev_comp_override = NULL,
   title_suffix = "",
   font = "sans"
 ) {
-  if (!requireNamespace("ggplot2", quietly = TRUE)) {
-    stop("Package 'ggplot2' is required for this plot.")
-  }
-  if (!requireNamespace("scales", quietly = TRUE)) {
-    stop("Package 'scales' is required for labeling.")
-  }
-
+  requireNamespace("ggplot2")
+  requireNamespace("scales")
+  source = match.arg(source)
+  ci_filter = match.arg(ci_filter)
   layout = match.arg(layout)
 
-  ev_blk = ev_block_override %||% model$ev_block
-  if (is.null(ev_blk)) {
-    stop("No block-wise variance info in model (train the operator).")
-  }
-
-  ev_blk = as.matrix(ev_blk)
-  if (!is.numeric(ev_blk)) {
-    stop("ev_block must be numeric.")
-  }
+  W_use = .mbspls_weights_from_source(model, sel_state, source, freq_min, ci_filter)
+  rec = .mbspls_recompute_from_weights(model, W_use, log_env = log_env)
+  ev_blk = rec$ev_block
+  ev_comp = rec$ev_comp
 
   rn = rownames(ev_blk)
-  if (is.null(rn) || length(rn) != nrow(ev_blk)) {
-    rn = paste0("LC_", sprintf("%02d", seq_len(nrow(ev_blk))))
-  }
+  if (is.null(rn)) rn <- paste0("LC_", sprintf("%02d", seq_len(nrow(ev_blk))))
   cn = colnames(ev_blk)
-  if (is.null(cn) || length(cn) != ncol(ev_blk)) {
-    cn = names(model$blocks)
-    if (is.null(cn) || length(cn) != ncol(ev_blk)) {
-      cn = paste0("Block_", seq_len(ncol(ev_blk)))
-    }
-  }
-  rownames(ev_blk) = rn
-  colnames(ev_blk) = cn
+  if (is.null(cn)) cn <- names(model$blocks)
 
   df_long = data.frame(
     component = factor(rep(rn, each = length(cn)), levels = rn),
     block = factor(rep(cn, times = length(rn)), levels = cn),
-    explained = as.numeric(ev_blk),
+    explained = as.vector(t(ev_blk)),
     check.names = FALSE
   )
 
   ev_table = data.frame(component = rn, check.names = FALSE)
   for (j in seq_along(cn)) ev_table[[cn[j]]] = ev_blk[, j]
-
-  tot_vec = ev_comp_override %||% model$ev_comp
-  if (!is.null(tot_vec)) {
-    if (!is.null(names(tot_vec)) && length(unique(names(tot_vec))) == length(tot_vec)) {
-      reord = as.numeric(tot_vec[rn])
-      if (length(reord) == length(rn)) tot_vec <- reord
-    }
-    if (length(tot_vec) == length(rn)) {
-      ev_table$total = as.numeric(tot_vec)
-    }
-  }
+  ev_table$total = as.numeric(ev_comp)
 
   ev_table_percent = ev_table
-  if (ncol(ev_table_percent) > 1) {
-    ev_table_percent[-1] = lapply(ev_table_percent[-1],
-      scales::percent, accuracy = accuracy)
+  if (ncol(ev_table_percent) > 1) ev_table_percent[-1] <- lapply(ev_table_percent[-1], scales::percent, accuracy = accuracy)
+
+  p_base = if (layout == "grouped") {
+    ggplot2::ggplot(df_long, ggplot2::aes(x = component, y = explained, fill = block)) +
+      ggplot2::geom_col(position = ggplot2::position_dodge2(width = 0.9, preserve = "single"))
+  } else {
+    ggplot2::ggplot(df_long, ggplot2::aes(x = block, y = explained, fill = block)) +
+      ggplot2::geom_col() +
+      ggplot2::facet_wrap(~component, nrow = 1)
   }
 
-  p_base =
-    if (layout == "grouped") {
-      ggplot2::ggplot(df_long, ggplot2::aes(x = component, y = explained, fill = block)) +
-        ggplot2::geom_col(position = ggplot2::position_dodge2(width = 0.9, preserve = "single"))
-    } else {
-      ggplot2::ggplot(df_long, ggplot2::aes(x = block, y = explained, fill = block)) +
-        ggplot2::geom_col() +
-        ggplot2::facet_wrap(~component, nrow = 1)
-    }
-
   if (isTRUE(show_values)) {
+    lab_fun = function(x) scales::percent(x, accuracy = accuracy)
     if (layout == "grouped") {
-      p_base = p_base +
-        ggplot2::geom_text(
-          ggplot2::aes(label = scales::percent(explained, accuracy = accuracy)),
-          position = ggplot2::position_dodge2(width = 0.9, preserve = "single"),
-          vjust = -0.3, size = 3
-        )
+      p_base = p_base + ggplot2::geom_text(
+        ggplot2::aes(label = lab_fun(explained)),
+        position = ggplot2::position_dodge2(width = 0.9, preserve = "single"),
+        vjust = -0.3, size = 3
+      )
     } else {
-      p_base = p_base +
-        ggplot2::geom_text(
-          ggplot2::aes(label = scales::percent(explained, accuracy = accuracy)),
-          vjust = -0.3, size = 3
-        )
+      p_base = p_base + ggplot2::geom_text(
+        ggplot2::aes(label = lab_fun(explained)),
+        vjust = -0.3, size = 3
+      )
     }
   }
 
@@ -814,15 +724,16 @@ autoplot.GraphLearner = function(object,
     ggplot2::scale_y_continuous(labels = scales::label_percent(accuracy = accuracy),
       expand = ggplot2::expansion(mult = c(0, 0.12))) +
     ggplot2::scale_fill_viridis_d(option = viridis_option) +
-    ggplot2::labs(y = "Variance explained", x = NULL,
-      title = paste0("MB-sPLS: block-wise variance per component", title_suffix)) +
+    ggplot2::labs(
+      y = "Variance explained", x = NULL,
+      title = paste0("MB-sPLS: block-wise variance per component (recomputed from ", source, ")", title_suffix)
+    ) +
     ggplot2::guides(fill = ggplot2::guide_legend(title = "block")) +
     ggplot2::theme_minimal(base_size = 11, base_family = font) +
     ggplot2::theme(legend.position = "right")
 
-  if (isTRUE(show_total) && "total" %in% names(ev_table)) {
-    df_tot = data.frame(component = factor(rn, levels = rn),
-      total = as.numeric(ev_table$total))
+  if (isTRUE(show_total)) {
+    df_tot = data.frame(component = factor(rn, levels = rn), total = as.numeric(ev_comp))
     if (layout == "grouped") {
       p = p +
         ggplot2::geom_line(data = df_tot, ggplot2::aes(component, total, group = 1),
@@ -837,74 +748,78 @@ autoplot.GraphLearner = function(object,
     }
   }
 
-  if (isTRUE(flip)) p <- p + ggplot2::coord_flip()
-
   attr(p, "ev_table") = ev_table
   attr(p, "ev_table_percent") = ev_table_percent
   p
 }
 
-.mbspls_plot_scree_from_model = function(model, cumulative = FALSE,
-  obj_override = NULL, title_suffix = "", font = "sans") {
-  if (!requireNamespace("ggplot2", quietly = TRUE)) {
-    stop("Package 'ggplot2' is required for this plot.")
-  }
-  obj = obj_override %||% model$obj_vec
-  if (is.null(obj)) {
-    stop("No per-component objective found (train the operator).")
-  }
+# ------------------------------------------------------------------------------
+# -------------------- SCREE (recomputed objective) ----------------------------
+# ------------------------------------------------------------------------------
+.mbspls_plot_scree_general = function(
+  model, sel_state = NULL, log_env = NULL,
+  source = c("bootstrap", "weights"),
+  freq_min = NULL,
+  ci_filter = c("excludes_zero", "none", "overlaps_zero"),
+  cumulative = FALSE,
+  title_suffix = "",
+  font = "sans"
+) {
+  requireNamespace("ggplot2")
+  source = match.arg(source)
+  ci_filter = match.arg(ci_filter)
 
-  rn = names(obj)
-  if (is.null(rn)) rn <- paste0("LC_", sprintf("%02d", seq_along(obj)))
+  W_use = .mbspls_weights_from_source(model, sel_state, source, freq_min, ci_filter)
+  rec = .mbspls_recompute_from_weights(model, W_use, log_env = log_env)
+
+  obj = rec$obj_vec
+  rn = paste0("LC_", sprintf("%02d", seq_along(obj)))
   df = data.frame(
     comp = factor(rn, levels = rn),
     obj  = as.numeric(obj),
     cum  = cumsum(as.numeric(obj))
   )
-  ylab = if (cumulative) "Cumulative objective" else "Latent correlation (MAC/Frobenius)"
+  ylab = if (cumulative) "Cumulative objective (MAC/Frobenius proxy)" else "Latent correlation (MAC proxy)"
 
   ggplot2::ggplot(df, ggplot2::aes(.data$comp, if (cumulative) .data$cum else .data$obj, group = 1)) +
     ggplot2::geom_line() + ggplot2::geom_point(size = 2) +
     ggplot2::labs(x = NULL, y = ylab,
-      title = paste0(if (!cumulative) {
-        "MB-sPLS scree (objective per component)"
-      } else {
-        "MB-sPLS cumulative objective"
-      },
-      title_suffix)) +
+      title = paste0("MB-sPLS scree (recomputed from ", source, ")", title_suffix)) +
     ggplot2::theme_minimal(base_size = 11, base_family = font)
 }
 
-.mbspls_plot_scores_from_model = function(model,
+# ------------------------------------------------------------------------------
+# -------------------- SCORES (recomputed) -------------------------------------
+# ------------------------------------------------------------------------------
+.mbspls_plot_scores_general = function(
+  model, sel_state = NULL, log_env = NULL,
+  source = c("bootstrap", "weights"),
+  freq_min = NULL,
+  ci_filter = c("excludes_zero", "none", "overlaps_zero"),
   component = 1,
   standardize = TRUE,
   density = c("none", "contour", "hex"),
   annotate = TRUE,
-  T_override = NULL,
   title_suffix = "",
-  font = "sans") {
-  if (!requireNamespace("ggplot2", quietly = TRUE)) {
-    stop("Package 'ggplot2' is required for this plot.")
-  }
+  font = "sans"
+) {
+  requireNamespace("ggplot2")
   density = match.arg(density)
+  source = match.arg(source)
+  ci_filter = match.arg(ci_filter)
 
-  Tmat = T_override %||% model$T_mat
-  if (is.null(Tmat) || ncol(Tmat) < 2) {
-    stop("Need at least two latent variables to draw score plots.")
-  }
-  if (component < 1 || component > model$ncomp) {
-    stop("`component` out of range.")
-  }
+  W_use = .mbspls_weights_from_source(model, sel_state, source, freq_min, ci_filter)
+  rec = .mbspls_recompute_from_weights(model, W_use, log_env = log_env)
+  Tmat = rec$T_mat
 
-  lv_cols = paste0("LV", component, "_", names(model$blocks))
-  missing = setdiff(lv_cols, colnames(Tmat))
-  if (length(missing)) {
-    stop("Score columns missing from T_mat: ", paste(missing, collapse = ", "))
-  }
+  blocks = names(model$blocks)
+  if (component < 1 || component > length(W_use)) stop("`component` out of range.")
+  lv_cols = paste0("LV", component, "_", blocks)
+  lv_cols = intersect(lv_cols, colnames(Tmat))
+  if (length(lv_cols) < 2) stop("Need at least two block LVs for the selected component.")
 
   S = as.data.frame(Tmat[, lv_cols, drop = FALSE])
-  names(S) = names(model$blocks)
-
+  names(S) = blocks
   if (isTRUE(standardize)) {
     S[] = lapply(S, function(v) {
       s = stats::sd(v)
@@ -951,9 +866,7 @@ autoplot.GraphLearner = function(object,
     ggplot2::geom_point(alpha = 0.55, size = 1.5)
 
   if (density == "contour") {
-    p = p + ggplot2::stat_density_2d(
-      ggplot2::aes(level = after_stat(level)), linewidth = 0.3
-    )
+    p = p + ggplot2::stat_density_2d(ggplot2::aes(level = after_stat(level)), linewidth = 0.3)
   } else if (density == "hex") {
     if (!requireNamespace("hexbin", quietly = TRUE)) {
       stop("Package 'hexbin' is required for density = 'hex'.")
@@ -967,8 +880,7 @@ autoplot.GraphLearner = function(object,
 
   if (isTRUE(annotate)) {
     lab = within(panel_stats, {
-      label = sprintf("r = %.2f\nccc = %.2f\nslope = %.2f\nn = %d",
-        r, ccc, slope, n)
+      label = sprintf("r = %.2f\nccc = %.2f\nslope = %.2f\nn = %d", r, ccc, slope, n)
     })
     p = p + ggplot2::geom_text(
       data = lab, ggplot2::aes(x = -Inf, y = Inf, label = label),
@@ -984,7 +896,7 @@ autoplot.GraphLearner = function(object,
         x = sprintf("Scores: LV%d (block)", component),
         y = sprintf("Scores: LV%d (block)", component),
         title = sprintf("MB-sPLS cross-block score agreement - LC%d%s", component, title_suffix),
-        subtitle = "Z-scored per block; dashed: y = x; solid: LS fit; r = Pearson, ccc = Lin’s concordance"
+        subtitle = "Z-scored per block, dashed: y = x, solid: LS fit, r = Pearson, ccc = Lin's concordance"
       ) +
       ggplot2::theme_minimal(base_size = 11, base_family = font)
   } else {
@@ -994,14 +906,247 @@ autoplot.GraphLearner = function(object,
         x = sprintf("Scores: LV%d (block)", component),
         y = sprintf("Scores: LV%d (block)", component),
         title = sprintf("MB-sPLS cross-block score agreement - LC%d%s", component, title_suffix),
-        subtitle = "Dashed: y = x; solid: LS fit; r = Pearson, ccc = Lin’s concordance"
+        subtitle = "Dashed: y = x, solid: LS fit, r = Pearson, ccc = Lin's concordance"
       ) +
       ggplot2::theme_minimal(base_size = 11, base_family = font)
   }
 }
 
-# -------- Bootstrap component (validation on NEW data) -------------------------
+# ------------------------------------------------------------------------------
+# -------- WEIGHTS helpers (ci_filter-aware) -----------------------------------
+# ------------------------------------------------------------------------------
+.mbspls_df_from_fit = function(fit_state) {
+  blocks = fit_state$blocks
+  comps = names(fit_state$weights)
+  if (is.null(comps)) comps <- sprintf("LC_%02d", seq_len(fit_state$ncomp %||% 1L))
+  dplyr::bind_rows(lapply(comps, function(cn) {
+    blist = fit_state$weights[[cn]]
+    dplyr::bind_rows(lapply(names(blist), function(b) {
+      w = blist[[b]]
+      nm = names(w)
+      if (is.null(nm)) nm <- rep.int("", length(w))
+      tibble::tibble(
+        component = gsub("^LC_0?", "LC ", cn),
+        block     = b,
+        feature   = nm,
+        mean      = as.numeric(w),
+        ci_lower  = NA_real_,
+        ci_upper  = NA_real_
+      )
+    }))
+  }))
+}
 
+.mbspls_df_from_bootstrap_stable = function(sel_state, ci_filter = c("excludes_zero", "none", "overlaps_zero")) {
+  ci_filter = match.arg(ci_filter)
+  .canon = function(x) gsub("^LC_0?", "LC ", x)
+
+  if (!is.null(sel_state$weights_stable) && length(sel_state$weights_stable)) {
+    ws = sel_state$weights_stable
+    comps = names(ws)
+    df = dplyr::bind_rows(lapply(comps, function(cn) {
+      blist = ws[[cn]]
+      dplyr::bind_rows(lapply(names(blist), function(b) {
+        v = as.numeric(blist[[b]])
+        nm = names(blist[[b]])
+        tibble::tibble(
+          component_code = cn,
+          component      = .canon(cn),
+          block          = b,
+          feature        = nm,
+          mean           = v
+        )
+      }))
+    })) |>
+      dplyr::filter(is.finite(.data$mean) & .data$mean != 0)
+
+    if (!is.null(sel_state$weights_ci) && nrow(sel_state$weights_ci)) {
+      ci = as.data.frame(sel_state$weights_ci)
+      df = df |>
+        dplyr::left_join(ci[, c("component", "block", "feature", "ci_lower", "ci_upper")],
+          by = c("component_code" = "component", "block", "feature"))
+    }
+    df$component_code = NULL
+    return(df)
+  }
+
+  ci = as.data.frame(sel_state$weights_ci)
+  if (is.null(ci) || !nrow(ci)) {
+    stop("No bootstrap selection output found (weights_stable/weights_ci).")
+  }
+
+  df = ci |>
+    dplyr::transmute(
+      component = .canon(.data$component),
+      block     = .data$block,
+      feature   = .data$feature,
+      mean      = .data$boot_mean,
+      ci_lower  = .data$ci_lower,
+      ci_upper  = .data$ci_upper
+    )
+
+  if (ci_filter == "excludes_zero") {
+    df = df |>
+      dplyr::filter((.data$ci_lower >= 0 | .data$ci_upper <= 0) & abs(.data$mean) > 1e-3)
+  } else if (ci_filter == "overlaps_zero") {
+    df = df |>
+      dplyr::filter(.data$ci_lower <= 0 & .data$ci_upper >= 0)
+  }
+  df
+}
+
+.mbspls_plot_weights_single_component = function(df_sub, block_levels, title = "", font = "sans", alpha_by_stability = FALSE) {
+  requireNamespace("ggplot2")
+  requireNamespace("grid")
+  if (!nrow(df_sub)) {
+    return(ggplot2::ggplot() + ggplot2::theme_void() + ggplot2::ggtitle("No non-zero weights"))
+  }
+  block_pretty = gsub("_", " ", block_levels, fixed = TRUE)
+  df_sub$block_lab = factor(gsub("_", " ", df_sub$block, fixed = TRUE), levels = block_pretty)
+
+  df_sub = df_sub |>
+    dplyr::mutate(abs_m = abs(.data$mean), signpos = .data$mean >= 0) |>
+    dplyr::group_by(.data$block_lab) |>
+    dplyr::arrange(.data$abs_m, .by_group = TRUE) |>
+    dplyr::ungroup() |>
+    dplyr::mutate(
+      feat_lab = stringr::str_wrap(.data$feature, width = 28),
+      axis_id  = paste(.data$block_lab, .data$feature, sep = "___")
+    )
+  df_sub$axis_id = factor(df_sub$axis_id, levels = df_sub$axis_id)
+  lab_map = stats::setNames(df_sub$feat_lab, df_sub$axis_id)
+
+  has_ci = all(c("ci_lower", "ci_upper") %in% names(df_sub)) &&
+    any(is.finite(df_sub$ci_lower) | is.finite(df_sub$ci_upper))
+
+  if (isTRUE(alpha_by_stability) && "alpha_freq" %in% names(df_sub)) {
+    g = ggplot2::ggplot(df_sub, ggplot2::aes(x = axis_id, y = mean, fill = signpos)) +
+      ggplot2::geom_col(ggplot2::aes(alpha = alpha_freq), width = 0.85, show.legend = FALSE) +
+      ggplot2::scale_alpha_identity()
+  } else {
+    g = ggplot2::ggplot(df_sub, ggplot2::aes(x = axis_id, y = mean, fill = signpos)) +
+      ggplot2::geom_col(width = 0.85, show.legend = FALSE)
+  }
+
+  if (has_ci) {
+    g = g + ggplot2::geom_errorbar(
+      ggplot2::aes(ymin = .data$ci_lower, ymax = .data$ci_upper),
+      width = 0.20, linewidth = 0.25, colour = "grey15"
+    )
+  }
+
+  g +
+    ggplot2::geom_hline(yintercept = 0, linewidth = 0.25, colour = "grey70") +
+    ggplot2::facet_grid(rows = ggplot2::vars(block_lab),
+      scales = "free_y", space = "free_y", switch = "y") +
+    ggplot2::scale_fill_manual(values = .mbspls_pal()) +
+    ggplot2::scale_x_discrete(labels = function(x) lab_map[as.character(x)]) +
+    ggplot2::coord_flip(clip = "off") +
+    ggplot2::labs(x = NULL, y = "Weight", title = title) +
+    ggplot2::theme_minimal(base_family = font) +
+    ggplot2::theme(
+      panel.border       = ggplot2::element_rect(colour = "grey80", fill = NA, linewidth = 0.5),
+      panel.spacing      = grid::unit(0.6, "lines"),
+      panel.grid.major.y = ggplot2::element_blank(),
+      panel.grid.minor   = ggplot2::element_blank(),
+      strip.placement    = "outside",
+      strip.background   = ggplot2::element_rect(fill = NA, colour = NA),
+      strip.text.y.left  = ggplot2::element_text(angle = 0, face = "bold")
+    )
+}
+
+.mbspls_plot_weights_patchwork = function(
+  fit_state,
+  sel_state = NULL,
+  source = c("weights", "bootstrap"),
+  top_n = NULL,
+  patch_ncol = 1L,
+  font = "sans",
+  alpha_by_stability = FALSE,
+  freq_min = NULL,
+  ci_filter = c("excludes_zero", "none", "overlaps_zero")
+) {
+  requireNamespace("patchwork")
+  requireNamespace("ggplot2")
+  requireNamespace("dplyr")
+
+  source = match.arg(source)
+  ci_filter = match.arg(ci_filter)
+  blocks = fit_state$blocks
+  block_levels = names(blocks)
+
+  if (identical(source, "weights")) {
+    if (!is.null(freq_min)) message("freq_min is ignored for source='weights'.")
+    df = .mbspls_df_from_fit(fit_state)
+    df = df[is.finite(df$mean) & df$mean != 0, , drop = FALSE]
+  } else {
+    if (is.null(sel_state)) stop("Selection state missing for source='bootstrap'.")
+    if (is.null(freq_min)) {
+      df = .mbspls_df_from_bootstrap_stable(sel_state, ci_filter = ci_filter)
+    } else {
+      ci = as.data.frame(sel_state$weights_ci)
+      fr = as.data.frame(sel_state$weights_selectfreq)
+      if (is.null(ci) || !nrow(ci) || is.null(fr) || !nrow(fr)) {
+        stop("Need both weights_ci and weights_selectfreq for freq_min filtering.")
+      }
+      ci$component = gsub("^LC_0?", "LC ", ci$component)
+      fr$component = gsub("^LC_0?", "LC ", fr$component)
+      df = ci |>
+        dplyr::transmute(
+          component = .data$component,
+          block     = .data$block,
+          feature   = .data$feature,
+          mean      = .data$boot_mean
+        )
+      df = merge(df, fr[, c("component", "block", "feature", "freq")], all.x = TRUE)
+      df = df[is.finite(df$freq) & df$freq >= as.numeric(freq_min), , drop = FALSE]
+    }
+    df = df[is.finite(df$mean) & df$mean != 0, , drop = FALSE]
+  }
+  if (!nrow(df)) stop("No weights to plot.")
+
+  if (isTRUE(alpha_by_stability) && !is.null(sel_state) && !is.null(sel_state$weights_selectfreq)) {
+    fr = try(as.data.frame(sel_state$weights_selectfreq), silent = TRUE)
+    if (!inherits(fr, "try-error") && nrow(fr)) {
+      fr$component = gsub("^LC_0?", "LC ", fr$component)
+      df = merge(df, fr[, c("component", "block", "feature", "freq")], all.x = TRUE)
+      df$alpha_freq = df$freq
+      df$alpha_freq[!is.finite(df$alpha_freq)] = 1
+      df$alpha_freq = pmin(pmax(df$alpha_freq, 0), 1)
+    }
+  }
+
+  if (!is.null(top_n) && is.numeric(top_n) && top_n > 0) {
+    df = df |>
+      dplyr::mutate(abs_m = abs(.data$mean)) |>
+      dplyr::group_by(.data$component, .data$block) |>
+      dplyr::slice_max(.data$abs_m, n = top_n, with_ties = FALSE) |>
+      dplyr::ungroup()
+  }
+
+  comps = unique(df$component)
+  plots = lapply(comps, function(cc) {
+    df_sub = df[df$component == cc, , drop = FALSE]
+    ttl = if (identical(source, "weights")) sprintf("MB-sPLS raw weights - %s", cc) else cc
+    .mbspls_plot_weights_single_component(df_sub, block_levels, title = ttl, font = font, alpha_by_stability = alpha_by_stability)
+  })
+
+  patch_ncol = min(patch_ncol, max(1L, length(plots)))
+  p = Reduce(`+`, plots) + patchwork::plot_layout(ncol = patch_ncol, guides = "collect")
+
+  main_ttl = if (identical(source, "weights")) {
+    "MB-sPLS raw weights per block"
+  } else if (is.null(freq_min)) {
+    "MB-sPLS bootstrap STABLE weights per block"
+  } else {
+    sprintf("MB-sPLS bootstrap MEANS (freq \u2265 %.2f)", as.numeric(freq_min))
+  }
+  p + patchwork::plot_annotation(title = main_ttl)
+}
+
+# ------------------------------------------------------------------------------
+# ------------------- Bootstrap component (unchanged) --------------------------
+# ------------------------------------------------------------------------------
 .mbspls_plot_bootstrap_component = function(
   model,
   payload = NULL,
@@ -1112,8 +1257,9 @@ autoplot.GraphLearner = function(object,
     ggplot2::theme_minimal(base_size = 11, base_family = font)
 }
 
-# -------- Payload reader -------------------------------------------------------
-
+# ------------------------------------------------------------------------------
+# ------------------- Payload reader (unchanged) -------------------------------
+# ------------------------------------------------------------------------------
 .mbspls_get_eval_payload = function(model = NULL, payload = NULL, mbspls_id = NULL) {
   if (!is.null(payload)) {
     return(payload)
@@ -1142,6 +1288,5 @@ autoplot.GraphLearner = function(object,
     return(model$last)
   }
 
-  stop("No evaluation payload found. Call predict() with a log_env set (or use val_task=), ",
-    "or pass payload= explicitly.")
+  stop("No evaluation payload found. Call predict() with a log_env set (or pass payload= explicitly).")
 }
