@@ -228,7 +228,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
     .bootstrap_align_and_summarise = function(
       X_list, W_ref, blocks, ncomp,
       sparsity, corr_method = "pearson", perf_metric = "mac",
-      B = 500L, alpha = 0.05, align = "score_correlation",
+      B = 500L, alpha = 0.05, align = "block_sign",
       workers = 1L, stratify_block = NULL
     ) {
       MIN_SCORE_COR = 0.10 # acceptance gate
