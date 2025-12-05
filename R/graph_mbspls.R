@@ -107,6 +107,7 @@ mbspls_graph_learner = function(
   bootstrap_selection = TRUE,
   selection_method = c("ci", "frequency"),
   frequency_threshold = 0.60,
+  stable_weight_source = c("training", "bootstrap_mean"),
   stratify_by_block = NULL,
   workers = max(1L, getOption("mc.cores", 1L)),
 
@@ -122,6 +123,7 @@ mbspls_graph_learner = function(
   val_test = match.arg(val_test)
   align = match.arg(align)
   selection_method = match.arg(selection_method)
+  stable_weight_source = match.arg(stable_weight_source)
   checkmate::assert_class(learner, "Learner")
 
   log_env = if (is.null(log_env)) new.env(parent = emptyenv()) else log_env
@@ -135,6 +137,7 @@ mbspls_graph_learner = function(
       align = align,
       selection_method = selection_method,
       frequency_threshold = frequency_threshold,
+      stable_weight_source = stable_weight_source,
       stratify_by_block = stratify_by_block,
       workers = workers
     )

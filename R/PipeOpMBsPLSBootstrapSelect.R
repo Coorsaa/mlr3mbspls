@@ -1,18 +1,22 @@
-#' MB‑sPLS Bootstrap Selection with Two Methods ("ci" | "frequency")
+#' MB-sPLS Bootstrap Selection with Two Methods ("ci" | "frequency")
 #'
 #' @title PipeOp \code{mbspls_bootstrap_select}
 #'
 #' @description
-#' Performs post‑hoc **bootstrap**, aligns replicate components (two alignment modes),
-#' summarises per‑feature weights, then **selects features** via:
+#' Performs post-hoc **bootstrap**, aligns replicate components (two alignment modes),
+#' summarises per-feature weights, then **selects features** via:
 #' \itemize{
 #'   \item \code{selection_method = "ci"} (default): keep if CI excludes 0 AND |mean| > 1e-3;
-#'   \item \code{selection_method = "frequency"}: keep if non‑zero frequency ≥ \code{frequency_threshold}.
+#'   \item \code{selection_method = "frequency"}: keep if non-zero frequency ≥ \code{frequency_threshold}.
 #' }
 #' Blocks with no kept features **vanish** for that component; components with no
-#' non‑empty blocks are dropped. Remaining components are **renumbered**.
-#' Final weights are the **mean aligned bootstrap weights**. Training scores are
-#' recomputed with **deflation** from those weights and replace upstream LV columns.
+#' non-empty blocks are dropped. Remaining components are **renumbered**.
+#'
+#' Final weights are either the **mean aligned bootstrap weights** or the
+#' **original training weights** of features that pass the CI/frequency filter,
+#' controlled via \code{stable_weight_source}. Training scores are
+#' recomputed with **deflation** from those weights and replace upstream LV
+#' columns.
 #'
 #' **Important:** This operator uses the original block features to recompute stable
 #' LV scores and then **drops those block features and all upstream LV columns**, so
@@ -26,7 +30,12 @@
 #' @param align \code{"block_sign"} (default) or \code{"score_correlation"}.
 #' @param selection_method \code{"ci"} (default) or \code{"frequency"}.
 #' @param frequency_threshold Only for \code{"frequency"}; default \code{0.60}.
-#' @param stratify_by_block Optional dummy‑encoded block name for stratified bootstrap (e.g., "Studygroup").
+#' @param stable_weight_source Either \code{"training"} (default; use the original
+#'   MB-sPLS training weights for features whose CI/frequency criterion is met)
+#'   or \code{"bootstrap_mean"} (use aligned bootstrap means as stable weights).
+#'   In all cases, selection is driven by the bootstrap summaries; this parameter
+#'   only controls the *magnitude* of the non-zero coefficients.
+#' @param stratify_by_block Optional dummy-encoded block name for stratified bootstrap (e.g., "Studygroup").
 #' @param workers \#Unix workers for \code{mclapply}; default cores−1.
 #'
 #' @return Replaces task LV columns with kept components' LV columns (renumbered).
@@ -67,6 +76,12 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         selection_method = paradox::p_fct(levels = c("ci", "frequency"), default = "ci", tags = "train"),
         frequency_threshold = paradox::p_dbl(lower = 0, upper = 1, default = 0.60, tags = "train"),
 
+        stable_weight_source = paradox::p_fct(
+          levels  = c("training", "bootstrap_mean"),
+          default = "training",
+          tags    = "train"
+        ),
+
         stratify_by_block = paradox::p_uty(default = NULL, tags = "train"),
         workers = paradox::p_int(lower = 1L, default = ncore_default, tags = "train")
       )
@@ -104,7 +119,11 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
     },
 
     # helper to construct stable weights & kept blocks from summaries
-    .build_stable_from = function(method, K, bn, blocks_map, sum_df, freq_df, frequency_threshold) {
+    .build_stable_from = function(
+      method, K, bn, blocks_map, sum_df, freq_df, frequency_threshold,
+      W_train, weight_source = c("training", "bootstrap_mean")
+    ) {
+      weight_source = match.arg(weight_source)
       W_stable_local = list()
       kept_blocks_per_comp_local = list()
 
@@ -143,18 +162,43 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
           if (identical(method, "ci")) {
             keep = ((lo >= 0) | (hi <= 0)) & (abs(mu) > 1e-3)
           } else {
-            fb = freq_df[freq_df$component == k_lab & freq_df$block == b, c("feature", "freq"), drop = FALSE]
-            fq_map = if (nrow(fb)) stats::setNames(fb$freq, fb$feature) else setNames(numeric(0), character(0))
+            fb = freq_df[freq_df$component == k_lab & freq_df$block == b,
+              c("feature", "freq"), drop = FALSE]
+            fq_map = if (nrow(fb)) {
+              stats::setNames(fb$freq, fb$feature)
+            } else {
+              stats::setNames(numeric(0), character(0))
+            }
             fv = as.numeric(fq_map[feats])
             if (length(fv) == 0L) fv = numeric(length(feats))
             fv[is.na(fv)] = 0
             keep = (fv >= as.numeric(frequency_threshold))
           }
 
-          mu[!keep] = 0
+          ## ---- choose base values for kept features ------------------------
+          if (identical(weight_source, "training")) {
+            # fall back gracefully if training weights are not available
+            if (!is.null(W_train) && length(W_train) >= k &&
+              !is.null(W_train[[k]][[b]])) {
+              w_train_b = W_train[[k]][[b]]
+              w_map = stats::setNames(as.numeric(w_train_b), names(w_train_b))
+              val = as.numeric(w_map[feats])
+              if (length(val) == 0L) val <- numeric(length(feats))
+              val[is.na(val)] = 0
+            } else {
+              val = numeric(length(feats))
+            }
+          } else {
+            # original behaviour: use aligned bootstrap means
+            val = mu
+          }
+
+          # zero out non-selected features, regardless of source
+          val[!keep] = 0
+
           # Always create an entry for *every* block with correct length & names
-          Wk_out[[b]] = stats::setNames(mu, feats)
-          if (any(mu != 0)) kept_blocks = c(kept_blocks, b)
+          Wk_out[[b]] = stats::setNames(val, feats)
+          if (any(val != 0)) kept_blocks = c(kept_blocks, b)
         }
 
         # Even if all-zero across all blocks, keep a (named) list to maintain shape
@@ -597,12 +641,16 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       built_ci = private$.build_stable_from(
         method = "ci", K = K, bn = bn_full,
         blocks_map = blocks_map, sum_df = sum_df,
-        freq_df = freq_df, frequency_threshold = pv$frequency_threshold
+        freq_df = freq_df, frequency_threshold = pv$frequency_threshold,
+        W_train = st_env$weights,
+        weight_source = pv$stable_weight_source
       )
       built_freq = private$.build_stable_from(
         method = "frequency", K = K, bn = bn_full,
         blocks_map = blocks_map, sum_df = sum_df,
-        freq_df = freq_df, frequency_threshold = pv$frequency_threshold
+        freq_df = freq_df, frequency_threshold = pv$frequency_threshold,
+        W_train = st_env$weights,
+        weight_source = pv$stable_weight_source
       )
 
       # ---- Choose which set governs the graph output (according to selection_method)
