@@ -25,6 +25,9 @@
 #' @section Parameters:
 #' @param log_env Environment shared with upstream \code{po("mbspls")} (required).
 #' @param bootstrap Run bootstrap selection (default \code{TRUE}).
+#' @param stability_only Logical; if TRUE, run bootstrap alignment + summarisation and store
+#'   stability outputs, but **do not** modify the task (no selection, no LV recomputation,
+#'   no dropping of features/LVs). Default \code{FALSE}.
 #' @param B Bootstrap replicates (default \code{500}).
 #' @param alpha CI alpha (default \code{0.05} → 95\% CI).
 #' @param align \code{"block_sign"} (default) or \code{"score_correlation"}.
@@ -67,6 +70,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         log_env = paradox::p_uty(tags = c("train", "predict"), default = NULL),
 
         bootstrap = paradox::p_lgl(default = TRUE, tags = "train"),
+        stability_only = paradox::p_lgl(default = FALSE, tags = c("train", "predict")),
         B = paradox::p_int(lower = 1L, default = 500L, tags = "train"),
         alpha = paradox::p_dbl(lower = 0, upper = 1, default = 0.05, tags = "train"),
 
@@ -579,7 +583,9 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
 
       dt_all = task$data()
       lm = private$.lv_column_map(names(dt_all))
-      if (lm$K == 0L) stop("No LV columns found. Ensure po('mbspls') is upstream.")
+      if (lm$K == 0L && !isTRUE(pv$stability_only)) {
+        stop("No LV columns found. Ensure po('mbspls') is upstream.")
+      }
 
       if (!isTRUE(pv$bootstrap)) {
         return(task)
@@ -605,10 +611,12 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         }
       }
       if (is.null(X_blocks_train)) {
+        dt_boot = if (isTRUE(pv$stability_only)) data.table::copy(dt_all) else dt_all
+
         X_blocks_train = lapply(blocks_map, function(cols) {
-          miss = setdiff(cols, names(dt_all))
-          if (length(miss)) for (m in miss) dt_all[, (m) := 0.0]
-          m = as.matrix(dt_all[, ..cols])
+          miss = setdiff(cols, names(dt_boot))
+          if (length(miss)) for (m in miss) dt_boot[, (m) := 0.0]
+          m = as.matrix(dt_boot[, ..cols])
           storage.mode(m) = "double"
           m
         })
@@ -633,6 +641,44 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       sum_df = as.data.frame(bt$summary)
       freq_df = as.data.frame(bt$select_freq)
       K = length(st_env$weights)
+
+      # ---- Stability assessment only: store summaries but do not alter the task ----
+      if (isTRUE(pv$stability_only)) {
+
+        n_eff_df = as.data.frame(bt$n_eff_by_component)
+
+        lgr$info("Bootstrap stability assessment only: storing stability summaries; leaving task unchanged.")
+
+        # Clear any selection-related state to avoid reusing stale values
+        self$state$stability_only = TRUE
+        self$state$weights_ci = sum_df
+        self$state$weights_selectfreq = freq_df
+        self$state$n_eff_by_component = n_eff_df
+        self$state$alignment_method = pv$align
+        self$state$selection_method = pv$selection_method
+        self$state$frequency_threshold = pv$frequency_threshold
+
+        self$state$weights_stable = NULL
+        self$state$loadings_stable = NULL
+        self$state$kept_components = NULL
+        self$state$kept_blocks_per_comp = NULL
+
+        # Persist to env as well (so users can inspect log_env$mbspls_state)
+        st_env$weights_ci = sum_df
+        st_env$weights_selectfreq = freq_df
+        st_env$n_eff_by_component = n_eff_df
+        st_env$alignment_method = pv$align
+        st_env$selection_method = pv$selection_method
+        st_env$frequency_threshold = pv$frequency_threshold
+        st_env$stability_only = TRUE
+
+        st_env$weights_stable = NULL
+        st_env$loadings_stable = NULL
+        st_env$kept_blocks_per_comp = NULL
+
+        pv$log_env$mbspls_state = st_env
+        return(task)
+      }
 
       # Iterate over the full block set so all components have all blocks (zero-padded if filtered)
       bn_full = names(blocks_map)
@@ -676,6 +722,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         self$state$weights_ci = sum_df
         self$state$weights_selectfreq = freq_df
         self$state$weights_stable = W_stable
+        self$state$stability_only = FALSE
 
         # Store both weight variants for prediction switching (empty or not)
         st_env$weights_stable = W_stable
@@ -686,6 +733,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         st_env$kept_blocks_per_comp_frequency = built_freq$kept
         st_env$selection_method = pv$selection_method
         st_env$frequency_threshold = pv$frequency_threshold
+        st_env$stability_only = FALSE
         # Safe empty training LV matrices
         st_env$T_mat_train = matrix(0, nrow = nrow(X_blocks_train[[1]]), ncol = 0)
         st_env$T_mat_train_kept = st_env$T_mat_train
@@ -736,6 +784,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       self$state$alignment_method = pv$align
       self$state$selection_method = pv$selection_method
       self$state$frequency_threshold = pv$frequency_threshold
+      self$state$stability_only = FALSE
 
       # chosen variant, used by downstream predict unless overridden
       st_env$weights_stable = W_stable
@@ -758,6 +807,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       st_env$weights_stable_frequency = built_freq$W
       st_env$loadings_stable_frequency = rec_freq$P
       st_env$kept_blocks_per_comp_frequency = built_freq$kept
+      st_env$stability_only = FALSE
 
       pv$log_env$mbspls_state = st_env
 
@@ -767,6 +817,11 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
     # ---------------- PREDICT ----------------
     .predict_task = function(task) {
       st = self$state
+
+      # If we are in stability-only mode, do not touch the task at predict time
+      if (isTRUE(st$stability_only)) {
+        return(task)
+      }
 
       # if no stable weights, drop upstream LVs and block features, then return
       if (is.null(st$weights_stable) || !length(st$weights_stable)) {

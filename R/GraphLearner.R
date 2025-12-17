@@ -45,6 +45,7 @@ autoplot.GraphLearner = function(object,
       patch_ncol         = as.integer(dots$patch_ncol %||% 3L),
       font               = dots$font %||% "sans",
       alpha_by_stability = isTRUE(dots$alpha_by_stability %||% FALSE),
+      alpha_nonstable    = as.numeric(dots$alpha_nonstable %||% 0.4),
       freq_min           = dots$freq_min %||% NULL,
       ci_filter          = dots$ci_filter %||% "excludes_zero"
     )
@@ -151,6 +152,49 @@ autoplot.GraphLearner = function(object,
   stop("Unknown type: ", type)
 }
 
+#' @importFrom ggplot2 autoplot
+#' @export
+#' @method autoplot Graph
+autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
+  type = match.arg(type)
+  dots = list(...)
+
+  .args_merge = function(explicit, dots, fun) {
+    if (!length(dots)) {
+      return(explicit)
+    }
+    fml = names(formals(fun))
+    if (is.null(fml)) fml <- character(0)
+    keep = intersect(setdiff(names(dots), names(explicit)), fml)
+    c(explicit, dots[keep])
+  }
+
+  nodes = .mbspls_locate_nodes_graph_general(
+    object,
+    mbspls_id = dots$mbspls_id %||% NULL,
+    select_id = dots$select_id %||% NULL
+  )
+
+  if (type == "mbspls_weights") {
+    fun = .mbspls_plot_weights_patchwork
+    explicit = list(
+      fit_state          = nodes$fit_state,
+      sel_state          = nodes$sel_state,
+      source             = (dots$source %||% "bootstrap"),
+      top_n              = dots$top_n %||% NULL,
+      patch_ncol         = as.integer(dots$patch_ncol %||% 3L),
+      font               = dots$font %||% "sans",
+      alpha_by_stability = isTRUE(dots$alpha_by_stability %||% FALSE),
+      alpha_nonstable    = as.numeric(dots$alpha_nonstable %||% 0.4),
+      freq_min           = dots$freq_min %||% NULL,
+      ci_filter          = dots$ci_filter %||% "excludes_zero"
+    )
+    return(do.call(fun, .args_merge(explicit, dots, fun)))
+  }
+
+  stop("Unknown type: ", type)
+}
+
 # ------------------------------------------------------------------------------
 # Node location (fit + selection + their log_env)
 # ------------------------------------------------------------------------------
@@ -208,6 +252,41 @@ autoplot.GraphLearner = function(object,
   list(fit_state = fit_state, sel_state = sel_state, fit_env = fit_env, sel_env = sel_env)
 }
 
+.mbspls_locate_nodes_graph_general = function(gr, mbspls_id = NULL, select_id = NULL) {
+  if (!inherits(gr, "Graph")) stop("Expected a Graph.", call. = FALSE)
+
+  # Fit node
+  if (is.null(mbspls_id)) {
+    cand = names(gr$pipeops)[vapply(gr$pipeops, inherits, logical(1), "PipeOpMBsPLS")]
+    if (!length(cand)) stop("No PipeOpMBsPLS node found in the graph.")
+    mbspls_id = cand[1]
+  }
+  fit_po = gr$pipeops[[mbspls_id]]
+  fit_state = gr$state[[mbspls_id]] %||% fit_po$state
+  if (is.null(fit_state)) stop("Cannot locate trained state for MB-sPLS node '", mbspls_id, "'.")
+
+  # Selection node (optional / auto)
+  sel_state = NULL
+  if (!is.null(select_id)) {
+    sel_po = gr$pipeops[[select_id]]
+    sel_state = gr$state[[select_id]] %||% sel_po$state
+  } else {
+    # try conventional id first
+    if (!is.null(gr$pipeops$mbspls_bootstrap_select)) {
+      sel_po = gr$pipeops$mbspls_bootstrap_select
+      sel_state = gr$state$mbspls_bootstrap_select %||% sel_po$state
+    } else {
+      hits = names(gr$pipeops)[vapply(gr$pipeops, inherits, logical(1), "PipeOpMBsPLSBootstrapSelect")]
+      if (length(hits)) {
+        sel_po = gr$pipeops[[hits[1]]]
+        sel_state = gr$state[[hits[1]]] %||% sel_po$state
+      }
+    }
+  }
+
+  list(fit_state = fit_state, sel_state = sel_state)
+}
+
 # ------------------------------------------------------------------------------
 # Palette helpers
 # ------------------------------------------------------------------------------
@@ -222,8 +301,21 @@ autoplot.GraphLearner = function(object,
 .nice_label = function(x) gsub("_", " ", x, fixed = TRUE)
 
 # ------------------------------------------------------------------------------
-# Weights source resolver
+# Weights plot helpers
 # ------------------------------------------------------------------------------
+.mbspls_feat_names = function(w, fallback = NULL) {
+  nm = names(w)
+  if (is.null(nm)) nm = attr(w, "names")
+  if (is.null(nm)) {
+    dn = dimnames(w)
+    if (!is.null(dn) && length(dn) >= 1) nm = dn[[1]]
+  }
+  if (is.null(nm)) nm = rownames(w)
+  if (is.null(nm)) nm = fallback
+  nm
+}
+
+
 # Returns a list-of-lists W_use[[k]][[block]] = named numeric vector (full length)
 .mbspls_weights_from_source = function(fit_state, sel_state = NULL,
   source = c("weights", "bootstrap"),
@@ -917,19 +1009,30 @@ autoplot.GraphLearner = function(object,
 # ------------------------------------------------------------------------------
 .mbspls_df_from_fit = function(fit_state) {
   blocks = fit_state$blocks
+  bn = names(blocks)
+
   comps = names(fit_state$weights)
   if (is.null(comps)) comps <- sprintf("LC_%02d", seq_len(fit_state$ncomp %||% 1L))
+
   dplyr::bind_rows(lapply(comps, function(cn) {
     blist = fit_state$weights[[cn]]
-    dplyr::bind_rows(lapply(names(blist), function(b) {
+    dplyr::bind_rows(lapply(bn, function(b) {
       w = blist[[b]]
-      nm = names(w)
-      if (is.null(nm)) nm <- rep.int("", length(w))
+      feats = blocks[[b]]
+
+      v = as.numeric(w)
+      nm = .mbspls_feat_names(w, fallback = feats)
+      if (is.null(nm)) nm <- paste0("V", seq_along(v))
+
+      # If lengths mismatch but blocks match, prefer blocks
+      if (!is.null(feats) && length(feats) == length(v)) nm <- feats
+      if (length(nm) != length(v)) nm <- rep_len(nm, length.out = length(v))
+
       tibble::tibble(
         component = gsub("^LC_0?", "LC ", cn),
         block     = b,
         feature   = nm,
-        mean      = as.numeric(w),
+        mean      = v,
         ci_lower  = NA_real_,
         ci_upper  = NA_real_
       )
@@ -944,11 +1047,17 @@ autoplot.GraphLearner = function(object,
   if (!is.null(sel_state$weights_stable) && length(sel_state$weights_stable)) {
     ws = sel_state$weights_stable
     comps = names(ws)
+
     df = dplyr::bind_rows(lapply(comps, function(cn) {
       blist = ws[[cn]]
       dplyr::bind_rows(lapply(names(blist), function(b) {
-        v = as.numeric(blist[[b]])
-        nm = names(blist[[b]])
+        w = blist[[b]]
+        v = as.numeric(w)
+        nm = .mbspls_feat_names(w)
+
+        if (is.null(nm)) nm <- paste0("V", seq_along(v))
+        if (length(nm) != length(v)) nm <- rep_len(nm, length.out = length(v))
+
         tibble::tibble(
           component_code = cn,
           component      = .canon(cn),
@@ -995,14 +1104,76 @@ autoplot.GraphLearner = function(object,
   df
 }
 
+.mbspls_stable_keys = function(sel_state, ci_filter = c("excludes_zero", "none", "overlaps_zero")) {
+  ci_filter = match.arg(ci_filter)
+  .canon = function(x) gsub("^LC_0?", "LC ", x)
+
+  # Prefer explicit stable list if present
+  if (!is.null(sel_state$weights_stable) && length(sel_state$weights_stable)) {
+    ws = sel_state$weights_stable
+    out = list()
+    ii = 1L
+
+    for (cn in names(ws)) {
+      blist = ws[[cn]]
+      for (b in names(blist)) {
+        w = blist[[b]]
+        if (is.null(w)) next
+        v = as.numeric(w)
+        nm = .mbspls_feat_names(w)
+        if (is.null(nm)) nm <- paste0("V", seq_along(v))
+        if (length(nm) != length(v)) nm <- rep_len(nm, length.out = length(v))
+
+        keep = is.finite(v) & v != 0
+        if (!any(keep)) next
+
+        out[[ii]] = data.frame(
+          component = .canon(cn),
+          block = b,
+          feature = nm[keep],
+          stringsAsFactors = FALSE
+        )
+        ii = ii + 1L
+      }
+    }
+    if (length(out)) {
+      return(unique(do.call(rbind, out)))
+    }
+  }
+
+  # Fallback: derive stability from weights_ci
+  ci = as.data.frame(sel_state$weights_ci)
+  if (is.null(ci) || !nrow(ci)) {
+    stop("No bootstrap selection output found (weights_stable/weights_ci).")
+  }
+
+  keep = switch(ci_filter,
+    excludes_zero = ((ci$ci_lower >= 0) | (ci$ci_upper <= 0)) & (abs(ci$boot_mean) > 1e-3),
+    overlaps_zero = (ci$ci_lower <= 0 & ci$ci_upper >= 0),
+    none          = rep(TRUE, nrow(ci))
+  )
+
+  keys = ci[keep, c("component", "block", "feature")]
+  keys$component = .canon(keys$component)
+  unique(keys)
+}
+
 .mbspls_plot_weights_single_component = function(df_sub, block_levels, title = "", font = "sans", alpha_by_stability = FALSE) {
   requireNamespace("ggplot2")
   requireNamespace("grid")
+
   if (!nrow(df_sub)) {
     return(ggplot2::ggplot() + ggplot2::theme_void() + ggplot2::ggtitle("No non-zero weights"))
   }
+
   block_pretty = gsub("_", " ", block_levels, fixed = TRUE)
   df_sub$block_lab = factor(gsub("_", " ", df_sub$block, fixed = TRUE), levels = block_pretty)
+
+  wrap_fun = if (requireNamespace("stringr", quietly = TRUE)) {
+    function(x) stringr::str_wrap(x, width = 28)
+  } else {
+    function(x) vapply(x, function(s) paste(strwrap(s, width = 28), collapse = "\n"), character(1))
+  }
 
   df_sub = df_sub |>
     dplyr::mutate(abs_m = abs(.data$mean), signpos = .data$mean >= 0) |>
@@ -1010,18 +1181,20 @@ autoplot.GraphLearner = function(object,
     dplyr::arrange(.data$abs_m, .by_group = TRUE) |>
     dplyr::ungroup() |>
     dplyr::mutate(
-      feat_lab = stringr::str_wrap(.data$feature, width = 28),
+      feat_lab = wrap_fun(.data$feature),
       axis_id  = paste(.data$block_lab, .data$feature, sep = "___")
     )
+
   df_sub$axis_id = factor(df_sub$axis_id, levels = df_sub$axis_id)
   lab_map = stats::setNames(df_sub$feat_lab, df_sub$axis_id)
 
   has_ci = all(c("ci_lower", "ci_upper") %in% names(df_sub)) &&
     any(is.finite(df_sub$ci_lower) | is.finite(df_sub$ci_upper))
 
-  if (isTRUE(alpha_by_stability) && "alpha_freq" %in% names(df_sub)) {
+  # ---- UPDATED: use alpha_plot if provided
+  if (isTRUE(alpha_by_stability) && "alpha_plot" %in% names(df_sub)) {
     g = ggplot2::ggplot(df_sub, ggplot2::aes(x = axis_id, y = mean, fill = signpos)) +
-      ggplot2::geom_col(ggplot2::aes(alpha = alpha_freq), width = 0.85, show.legend = FALSE) +
+      ggplot2::geom_col(ggplot2::aes(alpha = alpha_plot), width = 0.85, show.legend = FALSE) +
       ggplot2::scale_alpha_identity()
   } else {
     g = ggplot2::ggplot(df_sub, ggplot2::aes(x = axis_id, y = mean, fill = signpos)) +
@@ -1063,6 +1236,7 @@ autoplot.GraphLearner = function(object,
   patch_ncol = 1L,
   font = "sans",
   alpha_by_stability = FALSE,
+  alpha_nonstable = 0.4,
   freq_min = NULL,
   ci_filter = c("excludes_zero", "none", "overlaps_zero")
 ) {
@@ -1072,6 +1246,7 @@ autoplot.GraphLearner = function(object,
 
   source = match.arg(source)
   ci_filter = match.arg(ci_filter)
+
   blocks = fit_state$blocks
   block_levels = names(blocks)
 
@@ -1079,8 +1254,23 @@ autoplot.GraphLearner = function(object,
     if (!is.null(freq_min)) message("freq_min is ignored for source='weights'.")
     df = .mbspls_df_from_fit(fit_state)
     df = df[is.finite(df$mean) & df$mean != 0, , drop = FALSE]
+
+    # ---- NEW: bootstrap stability overlay on TRAINING weights
+    if (isTRUE(alpha_by_stability)) {
+      if (is.null(sel_state)) {
+        stop("alpha_by_stability=TRUE with source='weights' requires `sel_state` (bootstrap selection output).")
+      }
+      keys = .mbspls_stable_keys(sel_state, ci_filter = ci_filter)
+      keys$stable = TRUE
+
+      df = merge(df, keys, by = c("component", "block", "feature"), all.x = TRUE)
+      df$stable[is.na(df$stable)] = FALSE
+      df$alpha_plot = ifelse(df$stable, 1, as.numeric(alpha_nonstable))
+    }
+
   } else {
     if (is.null(sel_state)) stop("Selection state missing for source='bootstrap'.")
+
     if (is.null(freq_min)) {
       df = .mbspls_df_from_bootstrap_stable(sel_state, ci_filter = ci_filter)
     } else {
@@ -1091,6 +1281,7 @@ autoplot.GraphLearner = function(object,
       }
       ci$component = gsub("^LC_0?", "LC ", ci$component)
       fr$component = gsub("^LC_0?", "LC ", fr$component)
+
       df = ci |>
         dplyr::transmute(
           component = .data$component,
@@ -1103,18 +1294,8 @@ autoplot.GraphLearner = function(object,
     }
     df = df[is.finite(df$mean) & df$mean != 0, , drop = FALSE]
   }
-  if (!nrow(df)) stop("No weights to plot.")
 
-  if (isTRUE(alpha_by_stability) && !is.null(sel_state) && !is.null(sel_state$weights_selectfreq)) {
-    fr = try(as.data.frame(sel_state$weights_selectfreq), silent = TRUE)
-    if (!inherits(fr, "try-error") && nrow(fr)) {
-      fr$component = gsub("^LC_0?", "LC ", fr$component)
-      df = merge(df, fr[, c("component", "block", "feature", "freq")], all.x = TRUE)
-      df$alpha_freq = df$freq
-      df$alpha_freq[!is.finite(df$alpha_freq)] = 1
-      df$alpha_freq = pmin(pmax(df$alpha_freq, 0), 1)
-    }
-  }
+  if (!nrow(df)) stop("No weights to plot.")
 
   if (!is.null(top_n) && is.numeric(top_n) && top_n > 0) {
     df = df |>
@@ -1127,20 +1308,29 @@ autoplot.GraphLearner = function(object,
   comps = unique(df$component)
   plots = lapply(comps, function(cc) {
     df_sub = df[df$component == cc, , drop = FALSE]
-    ttl = if (identical(source, "weights")) sprintf("MB-sPLS raw weights - %s", cc) else cc
-    .mbspls_plot_weights_single_component(df_sub, block_levels, title = ttl, font = font, alpha_by_stability = alpha_by_stability)
+    ttl = if (identical(source, "weights")) sprintf("MB-sPLS training weights - %s", cc) else cc
+    .mbspls_plot_weights_single_component(
+      df_sub, block_levels,
+      title = ttl, font = font,
+      alpha_by_stability = alpha_by_stability
+    )
   })
 
   patch_ncol = min(patch_ncol, max(1L, length(plots)))
   p = Reduce(`+`, plots) + patchwork::plot_layout(ncol = patch_ncol, guides = "collect")
 
   main_ttl = if (identical(source, "weights")) {
-    "MB-sPLS raw weights per block"
+    if (isTRUE(alpha_by_stability)) {
+      sprintf("MB-sPLS training weights per block (opaque = bootstrap-stable; alpha = %.0f%% for non-stable)", alpha_nonstable * 100)
+    } else {
+      "MB-sPLS training weights per block"
+    }
   } else if (is.null(freq_min)) {
     "MB-sPLS bootstrap STABLE weights per block"
   } else {
     sprintf("MB-sPLS bootstrap MEANS (freq \u2265 %.2f)", as.numeric(freq_min))
   }
+
   p + patchwork::plot_annotation(title = main_ttl)
 }
 
