@@ -247,6 +247,6 @@ mbspls_graph_learner = function(
     ncomp = ncomp,
     ...
   )
-  graph %>>%
-    po("learner", learner)
+  as_learner(graph %>>%
+    po("learner", learner))
 }
