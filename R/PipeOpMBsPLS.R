@@ -90,6 +90,7 @@
 #' @param log_env \code{environment} or \code{NULL}. If not \code{NULL}, writes payloads to \code{log_env$last} and saves a training snapshot in \code{log_env$mbspls_state}.
 #' @param append \code{logical(1)}. If \code{TRUE}, keep original features and append LV columns
 #'   (both in training and prediction). If \code{FALSE} (default), output only LV columns.
+#' @param seed_train \code{integer(1)} or \code{NULL}. Optional random seed for training.
 #' @param id character(1). Identifier of the resulting object.
 #' @param param_vals named list. List of hyperparameter settings, overwriting the hyperparameter settings that would otherwise be set during construction.
 #'
@@ -150,7 +151,8 @@ PipeOpMBsPLS = R6::R6Class(
         val_test_n = p_int(lower = 1L, default = 1000L, tags = "predict"),
         val_test_permute_all = p_lgl(default = TRUE, tags = "predict"),
         log_env = p_uty(tags = c("train", "predict"), default = NULL),
-        append = p_lgl(default = FALSE, tags = c("train", "predict"))
+        append = p_lgl(default = FALSE, tags = c("train", "predict")),
+        seed_train = p_uty(tags = "train", default = NULL)
       )
 
       for (bn in names(blocks)) {
@@ -187,6 +189,35 @@ PipeOpMBsPLS = R6::R6Class(
       unique(unlist(lapply(cols, function(co) {
         if (co %in% dt_names) co else grep(paste0("^", esc(co), "(\\.|$)"), dt_names, value = TRUE)
       })))
+    },
+
+    .with_seed_local = function(seed, fn) {
+      # If seed is NULL/invalid -> no change in behavior
+      if (is.null(seed) || length(seed) != 1L || !is.finite(seed)) {
+        return(fn())
+      }
+
+      seed = as.integer(seed)
+      if (!is.finite(seed) || seed <= 0L) {
+        return(fn())
+      }
+
+      # Save existing RNG state (if any), then restore after fn()
+      had_seed = exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+      old_seed = if (had_seed) get(".Random.seed", envir = .GlobalEnv, inherits = FALSE) else NULL
+
+      on.exit({
+        if (is.null(old_seed)) {
+          if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+            rm(".Random.seed", envir = .GlobalEnv)
+          }
+        } else {
+          assign(".Random.seed", old_seed, envir = .GlobalEnv)
+        }
+      }, add = TRUE)
+
+      set.seed(seed)
+      fn()
     },
 
     # ------------------------------- train -----------------------------------
@@ -234,31 +265,33 @@ PipeOpMBsPLS = R6::R6Class(
           n_block, pv$ncomp, paste(c_vec, collapse = ", "))
       }
 
-      fit = if (is.null(c_matrix)) {
-        cpp_mbspls_multi_lv(
-          X_blocks      = X_list,
-          c_constraints = c_vec,
-          K             = pv$ncomp,
-          max_iter      = 600L,
-          spearman      = (pv$correlation_method == "spearman"),
-          do_perm       = isTRUE(pv$permutation_test),
-          n_perm        = pv$n_perm,
-          alpha         = pv$perm_alpha,
-          frobenius     = use_frob
-        )
-      } else {
-        cpp_mbspls_multi_lv_cmatrix(
-          X_blocks  = X_list,
-          c_matrix  = c_matrix,
-          max_iter  = 600L,
-          tol       = 1e-4,
-          spearman  = (pv$correlation_method == "spearman"),
-          do_perm   = isTRUE(pv$permutation_test),
-          n_perm    = pv$n_perm,
-          alpha     = pv$perm_alpha,
-          frobenius = use_frob
-        )
-      }
+      fit = private$.with_seed_local(pv$seed_train, function() {
+        if (is.null(c_matrix)) {
+          cpp_mbspls_multi_lv(
+            X_blocks      = X_list,
+            c_constraints = c_vec,
+            K             = pv$ncomp,
+            max_iter      = 600L,
+            spearman      = (pv$correlation_method == "spearman"),
+            do_perm       = isTRUE(pv$permutation_test),
+            n_perm        = pv$n_perm,
+            alpha         = pv$perm_alpha,
+            frobenius     = use_frob
+          )
+        } else {
+          cpp_mbspls_multi_lv_cmatrix(
+            X_blocks  = X_list,
+            c_matrix  = c_matrix,
+            max_iter  = 600L,
+            tol       = 1e-4,
+            spearman  = (pv$correlation_method == "spearman"),
+            do_perm   = isTRUE(pv$permutation_test),
+            n_perm    = pv$n_perm,
+            alpha     = pv$perm_alpha,
+            frobenius = use_frob
+          )
+        }
+      })
 
       self$state$c_matrix = c_matrix
 
@@ -740,10 +773,11 @@ PipeOpMBsPLS = R6::R6Class(
 
     .additional_phash_input = function() {
       list(
-        blocks    = self$param_set$values$blocks,
-        efficient = self$param_set$values$efficient,
-        c_matrix  = self$param_set$values$c_matrix,
-        append    = self$param_set$values$append
+        blocks     = self$param_set$values$blocks,
+        efficient  = self$param_set$values$efficient,
+        c_matrix   = self$param_set$values$c_matrix,
+        append     = self$param_set$values$append,
+        seed_train = self$param_set$values$seed_train
       )
     }
   )

@@ -25,9 +25,10 @@
 #' @section Parameters:
 #' @param log_env Environment shared with upstream \code{po("mbspls")} (required).
 #' @param bootstrap Run bootstrap selection (default \code{TRUE}).
-#' @param stability_only Logical; if TRUE, run bootstrap alignment + summarisation and store
-#'   stability outputs, but **do not** modify the task (no selection, no LV recomputation,
-#'   no dropping of features/LVs). Default \code{FALSE}.
+#' @param stability_only Logical; if TRUE, run bootstrap + selection computations and store all
+#'   stability outputs (stable weights, kept blocks, stable loadings/scores, etc.) exactly as usual,
+#'   but do **not** modify the task: upstream LV columns and original block features are passed through
+#'   unchanged (no dropping, no stable LV replacement). Default \code{FALSE}.
 #' @param B Bootstrap replicates (default \code{500}).
 #' @param alpha CI alpha (default \code{0.05} → 95\% CI).
 #' @param align \code{"block_sign"} (default) or \code{"score_correlation"}.
@@ -39,7 +40,7 @@
 #'   In all cases, selection is driven by the bootstrap summaries; this parameter
 #'   only controls the *magnitude* of the non-zero coefficients.
 #' @param stratify_by_block Optional dummy-encoded block name for stratified bootstrap (e.g., "Studygroup").
-#' @param workers \#Unix workers for \code{mclapply}; default cores−1.
+#' @param workers \#Unix workers for \code{mclapply}; default 1L.
 #'
 #' @return Replaces task LV columns with kept components' LV columns (renumbered).
 #' Stores \code{weights_ci}, \code{weights_selectfreq}, \code{weights_stable},
@@ -61,11 +62,6 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
     #' @param id character(1). Identifier of the resulting object.
     #' @param param_vals named list. List of hyperparameter settings.
     initialize = function(id = "mbspls_bootstrap_select", param_vals = list()) {
-      ncore_default = 1L
-      try({
-        ncore_default = max(1L, parallel::detectCores(logical = TRUE) - 1L)
-      }, silent = TRUE)
-
       ps = paradox::ps(
         log_env = paradox::p_uty(tags = c("train", "predict"), default = NULL),
 
@@ -87,7 +83,8 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         ),
 
         stratify_by_block = paradox::p_uty(default = NULL, tags = "train"),
-        workers = paradox::p_int(lower = 1L, default = ncore_default, tags = "train")
+        seed_bootstrap = paradox::p_int(lower = 1L, default = 20250921L, tags = "train"),
+        workers = paradox::p_int(lower = 1L, default = 1L, tags = "train")
       )
 
       super$initialize(id = id, param_set = ps, param_vals = param_vals)
@@ -98,6 +95,35 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
   private = list(
 
     # ---------- utils ----------
+    .with_seed_local = function(seed, fn) {
+      # If seed is NULL/invalid -> no change in behavior
+      if (is.null(seed) || length(seed) != 1L || !is.finite(seed)) {
+        return(fn())
+      }
+
+      seed = as.integer(seed)
+      if (!is.finite(seed) || seed <= 0L) {
+        return(fn())
+      }
+
+      # Save existing RNG state (if any), then restore after fn()
+      had_seed = exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+      old_seed = if (had_seed) get(".Random.seed", envir = .GlobalEnv, inherits = FALSE) else NULL
+
+      on.exit({
+        if (is.null(old_seed)) {
+          if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+            rm(".Random.seed", envir = .GlobalEnv)
+          }
+        } else {
+          assign(".Random.seed", old_seed, envir = .GlobalEnv)
+        }
+      }, add = TRUE)
+
+      set.seed(seed)
+      fn()
+    },
+
     .lv_column_map = function(dt_names) {
       lv_cols = grep("^LV\\d+_", dt_names, value = TRUE)
       if (!length(lv_cols)) {
@@ -112,6 +138,29 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         stats::setNames(lv_cols[sel], blocks[sel])
       })
       list(K = K, blocks = bset, map = map)
+    },
+
+    .finalize_scores_only = function(task, blocks_map = NULL) {
+      # Defensive: drop raw block features if they are present (append leakage)
+      if (!is.null(blocks_map) && length(blocks_map)) {
+        raw = intersect(unlist(blocks_map, use.names = FALSE), task$feature_names)
+        if (length(raw)) {
+          task$select(setdiff(task$feature_names, raw))
+        }
+      }
+
+      # Enforce score-space only output (what users expect from MB-sPLS transformer)
+      lv = grep("^LV\\d+_", task$feature_names, value = TRUE)
+      if (!length(lv)) {
+        lgr$warn("%s: no LV columns present after bootstrap_select; dropping all features to avoid raw-feature leakage.",
+          self$id
+        )
+        task$select(character(0))
+        return(task)
+      }
+
+      task$select(lv)
+      task
     },
 
     .get_env_state = function(pv) {
@@ -580,6 +629,22 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         keep.null = TRUE)
 
       st_env = private$.get_env_state(pv)
+      blocks_map = st_env$blocks
+
+      # Always record this flag for predict()
+      self$state$stability_only = isTRUE(pv$stability_only)
+
+      if (!isTRUE(pv$bootstrap)) {
+        # Keep behavior: do not compute stability/selection,
+        # but NEVER leak raw features (if upstream append=TRUE).
+        self$state$weights_stable = NULL
+        self$state$loadings_stable = NULL
+        self$state$kept_components = NULL
+        self$state$kept_blocks_per_comp = NULL
+        return(private$.finalize_scores_only(task, blocks_map))
+      }
+
+      st_env = private$.get_env_state(pv)
 
       dt_all = task$data()
       lm = private$.lv_column_map(names(dt_all))
@@ -611,6 +676,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         }
       }
       if (is.null(X_blocks_train)) {
+        # In stability_only mode, avoid modifying the task's data.table by reference
         dt_boot = if (isTRUE(pv$stability_only)) data.table::copy(dt_all) else dt_all
 
         X_blocks_train = lapply(blocks_map, function(cols) {
@@ -622,63 +688,27 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         })
       }
 
-      bt = private$.bootstrap_align_and_summarise(
-        X_list = X_blocks_train,
-        W_ref = st_env$weights,
-        blocks = st_env$blocks,
-        ncomp = length(st_env$weights),
-        sparsity = st_env$sparsity,
-        corr_method = st_env$corr_method %||% "pearson",
-        perf_metric = st_env$perf_metric %||% "mac",
-        B = as.integer(pv$B),
-        alpha = as.numeric(pv$alpha),
-        align = pv$align,
-        workers = as.integer(pv$workers),
-        stratify_block = pv$stratify_by_block
-      )
+      bt = private$.with_seed_local(pv$seed_bootstrap, function() {
+        private$.bootstrap_align_and_summarise(
+          X_list = X_blocks_train,
+          W_ref = st_env$weights,
+          blocks = st_env$blocks,
+          ncomp = length(st_env$weights),
+          sparsity = st_env$sparsity,
+          corr_method = st_env$corr_method %||% "pearson",
+          perf_metric = st_env$perf_metric %||% "mac",
+          B = as.integer(pv$B),
+          alpha = as.numeric(pv$alpha),
+          align = pv$align,
+          workers = as.integer(pv$workers),
+          stratify_block = pv$stratify_by_block
+        )
+      })
 
       bn = bt$blocks_order
       sum_df = as.data.frame(bt$summary)
       freq_df = as.data.frame(bt$select_freq)
       K = length(st_env$weights)
-
-      # ---- Stability assessment only: store summaries but do not alter the task ----
-      if (isTRUE(pv$stability_only)) {
-
-        n_eff_df = as.data.frame(bt$n_eff_by_component)
-
-        lgr$info("Bootstrap stability assessment only: storing stability summaries; leaving task unchanged.")
-
-        # Clear any selection-related state to avoid reusing stale values
-        self$state$stability_only = TRUE
-        self$state$weights_ci = sum_df
-        self$state$weights_selectfreq = freq_df
-        self$state$n_eff_by_component = n_eff_df
-        self$state$alignment_method = pv$align
-        self$state$selection_method = pv$selection_method
-        self$state$frequency_threshold = pv$frequency_threshold
-
-        self$state$weights_stable = NULL
-        self$state$loadings_stable = NULL
-        self$state$kept_components = NULL
-        self$state$kept_blocks_per_comp = NULL
-
-        # Persist to env as well (so users can inspect log_env$mbspls_state)
-        st_env$weights_ci = sum_df
-        st_env$weights_selectfreq = freq_df
-        st_env$n_eff_by_component = n_eff_df
-        st_env$alignment_method = pv$align
-        st_env$selection_method = pv$selection_method
-        st_env$frequency_threshold = pv$frequency_threshold
-        st_env$stability_only = TRUE
-
-        st_env$weights_stable = NULL
-        st_env$loadings_stable = NULL
-        st_env$kept_blocks_per_comp = NULL
-
-        pv$log_env$mbspls_state = st_env
-        return(task)
-      }
 
       # Iterate over the full block set so all components have all blocks (zero-padded if filtered)
       bn_full = names(blocks_map)
@@ -709,22 +739,25 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       }
 
       if (!length(W_stable)) {
-        lgr$warn("All components empty after stability selection; removing upstream LV columns and block features.")
-        # drop upstream LVs and original block features
-        old_lv = unlist(lm$map, use.names = FALSE)
-        orig_feats = intersect(unlist(blocks_map, use.names = FALSE), task$feature_names)
-        keep_features = setdiff(task$feature_names, c(old_lv, orig_feats))
-        task$select(keep_features)
 
-        # Persist minimal info
+        if (!isTRUE(pv$stability_only)) {
+          lgr$warn("All components empty after stability selection; removing upstream LV columns and block features.")
+          # drop upstream LVs and original block features
+          old_lv = unlist(lm$map, use.names = FALSE)
+          orig_feats = intersect(unlist(blocks_map, use.names = FALSE), task$feature_names)
+          keep_features = setdiff(task$feature_names, c(old_lv, orig_feats))
+          task$select(keep_features)
+        } else {
+          lgr$info("Stability-only: all components empty after stability selection; leaving task unchanged.")
+        }
+
+        # Persist minimal info (same as your current branch)
         self$state$kept_components = integer(0)
         self$state$kept_blocks_per_comp = list()
         self$state$weights_ci = sum_df
         self$state$weights_selectfreq = freq_df
         self$state$weights_stable = W_stable
-        self$state$stability_only = FALSE
 
-        # Store both weight variants for prediction switching (empty or not)
         st_env$weights_stable = W_stable
         st_env$weights_stable_ci = built_ci$W
         st_env$weights_stable_frequency = built_freq$W
@@ -733,13 +766,16 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         st_env$kept_blocks_per_comp_frequency = built_freq$kept
         st_env$selection_method = pv$selection_method
         st_env$frequency_threshold = pv$frequency_threshold
-        st_env$stability_only = FALSE
-        # Safe empty training LV matrices
+
+        # IMPORTANT: do not overwrite upstream mbspls ncomp in stability-only mode
+        st_env$ncomp_stable = 0L
+        if (!isTRUE(pv$stability_only)) st_env$ncomp = 0L
+
         st_env$T_mat_train = matrix(0, nrow = nrow(X_blocks_train[[1]]), ncol = 0)
         st_env$T_mat_train_kept = st_env$T_mat_train
 
         pv$log_env$mbspls_state = st_env
-        return(task)
+        return(private$.finalize_scores_only(task, blocks_map))
       }
 
       # ---- Recompute TRAINING scores by deflation for BOTH variants and for the chosen one
@@ -765,14 +801,18 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         T_keep = matrix(0, nrow = nrow(T_all), ncol = 0)
       }
 
-      # ------- Drop upstream LVs and original block features; then append stable LVs
-      old_lv = unlist(lm$map, use.names = FALSE)
-      orig_feats = intersect(unlist(blocks_map, use.names = FALSE), task$feature_names)
-      keep_features = setdiff(task$feature_names, c(old_lv, orig_feats))
-      task$select(keep_features)
-      if (ncol(T_keep)) task$cbind(data.table::as.data.table(T_keep))
-      lgr$info("Bootstrap-select (train): dropped %d original block features and %d upstream LV columns; kept %d stable LV columns.",
-        length(orig_feats), length(old_lv), ncol(T_keep))
+      if (!isTRUE(pv$stability_only)) {
+        # ------- Drop upstream LVs and original block features; then append stable LVs
+        old_lv = unlist(lm$map, use.names = FALSE)
+        orig_feats = intersect(unlist(blocks_map, use.names = FALSE), task$feature_names)
+        keep_features = setdiff(task$feature_names, c(old_lv, orig_feats))
+        task$select(keep_features)
+        if (ncol(T_keep)) task$cbind(data.table::as.data.table(T_keep))
+        lgr$info("Bootstrap-select (train): dropped %d original block features and %d upstream LV columns; kept %d stable LV columns.",
+          length(orig_feats), length(old_lv), ncol(T_keep))
+      } else {
+        lgr$info("Stability-only: computed stability selection outputs; leaving task unchanged (raw upstream LVs/features pass through).")
+      }
 
       # ------- Persist to state + env
       self$state$kept_components = seq_along(W_stable)
@@ -784,12 +824,15 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       self$state$alignment_method = pv$align
       self$state$selection_method = pv$selection_method
       self$state$frequency_threshold = pv$frequency_threshold
-      self$state$stability_only = FALSE
+      self$state$stability_only = isTRUE(pv$stability_only)
 
       # chosen variant, used by downstream predict unless overridden
       st_env$weights_stable = W_stable
       st_env$loadings_stable = P_all
-      st_env$ncomp = length(W_stable)
+      st_env$ncomp_stable = length(W_stable)
+      if (!isTRUE(pv$stability_only)) {
+        st_env$ncomp = length(W_stable)
+      }
       st_env$T_mat_train = as.matrix(T_all)
       st_env$T_mat_train_kept = as.matrix(T_keep)
       st_env$weights_ci = sum_df
@@ -798,6 +841,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       st_env$alignment_method = pv$align
       st_env$selection_method = pv$selection_method
       st_env$frequency_threshold = pv$frequency_threshold
+      st_env$stability_only = isTRUE(pv$stability_only)
 
       # store BOTH variants for prediction switching
       st_env$weights_stable_ci = built_ci$W
@@ -807,21 +851,22 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       st_env$weights_stable_frequency = built_freq$W
       st_env$loadings_stable_frequency = rec_freq$P
       st_env$kept_blocks_per_comp_frequency = built_freq$kept
-      st_env$stability_only = FALSE
 
       pv$log_env$mbspls_state = st_env
 
-      task
+      return(private$.finalize_scores_only(task, blocks_map))
     },
 
     # ---------------- PREDICT ----------------
     .predict_task = function(task) {
-      st = self$state
-
-      # If we are in stability-only mode, do not touch the task at predict time
-      if (isTRUE(st$stability_only)) {
-        return(task)
+      # Stability-only mode: do not alter the task at predict time
+      if (isTRUE(self$state$stability_only)) {
+        env = self$param_set$values$log_env
+        blocks_map = env$mbspls_state$blocks
+        return(private$.finalize_scores_only(task, blocks_map))
       }
+
+      st = self$state
 
       # if no stable weights, drop upstream LVs and block features, then return
       if (is.null(st$weights_stable) || !length(st$weights_stable)) {
@@ -833,7 +878,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         orig_feats = intersect(unlist(blocks_map, use.names = FALSE), task$feature_names)
         keep_features = setdiff(task$feature_names, c(old_lv, orig_feats))
         task$select(keep_features)
-        return(task)
+        return(private$.finalize_scores_only(task, blocks_map))
       }
 
       dt = task$data()
@@ -923,7 +968,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       lgr$info("Bootstrap-select (predict): dropped %d original block features and %d upstream LV columns; kept %d stable LV columns.",
         length(orig_feats), length(old_lv), ncol(T_pred_keep))
 
-      task
+      return(private$.finalize_scores_only(task, blocks_map))
     }
   )
 )
