@@ -771,8 +771,19 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         st_env$ncomp_stable = 0L
         if (!isTRUE(pv$stability_only)) st_env$ncomp = 0L
 
-        st_env$T_mat_train = matrix(0, nrow = nrow(X_blocks_train[[1]]), ncol = 0)
-        st_env$T_mat_train_kept = st_env$T_mat_train
+        T0 = matrix(0, nrow = nrow(X_blocks_train[[1]]), ncol = 0)
+
+        # Always store stable-score matrices under stable-specific names
+        st_env$T_mat_train_stable_all = T0
+        st_env$T_mat_train_stable_kept = T0
+
+        # Keep backwards compatibility if you want (this name currently implies "stable kept")
+        st_env$T_mat_train_kept = T0
+
+        # Only overwrite raw T_mat_train when NOT in stability-only mode
+        if (!isTRUE(pv$stability_only)) {
+          st_env$T_mat_train = T0
+        }
 
         pv$log_env$mbspls_state = st_env
         return(private$.finalize_scores_only(task, blocks_map))
@@ -833,8 +844,21 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       if (!isTRUE(pv$stability_only)) {
         st_env$ncomp = length(W_stable)
       }
-      st_env$T_mat_train = as.matrix(T_all)
-      st_env$T_mat_train_kept = as.matrix(T_keep)
+
+      T_all_m = as.matrix(T_all)
+      T_keep_m = as.matrix(T_keep)
+
+      # Always store stable-score matrices under stable-specific names
+      st_env$T_mat_train_stable_all = T_all_m
+      st_env$T_mat_train_stable_kept = T_keep_m
+
+      # Keep backwards compatibility if you want
+      st_env$T_mat_train_kept = T_keep_m
+
+      # Only overwrite raw T_mat_train when NOT in stability-only mode
+      if (!isTRUE(pv$stability_only)) {
+        st_env$T_mat_train = T_all_m
+      }
       st_env$weights_ci = sum_df
       st_env$weights_selectfreq = freq_df
       st_env$kept_blocks_per_comp = kept_blocks_per_comp
