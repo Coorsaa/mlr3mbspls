@@ -44,7 +44,8 @@
 #'   In all cases, selection is driven by the bootstrap summaries; this parameter
 #'   only controls the *magnitude* of the non-zero coefficients.
 #' @param stratify_by_block Optional dummy-encoded block name for stratified bootstrap (e.g., "Studygroup").
-#' @param workers \#Unix workers for \code{mclapply}; default 1L.
+#' @param workers Integer. Requested number of parallel workers for the bootstrap loop.
+#'   Uses \pkg{future} / \pkg{future.apply} when available; falls back to sequential otherwise. Default 1L.
 #'
 #' @return Replaces task LV columns with kept components' LV columns (renumbered).
 #' Stores \code{weights_ci}, \code{weights_selectfreq}, \code{weights_stable},
@@ -55,7 +56,7 @@
 #' @importFrom lgr lgr
 #' @importFrom paradox ps p_uty p_fct p_lgl p_int p_dbl
 #' @importFrom mlr3pipelines PipeOpTaskPreproc
-#' @importFrom parallel detectCores mclapply
+#' @importFrom parallel detectCores
 #' @importFrom stats cor sd var quantile setNames
 #' @export
 PipeOpMBsPLSBootstrapSelect = R6::R6Class(
@@ -99,10 +100,6 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
   private = list(
 
     # ---------- utils ----------
-    .with_seed_local = function(seed, fn) {
-      with_seed_local(seed, fn)
-    },
-
     .lv_column_map = function(dt_names) {
       lv_cols = grep("^LV\\d+_", dt_names, value = TRUE)
       if (!length(lv_cols)) {
@@ -144,9 +141,14 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
 
     .get_env_state = function(pv) {
       env = pv$log_env
-      if (!inherits(env, "environment")) stop("Provide a shared 'log_env' with po('mbspls').")
+      if (!inherits(env, "environment")) {
+        stop("Provide a shared 'log_env' with po('mbspls').", call. = FALSE)
+      }
       st = env$mbspls_state
-      if (is.null(st)) stop("mbspls_state not found in log_env; place this PipeOp directly after po('mbspls').")
+      if (is.null(st)) {
+        stop("mbspls_state not found in log_env; place this PipeOp directly after po('mbspls').", call. = FALSE)
+      }
+      assert_mbspls_state(st, require_train_blocks = FALSE, where = "log_env$mbspls_state")
       st
     },
 
@@ -525,9 +527,31 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       }
 
       rep_idx = seq_len(B)
-      rep_res = if (.Platform$OS.type == "unix" && workers > 1L) {
-        parallel::mclapply(rep_idx, one_rep, mc.cores = workers)
+      rep_res = if (workers > 1L &&
+        requireNamespace("future", quietly = TRUE) &&
+        requireNamespace("future.apply", quietly = TRUE)) {
+
+        old_plan = future::plan()
+        on.exit(future::plan(old_plan), add = TRUE)
+
+        # If the current plan is sequential, switch temporarily to multisession
+        # for cross-platform parallelism (incl. Windows).
+        if (future::nbrOfWorkers() <= 1L) {
+          future::plan(future::multisession, workers = workers)
+        } else if (future::nbrOfWorkers() != workers) {
+          lgr$debug("bootstrap_select: future plan already has %d workers; ignoring workers=%d.",
+            future::nbrOfWorkers(), workers)
+        }
+
+        future.apply::future_lapply(
+          rep_idx, one_rep,
+          future.seed = TRUE,
+          future.packages = c("mlr3mbspls")
+        )
       } else {
+        if (workers > 1L) {
+          lgr$warn("bootstrap_select: workers>1 requested but future/future.apply not available; running sequentially.")
+        }
         lapply(rep_idx, one_rep)
       }
 
@@ -610,17 +634,15 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       st_env = private$.get_env_state(pv)
       blocks_map = st_env$blocks
 
-      # ---- training-time flags (used by predict) ---------------------------
-      # 'stability_only' is only meaningful if bootstrap is enabled.
-      self$state$bootstrap_enabled = isTRUE(pv$bootstrap)
-      self$state$stability_only = isTRUE(pv$stability_only) && self$state$bootstrap_enabled
-      if (isTRUE(pv$stability_only) && !self$state$bootstrap_enabled) {
-        lgr$warn("stability_only=TRUE is ignored when bootstrap=FALSE; acting as a pure LV finalizer.")
-      }
+      # Always record this flag for predict()
+      self$state$stability_only = isTRUE(pv$stability_only)
 
       if (!isTRUE(pv$bootstrap)) {
         # Keep behavior: do not compute stability/selection,
         # but NEVER leak raw features (if upstream append=TRUE).
+        if (isTRUE(pv$stability_only)) {
+          lgr$warn("%s: stability_only=TRUE has no effect when bootstrap=FALSE; returning scores-only output.", self$id)
+        }
         self$state$weights_stable = NULL
         self$state$loadings_stable = NULL
         self$state$kept_components = NULL
@@ -659,22 +681,20 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         # In stability_only mode, avoid modifying the task's data.table by reference
         dt_boot = if (isTRUE(pv$stability_only)) data.table::copy(dt_all) else dt_all
 
-        # If upstream PipeOpMBsPLS did not store the original block matrices and
-        # the raw block feature columns are not present (e.g., append=FALSE and
-        # upstream emitted only LV columns), rebuilding would silently create
-        # all-zero blocks and yield meaningless stability results.
-        required_cols = unique(unlist(blocks_map, use.names = FALSE))
-        missing_req = setdiff(required_cols, names(dt_boot))
-        if (length(missing_req)) {
-          stop(sprintf(
-            paste0(
-              "Cannot rebuild X_train_blocks for bootstrap selection: ",
-              "%d required block feature column(s) are missing from the task backend (e.g., '%s').\n",
-              "Fix: set store_train_blocks=TRUE in po('mbspls') (recommended), or set append=TRUE ",
-              "and ensure the bootstrap-select PipeOp runs before raw block features are dropped."
-            ),
-            length(missing_req), missing_req[[1]]
-          ))
+        # Fail fast if raw block features are not available
+        missing = lapply(blocks_map, function(cols) setdiff(cols, names(dt_boot)))
+        if (any(lengths(missing) > 0L)) {
+          msg = paste0(
+            "Cannot rebuild training blocks for bootstrap selection because required block features are missing from the task.
+",
+            "Fix: set 'store_train_blocks = TRUE' in po('mbspls', ...) (recommended), or set 'append = TRUE' upstream and ensure raw block columns are still present.
+",
+            "Missing features:
+",
+            paste0(" - ", names(missing), ": ", vapply(missing, function(x) paste(x, collapse = ", "), character(1)), collapse = "
+")
+          )
+          stop(msg, call. = FALSE)
         }
 
         X_blocks_train = lapply(blocks_map, function(cols) {
@@ -684,7 +704,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         })
       }
 
-      bt = private$.with_seed_local(pv$seed_bootstrap, function() {
+      bt = with_seed_local(pv$seed_bootstrap, function() {
         private$.bootstrap_align_and_summarise(
           X_list = X_blocks_train,
           W_ref = st_env$weights,
@@ -781,7 +801,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
           st_env$T_mat_train = T0
         }
 
-        pv$log_env$mbspls_state = st_env
+        log_env_store_state(pv$log_env, st_env, warn_overwrite = FALSE)
         if (isTRUE(pv$stability_only)) {
           return(task)
         }
@@ -875,13 +895,11 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       st_env$loadings_stable_frequency = rec_freq$P
       st_env$kept_blocks_per_comp_frequency = built_freq$kept
 
-      pv$log_env$mbspls_state = st_env
+      log_env_store_state(pv$log_env, st_env, warn_overwrite = FALSE)
 
-      # In stability_only mode, the task must pass through unchanged.
       if (isTRUE(pv$stability_only)) {
         return(task)
       }
-
       return(private$.finalize_scores_only(task, blocks_map))
     },
 

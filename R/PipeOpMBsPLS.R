@@ -194,11 +194,6 @@ PipeOpMBsPLS = R6::R6Class(
         if (co %in% dt_names) co else grep(paste0("^", esc(co), "(\\.|$)"), dt_names, value = TRUE)
       })))
     },
-
-    .with_seed_local = function(seed, fn) {
-      with_seed_local(seed, fn)
-    },
-
     # ------------------------------- train -----------------------------------
     .train_dt = function(dt, levels, target = NULL) {
       pv = utils::modifyList(paradox::default_values(self$param_set),
@@ -244,7 +239,7 @@ PipeOpMBsPLS = R6::R6Class(
           n_block, pv$ncomp, paste(c_vec, collapse = ", "))
       }
 
-      fit = private$.with_seed_local(pv$seed_train, function() {
+      fit = with_seed_local(pv$seed_train, function() {
         if (is.null(c_matrix)) {
           cpp_mbspls_multi_lv(
             X_blocks      = X_list,
@@ -380,7 +375,9 @@ PipeOpMBsPLS = R6::R6Class(
           time         = Sys.time()
         )
         if (isTRUE(pv$store_train_blocks)) payload$X_train_blocks <- X_list
-        pv$log_env$mbspls_state = payload
+        payload$pipeop_id = self$id
+        run_id = log_env_store_state(pv$log_env, payload, warn_overwrite = TRUE)
+        self$state$run_id = run_id
       }
 
       lgr$info("Training done; last latent correlation = %.4f", utils::tail(obj, 1))
@@ -433,6 +430,9 @@ PipeOpMBsPLS = R6::R6Class(
       st_env = NULL
       if (!is.null(pv$log_env) && inherits(pv$log_env, "environment")) {
         st_env = pv$log_env$mbspls_state
+        if (!is.null(st_env)) {
+          assert_mbspls_state(st_env, require_train_blocks = FALSE, where = "log_env$mbspls_state")
+        }
       }
 
       use_env_weights = function(ci = FALSE, freq = FALSE) {
@@ -750,7 +750,8 @@ PipeOpMBsPLS = R6::R6Class(
             )
           }
         }
-        log_env$last = payload
+        payload$run_id = self$state$run_id %||% NULL
+        log_env_store_last(log_env, payload, run_id = payload$run_id)
       }
 
       # Output (append vs replace) as before

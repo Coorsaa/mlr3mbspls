@@ -143,9 +143,8 @@ Since MB-sPLS is typically used for unsupervised learning, we'll create a cluste
 ```{r create-task}
 # Create clustering task
 task <- TaskClust$new(
-  id = "multiblock_example", 
-  backend = data_combined,
-  target = "id"
+  id = "multiblock_example",
+  backend = data_combined
 )
 
 # Keep site/batch columns available for `PipeOpSiteCorrection`
@@ -204,9 +203,8 @@ For more realistic scenarios, we'll include site correction:
 ```{r advanced-pipeline}
 # Re-add site and batch to task for site correction
 task_with_sites <- TaskClust$new(
-  id = "multiblock_with_sites", 
-  backend = data_combined,
-  target = "id"
+  id = "multiblock_with_sites",
+  backend = data_combined
 )
 
 # Create advanced pipeline with site correction
@@ -297,7 +295,7 @@ The package provides specialized preprocessing for multi-block data:
 ```{r preprocessing}
 # Create a pipeline with block-wise scaling
 block_scaling_graph <- 
-  po("blockscaling", 
+  po("blockscale", 
      blocks = blocks,
      method = "unit_ssq") %>>%  # Each block scaled to unit sum-of-squares
   po("mbspls", 
@@ -401,8 +399,9 @@ viz_graph <- po("scale") %>>%
      ncomp = 3L,
      performance_metric = "mac",
      permutation_test = TRUE,
-     bootstrap_test = TRUE,  # Enable bootstrap for additional plots
-     n_boot = 100,  # Reduced for demo
+     val_test = "bootstrap",  # Prediction-side bootstrap validation (used by autoplot on predict())
+     val_test_n = 100L,  # Reduced for demo
+     val_test_alpha = 0.05,
      log_env = metrics_env_viz) %>>%
   po("learner", learner = lrn("clust.kmeans", centers = 3))
 
@@ -452,12 +451,12 @@ print(p_scores)
 
 ```{r bootstrap-viz}
 # 8. Bootstrap Component Plot - Shows bootstrap confidence intervals for components
-# This requires that bootstrap testing was enabled during training
+# This requires val_test = "bootstrap" and calling predict() at least once
 tryCatch({
   p_bootstrap <- autoplot(viz_learner, type = "mbspls_bootstrap_component")
   print(p_bootstrap)
 }, error = function(e) {
-  cat("Bootstrap plot not available - requires val_test='bootstrap' in predict()\n")
+  cat("Bootstrap plot not available - requires val_test = 'bootstrap' and calling predict()\n")
 })
 ```
 
@@ -472,8 +471,7 @@ test_indices <- sample(1:nrow(data_combined), size = 50)
 test_data <- data_combined[test_indices, ]
 test_task <- TaskClust$new(
   id = "test_multiblock",
-  backend = test_data,
-  target = "id"
+  backend = test_data
 )
 test_task$select(setdiff(test_task$feature_names, c("site", "batch")))
 
@@ -612,7 +610,7 @@ cat("   - Use po('imputemedian') or po('imputemean') for numeric features\n")
 cat("   - Or use the built-in k-NN imputation in preprocessing graphs\n\n")
 
 cat("2. Feature scaling:\n")
-cat("   - Use po('blockscaling', method = 'unit_ssq') for equal block importance\n")
+cat("   - Use po('blockscale', method = 'unit_ssq') for equal block importance\n")
 cat("   - Use method = 'feature_zscore' for different scale features within blocks\n\n")
 
 cat("3. Site effect correction:\n")
@@ -632,17 +630,60 @@ cat("   - Start with moderate sparsity (c = sqrt(p_block)) and tune from there\n
 complete_graph <- 
   po("imputemedian") %>>%  # Handle missing values
   po("removeconstants") %>>%  # Remove constant features
-  po("blockscaling", blocks = blocks, method = "unit_ssq") %>>%  # Block scaling
+  po("blockscale", blocks = blocks, method = "unit_ssq") %>>%  # Block scaling
   po("mbspls", 
      blocks = blocks,
      ncomp = 3L,
      performance_metric = "mac",
      permutation_test = TRUE,
-     bootstrap_test = TRUE) %>>%
+     val_test = "bootstrap") %>>%
   po("learner", learner = lrn("clust.kmeans", centers = 3))
 
 cat("Complete preprocessing pipeline created.\n")
 ```
+
+
+## Bootstrap Stability Selection (Parallel via `future`)
+
+`PipeOpMBsPLSBootstrapSelect` can compute stability-filtered weights and stable latent variables using bootstrap resampling.
+To parallelize the bootstrap loop **cross-platform**, use the `future` ecosystem.
+
+```{r}
+# Optional: parallelize bootstrap stability selection (cross-platform)
+# install.packages(c("future", "future.apply"))
+if (requireNamespace("future", quietly = TRUE)) {
+  future::plan(future::multisession, workers = 4)
+  # future::plan(future::sequential)  # reset when done
+}
+
+log_env = new.env(parent = emptyenv())
+
+stable_graph = po("blockscale", blocks = blocks, method = "unit_ssq") %>>%
+  po("mbspls",
+     blocks = blocks,
+     ncomp = 3L,
+     performance_metric = "mac",
+     # store the original blocks for the bootstrap selector
+     store_train_blocks = TRUE,
+     # keep non-block features (if any) so the selector can cleanly replace upstream LV columns
+     append = TRUE,
+     log_env = log_env) %>>%
+  po("mbspls_bootstrap_select",
+     log_env = log_env,
+     bootstrap = TRUE,
+     B = 200L,
+     selection_method = "ci",
+     align = "block_sign",
+     workers = 4L) %>>%
+  po("learner", learner = lrn("clust.kmeans", centers = 3))
+
+stable_learner = as_learner(stable_graph)
+stable_learner$train(task)
+
+# After training, stability outputs are available in the selector state and/or log_env
+stable_learner$model$mbspls_bootstrap_select$kept_blocks_per_comp
+```
+
 
 ## Conclusion
 

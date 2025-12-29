@@ -114,6 +114,13 @@ autoplot(gl, type = "mbspls_heatmap", method = "spearman", absolute = FALSE)
 ## 🧪 Prediction-Side Validation & Bootstrap Selection
 
 ```r
+# Optional: parallel bootstrap selection (cross-platform) via future
+# install.packages(c("future", "future.apply"))
+if (requireNamespace("future", quietly = TRUE)) {
+  future::plan(future::multisession, workers = 4)
+  # future::plan(future::sequential)  # reset when done
+}
+
 log_env = new.env(parent = emptyenv())
 
 graph_sel = po("blockscale", param_vals = list(blocks = blocks)) %>>%
@@ -124,7 +131,8 @@ graph_sel = po("blockscale", param_vals = list(blocks = blocks)) %>>%
      store_train_blocks = TRUE,   # pass original blocks for bootstrap
      log_env = log_env) %>>%
   po("mbspls_bootstrap_select", log_env = log_env, bootstrap = TRUE,
-     B = 200L, selection_method = "ci", align = "block_sign") %>>%
+     B = 200L, selection_method = "ci", align = "block_sign",
+     workers = 4L) %>>%
   po("learner", learner = lrn("clust.kmeans", centers = 3))
 
 gl_sel = as_learner(graph_sel)
@@ -167,6 +175,9 @@ site_correction_methods = list(
   metabol  = "partial_corr"
 )
 
+# Optional: use future for parallel bootstrap stability selection
+# future::plan(future::multisession, workers = 4)
+
 gl_full = mbspls_graph_learner(
   blocks = blocks,
   site_correction = site_correction,
@@ -178,6 +189,7 @@ gl_full = mbspls_graph_learner(
   n_perm = 200L,
   bootstrap = TRUE,
   B = 100L,
+  workers = 4L,
   selection_method = "frequency",
   frequency_threshold = 0.1
 )
