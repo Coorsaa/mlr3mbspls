@@ -4,6 +4,13 @@
 #' Optional: patchwork, ggraph, igraph, RColorBrewer, scales, hexbin
 #'
 #' @importFrom ggplot2 autoplot
+#'
+#' @param object [GraphLearner]
+#'   Trained [GraphLearner].
+#' @param type [character]
+#'   Plot type identifier. See Details.
+#' @param ...
+#'   Additional arguments passed down to the corresponding plot helper.
 #' @export
 #' @method autoplot GraphLearner
 autoplot.GraphLearner = function(object,
@@ -712,8 +719,11 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   guide_obj = if (is.null(edge_guide_fun)) ggplot2::guide_colourbar() else edge_guide_fun()
 
   edge_col_scale = if (absolute) {
-    ggraph::scale_edge_colour_viridis_c(
-      name = "|r|", limits = c(0, 1), guide = guide_obj
+    # ggraph exposes a generic `scale_edge_colour_viridis()` (with
+    # `discrete = FALSE`) rather than a dedicated *_viridis_c() helper.
+    ggraph::scale_edge_colour_viridis(
+      name = "|r|", limits = c(0, 1), guide = guide_obj,
+      discrete = FALSE, option = "D"
     )
   } else {
     ggraph::scale_edge_colour_gradient2(
@@ -948,7 +958,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
     r = suppressWarnings(stats::cor(xx, yy, method = "pearson"))
     ccc = ccc_fun(xx, yy)
     fit = if (n >= 2) stats::lm(yy ~ xx) else NULL
-    slope = if (!is.null(fit)) unname(coef(fit)[2]) else NA_real_
+    slope = if (!is.null(fit)) unname(stats::coef(fit)[2]) else NA_real_
     data.frame(block_x = pr[1], block_y = pr[2],
       n = n, r = r, ccc = ccc, slope = slope,
       stringsAsFactors = FALSE)
@@ -958,7 +968,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
     ggplot2::geom_point(alpha = 0.55, size = 1.5)
 
   if (density == "contour") {
-    p = p + ggplot2::stat_density_2d(ggplot2::aes(level = after_stat(level)), linewidth = 0.3)
+    p = p + ggplot2::stat_density_2d(ggplot2::aes(level = ggplot2::after_stat(level)), linewidth = 0.3)
   } else if (density == "hex") {
     if (!requireNamespace("hexbin", quietly = TRUE)) {
       stop("Package 'hexbin' is required for density = 'hex'.")
@@ -1438,7 +1448,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
     ggplot2::scale_y_continuous(expand = ggplot2::expansion(mult = c(0.02, 0.18))) +
     ggplot2::labs(
       title = "Bootstrap validation (component-wise)",
-      subtitle = sprintf("Statistic: %s • %.0f%% CI • n_boot = %d",
+      subtitle = sprintf("Statistic: %s - %.0f%% CI - n_boot = %d",
         tolower(perf), df$conf[1] * 100, df$nboot[1]),
       x = NULL,
       y = "Latent correlation (MAC/Frobenius)",

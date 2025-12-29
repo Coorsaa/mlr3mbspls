@@ -71,11 +71,12 @@ each outer fold (may consume a lot of memory).}
 
 \item{seed}{Integer, random seed for reproducibility.}
 
+\item{cluster_function}{A \code{batchtools} cluster function object.
+Defaults to a local socket setup created via
+\code{batchtools::makeClusterFunctionsSocket()}.}
+
 \item{autosubmit}{Logical, whether to automatically submit the jobs
 after creating the registry (default is FALSE).}
-
-\item{workers}{Integer, number of parallel workers to use (default is
-number of CPU cores minus one).}
 }
 \value{
 A \code{batchtools} registry object. Use \code{collect_mbspls_nested_cv()}

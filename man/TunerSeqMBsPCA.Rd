@@ -12,7 +12,7 @@ and the best inner objective value under the key \code{"mbspca.mean_ev"}.
 \code{TunerSeqMBsPCA} tunes one component at a time for \code{PipeOpMBsPCA}, choosing
 a block-sparsity vector \strong{c} that maximises \strong{cross-validated total variance
 explained}. After each component it refits on the full residuals, performs
-an optional permutation test for significance, and—if significant—deflates
+an optional permutation test for significance, and-if significant-deflates
 all blocks before proceeding to the next component.
 
 The public interface mirrors \code{TunerSeqMBsPLS}; only the objective (variance
@@ -21,8 +21,8 @@ explained rather than latent correlation) and the C++ back-end differ.
 \section{Works with}{
 
 A learner whose pipeline contains a \code{PipeOpMBsPCA} named \code{"mbspca"}. The
-tuner writes the chosen √(L¹) budgets into \code{param_vals$c_matrix}
-(\verb{blocks × components}) of that pipeop.
+tuner writes the chosen sqrt(L1) budgets into \code{param_vals$c_matrix}
+(\verb{blocks x components}) of that pipeop.
 }
 
 \section{Construction}{
@@ -34,9 +34,9 @@ tuner writes the chosen √(L¹) budgets into \code{param_vals$c_matrix}
 
 \section{Optimisation procedure}{
 
-For component \emph{k}, a search space over integer proxies \verb{c_b ∈ [1, p_b]} is
+For component \emph{k}, a search space over integer proxies \verb{c_b in [1, p_b]} is
 defined per block (\emph{p_b} = #features). The objective evaluates CV mean of
-total variance explained. The optimal integers are mapped to √(L¹) budgets
+total variance explained. The optimal integers are mapped to sqrt(L1) budgets
 via \code{sqrt(c_b)} and stored in column \emph{k} of \code{c_matrix}. Residuals are
 deflated and the procedure continues for the next component (up to the
 requested maximum, possibly shortened by early stopping).

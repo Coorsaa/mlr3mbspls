@@ -2,7 +2,7 @@
 % Please edit documentation in R/graph_mbspls.R
 \name{mbspls_graph}
 \alias{mbspls_graph}
-\title{MB‑sPLS Graph: preproc → MB‑sPLS → bootstrap‑select (two selection methods)}
+\title{MB-sPLS Graph: preproc -> MB-sPLS -> bootstrap-select (two selection methods)}
 \usage{
 mbspls_graph(
   blocks,
@@ -42,22 +42,22 @@ mbspls_graph(
 \arguments{
 \item{blocks, site_correction, site_correction_methods, keep_site_col}{Preproc settings.}
 
-\item{ncomp}{Number of MB‑sPLS components.}
+\item{ncomp}{Number of MB-sPLS components.}
 
-\item{k}{k‑NN for imputation (preproc).}
+\item{k}{k-NN for imputation (preproc).}
 
 \item{performance_metric}{"mac" or "frobenius".}
 
 \item{correlation_method}{"pearson" or "spearman".}
 
-\item{c_matrix}{Optional L1 constraint matrix for MB‑sPLS.}
+\item{c_matrix}{Optional L1 constraint matrix for MB-sPLS.}
 
-\item{permutation_test, n_perm, perm_alpha}{Train‑time permutation test (MB‑sPLS).}
+\item{permutation_test, n_perm, perm_alpha}{Train-time permutation test (MB-sPLS).}
 
 \item{predict_weights}{character; one of "auto","raw","stable_ci","stable_frequency".
 Controls which weights PipeOpMBsPLS uses at predict/validation time.}
 
-\item{val_test, val_test_alpha, val_test_n, val_test_permute_all}{Prediction‑side validation (MB‑sPLS).}
+\item{val_test, val_test_alpha, val_test_n, val_test_permute_all}{Prediction-side validation (MB-sPLS).}
 
 \item{bootstrap}{Logical; run bootstrap selection (default TRUE).}
 
@@ -69,6 +69,9 @@ Controls which weights PipeOpMBsPLS uses at predict/validation time.}
 
 \item{align}{"block_sign" (default) or "global_correlation".}
 
+\item{bootstrap_selection}{Logical; whether to run bootstrap-based feature
+selection inside \link{PipeOpMBsPLSBootstrapSelect} (default TRUE).}
+
 \item{selection_method}{"ci" (default) or "frequency".}
 
 \item{frequency_threshold}{Numeric in \verb{[0,1]}; only if selection_method="frequency" (default 0.6).}
@@ -77,11 +80,11 @@ Controls which weights PipeOpMBsPLS uses at predict/validation time.}
 
 \item{stratify_by_block}{Optional dummy block for stratified bootstrap (e.g., "Studygroup").}
 
-\item{seed_train}{Optional seed for MB‑sPLS training.}
+\item{seed_train}{Optional seed for MB-sPLS training.}
 
 \item{seed_bootstrap}{Optional seed for bootstrap selection.}
 
-\item{workers}{Integer; Unix workers (default cores‑1).}
+\item{workers}{Integer; Unix workers (default cores-1).}
 
 \item{id_suffix}{Optional suffix for PipeOp ids.}
 
@@ -91,5 +94,5 @@ Controls which weights PipeOpMBsPLS uses at predict/validation time.}
 \link[mlr3pipelines:Graph]{mlr3pipelines::Graph}
 }
 \description{
-MB‑sPLS Graph: preproc → MB‑sPLS → bootstrap‑select (two selection methods)
+MB-sPLS Graph: preproc -> MB-sPLS -> bootstrap-select (two selection methods)
 }

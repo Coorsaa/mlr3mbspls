@@ -8,12 +8,12 @@
 #' **multi-block data** inside an *mlr3* pipeline. Behavior is controlled by
 #' two named lists (by **block**):
 #'
-#' - `site_correction`: block → **specification of site/batch and optional covariates**.
+#' - `site_correction`: block -> **specification of site/batch and optional covariates**.
 #'   - For `"partial_corr"`: a **character vector of columns** (categorical site and/or numeric covariates).
 #'   - For `"dir"`: a **single categorical column** (protected attribute).
 #'   - For `"combat"` (**new structured format**): a **list** with fixed elements
 #'     `list(site = <character(1)>, covariates = <character()>)`.
-#'     The `site` column is mapped to ComBat’s `batch`; the `covariates` are
+#'     The `site` column is mapped to ComBat's `batch`; the `covariates` are
 #'     encoded into a model matrix and passed as `mod`.
 #'     *(Backward compatible: if a single string is provided, it is treated as `site`.)*
 #' - `method`: `block -> "partial_corr" | "combat" | "dir"`. Missing blocks
@@ -33,17 +33,17 @@
 #' - We solve a ridge-stabilized normal equation for the site effects and
 #'   subtract them; optional mean re-add (`zero_center = FALSE` by default).
 #'
-#' **ComBat (`"combat"`, via \pkg{neuroCombat}) — now with `mod` support**
+#' **ComBat (`"combat"`, via \pkg{neuroCombat}) - now with `mod` support**
 #' - Trains using `neuroCombat(dat = t(X), batch = site, mod = MM, ...)`, where
 #'   `MM = model.matrix(~ ., data = covariates)`; character covariates are
 #'   auto-factorized. ComBat accepts **one** batch vector, but **many covariates**.
 #'   We store the returned `estimates`, the valid batch levels, the `site_var`,
-#'   and the list of `covariates`. :contentReference[oaicite:2]{index=2}
+#'   and the list of `covariates`.
 #' - At predict, we apply `neuroCombatFromTraining(dat, batch, estimates)`.
 #'   The upstream function **does not support** supplying `mod` for new data;
 #'   if estimates were trained with `mod`, it uses an internal mean-imputation
 #'   of the training covariate effects. Unseen batches can be handled with
-#'   `combat_unknown = "noop"` (skip) or `"baseline"` (map to `ref_batch`). :contentReference[oaicite:3]{index=3}
+#'   `combat_unknown = "noop"` (skip) or `"baseline"` (map to `ref_batch`).
 #'
 #' **DIR (`"dir"`, via \pkg{fairmodels})**
 #' - Applies distribution repair per block with the given `lambda`.
@@ -72,9 +72,9 @@
 #'         features form one block `".all"`.
 #'       \item `site_correction` (`list()`): Named list **by block**. For `"combat"`
 #'         use `list(site=<char1>, covariates=<char_vec>)`; for other methods,
-#'         character vectors as described above. Missing block ⇒ no correction.
+#'         character vectors as described above. Missing block => no correction.
 #'       \item `method` (`list()`): Named list `block -> "partial_corr"|"combat"|"dir"`.
-#'         Missing block ⇒ `"partial_corr"`.
+#'         Missing block => `"partial_corr"`.
 #'       \item `keep_site_col` (`logical(1)`): Keep all site/covariate columns referenced by
 #'         `site_correction`? Default `FALSE`.
 #'     }
@@ -86,7 +86,7 @@
 #'       \item `zero_center` (`logical(1)`): Re-add grand means? Default `FALSE`.
 #'       \item `revertflag` (`logical(1)`): Add instead of subtract the site effect.
 #'       \item `regularization` (`numeric(1)`): Ridge penalty to stabilize the site
-#'         regression (`0` ⇒ internally `1e-6`).
+#'         regression (`0` => internally `1e-6`).
 #'       \item `subgroup` (`logical()`/`integer()`): Optional row subset for fitting.
 #'     }
 #'   }

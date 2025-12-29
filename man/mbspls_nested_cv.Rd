@@ -39,7 +39,7 @@ mbspls_nested_cv(
 
 \item{performance_metric}{"mac" or "frobenius" for the latent correlation.}
 
-\item{val_test}{"none", "permutation", or "bootstrap" — run on OUTER test.}
+\item{val_test}{"none", "permutation", or "bootstrap" - run on OUTER test.}
 
 \item{val_test_n}{integer, permutations/boot reps on OUTER test.}
 
@@ -47,9 +47,9 @@ mbspls_nested_cv(
 
 \item{val_permute_all}{logical, permute all blocks in test validation.}
 
-\item{n_perm_tuning}{integer, permutations used inside the tuner’s early stop.}
+\item{n_perm_tuning}{integer, permutations used inside the tuner's early stop.}
 
-\item{perm_alpha_tuning}{numeric, tuner early-stop α (component-wise).}
+\item{perm_alpha_tuning}{numeric, tuner early-stop alpha (component-wise).}
 
 \item{store_payload}{logical, keep the full PipeOpMBsPLS predict payload.}
 }

@@ -17,7 +17,7 @@ aggregate_mbspls_payloads(
 \code{T_mat}, \code{blocks}, and optionally \code{val_test_p}, \code{val_test_stat}.}
 
 \item{weight_by}{character(1). Weights for cross-fold means:
-\code{"sqrt_n"} (default; weight = √n_test), \code{"n"} (weight = n_test), or \code{"equal"}.}
+\code{"sqrt_n"} (default; weight = sqrtn_test), \code{"n"} (weight = n_test), or \code{"equal"}.}
 
 \item{p_method}{character(1). How to combine validation p-values across folds:
 \code{"stouffer"} (default), \code{"fisher"}, or \code{"none"}.}
@@ -31,7 +31,7 @@ list with:
 \item \code{summary}: list of matrices/vectors
 (\code{mac_mean}, \code{mac_sd}, \code{ev_block_mean}, \code{ev_comp_mean},
 \code{p_combined}, \code{perf_metric}, \code{blocks})
-\item \code{fold_table}: long data.table (fold × component × block)
+\item \code{fold_table}: long data.table (fold x component x block)
 with per-fold metrics and n_test
 }
 }
@@ -45,6 +45,36 @@ into weighted cross-fold summaries. Supports component-wise aggregation of:
 }
 }
 \examples{
+# Minimal example with two outer folds, two components and two blocks.
+payloads = list(
+  list(
+    mac_comp = c(0.50, 0.40),
+    ev_comp = c(0.30, 0.20),
+    ev_block = matrix(
+      c(0.15, 0.10,
+        0.12, 0.08),
+      nrow = 2,
+      dimnames = list(NULL, c("b1", "b2"))
+    ),
+    T_mat = matrix(0, nrow = 10, ncol = 4),
+    blocks = c("b1", "b2"),
+    perf_metric = "mac"
+  ),
+  list(
+    mac_comp = c(0.60, 0.45),
+    ev_comp = c(0.32, 0.22),
+    ev_block = matrix(
+      c(0.16, 0.11,
+        0.13, 0.09),
+      nrow = 2,
+      dimnames = list(NULL, c("b1", "b2"))
+    ),
+    T_mat = matrix(0, nrow = 12, ncol = 4),
+    blocks = c("b1", "b2"),
+    perf_metric = "mac"
+  )
+)
 agg = aggregate_mbspls_payloads(payloads)
+agg$summary$mac_mean
 
 }

@@ -1,4 +1,4 @@
-#' k-Nearest Neighbours with Gower Distance — Classification
+#' k-Nearest Neighbours with Gower Distance - Classification
 #'
 #' @title Learner: `classif.knngower`
 #' @name LearnerClassifKNNGower
@@ -13,7 +13,7 @@
 #' skipped pairwise in the distance.
 #'
 #' @details
-#' - **Numeric**: each column scaled by its training *range* (min–max).
+#' - **Numeric**: each column scaled by its training *range* (min-max).
 #' - **Categorical**: integer-coded with `0 = NA`, `1..L = known levels`,
 #'   and `-1 = unseen test level` (forces mismatch).
 #' - **Ordered**: integer codes `1..L` scaled to `[0, 1]` as
@@ -51,12 +51,12 @@
 #'   lrn = lrn("classif.knngower", k = 7, predict_type = "prob")
 #'   lrn$train(task)
 #'   p = lrn$predict(task)
-#'   p$score(msr("classif.mlogloss"))
+#'   p$score(msr("classif.logloss"))
 #' }
 #'
 #' @references
 #' Gower, J. C. (1971). A general coefficient of similarity and some of its
-#' properties. *Biometrics*, 27(4), 857–874.
+#' properties. *Biometrics*, 27(4), 857-874.
 #'
 #' @export
 LearnerClassifKNNGower = R6::R6Class("LearnerClassifKNNGower",

@@ -14,7 +14,7 @@ Description: Integration of multi-block sparse partial least squares (MB-sPLS)
     data analysis workflows, with support for classification and clustering pipelines.
     It contains a complete native implementation of the MB-sPLS algorithm, fully
     integrated with the mlr3 ecosystem.
-License: LGPL-3
+License: LGPL-3 + file LICENSE
 URL: https://mlr3.mlr-org.com, https://github.com/coorsaa/mlr3mbspls
 BugReports: https://github.com/coorsaa/mlr3mbspls/issues
 Encoding: UTF-8
@@ -22,8 +22,8 @@ Config/testthat/edition: 3
 Config/testthat/parallel: false
 Roxygen: list(markdown = TRUE, r6 = TRUE)
 RoxygenNote: 7.3.3
-Depends: 
-    R (>= 4.3.3),
+Depends:
+    R (>= 4.3.0),
     mlr3 (>= 1.0.0),
     mlr3pipelines (>= 0.8.0)
 Imports:
@@ -35,17 +35,31 @@ Imports:
     bbotk (>= 1.6.0),
     R6 (>= 2.5.1),
     Rcpp (>= 1.1.0),
-    RcppArmadillo (>= 14.6.0-1),
-    digest (>= 0.6.25),
-    mlr3misc (>= 0.7.0),
     ggplot2 (>= 3.5.2),
     lgr (>= 0.4.4),
-    rlang (>= 1.0.0),
-    clue
+    rlang (>= 1.0.0)
 Suggests:
-    mlr3learners (>= 0.12.0),
+    batchtools,
+    clue,
+    dplyr,
+    fairmodels,
+    future,
     future.apply (>= 1.10.0),
+    ggraph,
+    hexbin,
+    igraph,
+    knitr,
+    mlr3learners (>= 0.12.0),
+    neuroCombat,
+    patchwork,
+    RColorBrewer,
+    rmarkdown,
+    scales,
+    stringr,
     testthat (>= 3.2.0),
+    tibble
+VignetteBuilder:
+    knitr
 LinkingTo:
     Rcpp,
     RcppArmadillo

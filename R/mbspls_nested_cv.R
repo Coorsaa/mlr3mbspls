@@ -14,12 +14,12 @@
 #' @param tuner_budget integer, #candidate evaluations per component.
 #' @param tuning_early_stop logical, stop tuning early if no sig. components.
 #' @param performance_metric "mac" or "frobenius" for the latent correlation.
-#' @param val_test "none", "permutation", or "bootstrap" — run on OUTER test.
+#' @param val_test "none", "permutation", or "bootstrap" - run on OUTER test.
 #' @param val_test_n integer, permutations/boot reps on OUTER test.
 #' @param val_test_alpha numeric, early-stop / CI level param for validation tests.
 #' @param val_permute_all logical, permute all blocks in test validation.
-#' @param n_perm_tuning integer, permutations used inside the tuner’s early stop.
-#' @param perm_alpha_tuning numeric, tuner early-stop α (component-wise).
+#' @param n_perm_tuning integer, permutations used inside the tuner's early stop.
+#' @param perm_alpha_tuning numeric, tuner early-stop alpha (component-wise).
 #' @param store_payload logical, keep the full PipeOpMBsPLS predict payload.
 #'
 #' @return list with:
@@ -85,7 +85,7 @@ mbspls_nested_cv = function(
       learner     = graphlearner,
       resampling  = rsmp("holdout"),
       measure     = msr("mbspls.mac_evwt"),
-      terminator  = trm("evals", n_evals = 1)
+      terminator  = bbotk::trm("evals", n_evals = 1)
     )
 
     tuner$optimize(inst)
@@ -142,7 +142,7 @@ mbspls_nested_cv = function(
         mac_evwt_test  = sum(w * mac),
         ncomp_kept     = length(mac),
         perf_metric    = payload$perf_metric %||% performance_metric,
-        val_p_last     = if (!is.null(vp)) as.numeric(tail(vp, 1L)) else NA_real_,
+        val_p_last     = if (!is.null(vp)) as.numeric(utils::tail(vp, 1L)) else NA_real_,
         val_p_all      = list(vp),
         val_stat_all   = list(vs)
       )

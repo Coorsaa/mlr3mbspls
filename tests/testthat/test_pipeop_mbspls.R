@@ -1,188 +1,184 @@
-# tests/testthat/test_pipeop_mbspls.R
-# ------------------------------------------------------------
-# unit tests for PipeOpMBsPLS  (mlr3mbspls >= 0.1.0)
-# ------------------------------------------------------------
-testthat::skip_on_cran() # long‑running CV loops
-testthat::skip_if_not_installed("mlr3")
-testthat::skip_if_not_installed("mlr3pipelines")
+test_that("PipeOpMBsPLS - trains and predicts with per-block c parameters", {
+  set.seed(42)
 
-library(testthat)
-library(data.table)
-library(mlr3)
-library(mlr3pipelines)
-library(mlr3mbspls)
+  n = 80
+  p_clin = 6
+  p_gen = 20
 
-set.seed(123)
+  clinical = matrix(rnorm(n * p_clin), nrow = n, ncol = p_clin)
+  colnames(clinical) = paste0("c", seq_len(p_clin))
+  genomic = matrix(rnorm(n * p_gen), nrow = n, ncol = p_gen)
+  colnames(genomic) = paste0("g", seq_len(p_gen))
+  age = rnorm(n)
+  y = rnorm(n)
 
-# ------------------------------------------------------------------
-# helper to fabricate a tiny multi‑block regression task
-# ------------------------------------------------------------------
-make_demo_task = function(n = 120,
-  p1 = 10, # clinical block
-  p2 = 100) # genomic  block
-{
-  clin = matrix(rnorm(n * p1), n)
-  colnames(clin) = sprintf("clin_%02i", 1:p1)
-  genom = matrix(rnorm(n * p2), n)
-  colnames(genom) = sprintf("gene_%03i", 1:p2)
-
-  dt = as.data.table(cbind(clin, genom))
-  dt$outcome = rowMeans(dt[, .SD, .SDcols = 1:5]) + rnorm(n) # weak signal
-  TaskRegr$new("demo", backend = dt, target = "outcome")
-}
-
-task = make_demo_task()
-
-block_list = list(
-  clinical = grep("^clin_", task$feature_names, value = TRUE),
-  genomic  = grep("^gene_", task$feature_names, value = TRUE)
-)
-
-# convenient expectation
-expect_lv_columns = function(task_obj, blocks) {
-  expect_true(
-    all(sprintf("LV1_%s", names(blocks)) %in% task_obj$feature_names),
-    info = "latent‑variable columns exist"
+  # Add a non-block feature (age) to verify append=TRUE behaviour.
+  df = data.frame(clinical, genomic, age = age, y = y)
+  task = mlr3::TaskRegr$new(id = "mb", backend = df, target = "y")
+  blocks = list(
+    clinical = colnames(clinical),
+    genomic = colnames(genomic)
   )
-}
 
-# ================================================================
-# 1  Scalar‑c path (no tuning, no CV)
-# ----------------------------------------------------------------
-test_that("PipeOpMBsPLS – simple fit with fixed c", {
-  po = PipeOpMBsPLS$new(param_vals = list(
-    blocks = block_list,
-    c = 3L # choose 3 features per block
-  ))
+  po = PipeOpMBsPLS$new(
+    blocks = blocks,
+    param_vals = list(
+      ncomp = 2L,
+      c_clinical = sqrt(5L),
+      c_genomic = sqrt(6L),
+      append = FALSE
+    )
+  )
 
-  new_task = po$train(list(task))[[1]]
+  out_train = po$train(list(task))[[1]]
+  lv_cols = c(
+    "LV1_clinical", "LV1_genomic",
+    "LV2_clinical", "LV2_genomic"
+  )
 
-  expect_s3_class(new_task, "Task") # returns Task
-  expect_lv_columns(new_task, block_list) # LV columns
-  expect_length(po$state$weight, 2) # two blocks ⇒ two weight vecs
-  expect_false(po$state$cv_averaged)
+  expect_s3_class(out_train, "Task")
+  expect_setequal(out_train$feature_names, lv_cols)
+
+  st = po$state
+  expect_true(is.list(st))
+  expect_equal(st$ncomp, 2L)
+  expect_setequal(names(st$blocks), names(blocks))
+  expect_length(st$weights, 2L)
+  expect_setequal(names(st$weights[[1]]), names(blocks))
+  expect_true(all(vapply(st$weights[[1]], is.numeric, logical(1))))
+
+  task_new = task$clone(deep = TRUE)
+  task_new$filter(1:10)
+
+  out_pred = po$predict(list(task_new))[[1]]
+  expect_s3_class(out_pred, "Task")
+  expect_equal(out_pred$nrow, 10)
+  expect_setequal(out_pred$feature_names, lv_cols)
 })
 
-# ================================================================
-# 2  Automatic random‑search tuning (percentage strategy)
-# ----------------------------------------------------------------
-test_that("PipeOpMBsPLS – percentage strategy tuning", {
-  po = PipeOpMBsPLS$new(param_vals = list(
-    blocks         = block_list,
-    c              = NULL, # FIXED: explicitly set to NULL for tuning
-    c_strategy     = "percentage",
-    c_percentage   = 0.25, # 25 % of features
-    tuning_iters   = 10, # keep tests quick
-    inner_folds    = 3,
-    tuning_seed    = 1,
-    use_nested_cv  = TRUE
-  ))
 
-  tuned_task = po$train(list(task))[[1]]
+test_that("PipeOpMBsPLS - append = TRUE keeps raw features and adds LVs", {
+  set.seed(123)
 
-  expect_lv_columns(tuned_task, block_list)
-  expect_gt(po$state$selected_c[[1]], 0)
-  expect_true(po$state$cv_averaged) # FIXED: Should be TRUE when use_nested_cv = TRUE
+  n = 60
+  p_clin = 4
+  p_gen = 10
+
+  clinical = matrix(rnorm(n * p_clin), nrow = n, ncol = p_clin)
+  colnames(clinical) = paste0("c", seq_len(p_clin))
+  genomic = matrix(rnorm(n * p_gen), nrow = n, ncol = p_gen)
+  colnames(genomic) = paste0("g", seq_len(p_gen))
+  age = rnorm(n)
+  y = rnorm(n)
+
+  df = data.frame(clinical, genomic, age = age, y = y)
+  task = mlr3::TaskRegr$new(id = "mb", backend = df, target = "y")
+  blocks = list(
+    clinical = colnames(clinical),
+    genomic = colnames(genomic)
+  )
+
+  po = PipeOpMBsPLS$new(
+    blocks = blocks,
+    param_vals = list(
+      ncomp = 1L,
+      c_clinical = 2L,
+      c_genomic = 2L,
+      append = TRUE
+    )
+  )
+
+  out_train = po$train(list(task))[[1]]
+  lv_cols = c("LV1_clinical", "LV1_genomic")
+
+  expect_true(all(lv_cols %in% out_train$feature_names))
+  expect_true("age" %in% out_train$feature_names)
+  expect_true(all(c(blocks$clinical, blocks$genomic) %in% out_train$feature_names))
 })
 
-# ================================================================
-# 3  Batch tuning with pre‑defined candidate grid
-# ----------------------------------------------------------------
-test_that("PipeOpMBsPLS – batch tuning path", {
-  po = PipeOpMBsPLS$new(param_vals = list(
-    blocks          = block_list,
-    c               = NULL, # FIXED: set to NULL for tuning
-    c_strategy      = "percentage", # FIXED: add strategy
-    c_percentage    = 0.3, # FIXED: add percentage
-    batch_tuning    = TRUE,
-    tuning_iters    = 8, # FIXED: use positive value for grid generation
-    inner_folds     = 2
-  ))
 
-  expect_silent(lat_task <- po$train(list(task))[[1]])
-  expect_lv_columns(lat_task, block_list)
-  expect_length(po$state$selected_c, 2) # FIXED: check length instead of exact values
-  expect_true(is.list(po$state$algorithm_diagnostics))
-})
+test_that("PipeOpMBsPLS - c_matrix path works and validates dimensions", {
+  set.seed(1)
 
-# ================================================================
-# 4  Memory‑efficient algorithm branch
-# ----------------------------------------------------------------
-test_that("PipeOpMBsPLS – efficient C++ kernel", {
-  po = PipeOpMBsPLS$new(param_vals = list(
-    blocks = block_list,
-    use_efficient_algorithm = TRUE,
-    c = 2L
-  ))
-  lat_task = po$train(list(task))[[1]]
-  expect_lv_columns(lat_task, block_list)
-  expect_identical(po$state$algorithm_diagnostics$algorithm_used, "efficient")
-})
+  n = 50
+  p1 = 5
+  p2 = 7
 
-# ================================================================
-# 5  Nested cross‑validation with weight averaging
-# ----------------------------------------------------------------
-test_that("PipeOpMBsPLS – full nested CV", {
-  po = PipeOpMBsPLS$new(param_vals = list(
-    blocks          = block_list,
-    use_nested_cv   = TRUE,
-    outer_folds     = 3,
-    inner_folds     = 2,
-    c               = NULL, # FIXED: set to NULL for tuning
-    c_strategy      = "sqrt"
-  ))
+  b1 = matrix(rnorm(n * p1), nrow = n, ncol = p1)
+  colnames(b1) = paste0("x", seq_len(p1))
+  b2 = matrix(rnorm(n * p2), nrow = n, ncol = p2)
+  colnames(b2) = paste0("z", seq_len(p2))
+  y = rnorm(n)
 
-  cv_task = po$train(list(task))[[1]]
+  df = data.frame(b1, b2, y = y)
+  task = mlr3::TaskRegr$new(id = "mb", backend = df, target = "y")
+  blocks = list(b1 = colnames(b1), b2 = colnames(b2))
 
-  expect_lv_columns(cv_task, block_list)
-  expect_true(po$state$cv_averaged)
-  expect_equal(length(po$state$cv_details$fold_weights), 3)
-})
+  Cmat = matrix(sqrt(3), nrow = 2, ncol = 2)
+  po = PipeOpMBsPLS$new(
+    blocks = blocks,
+    param_vals = list(
+      ncomp = 2L,
+      c_matrix = Cmat,
+      append = FALSE
+    )
+  )
+  out_train = po$train(list(task))[[1]]
 
-# ================================================================
-# 6  Prediction on unseen data
-# ----------------------------------------------------------------
-test_that("PipeOpMBsPLS – prediction works", {
-  po = PipeOpMBsPLS$new(param_vals = list(
-    blocks = block_list,
-    c      = 3L
-  ))
-  train_task = po$train(list(task))[[1]]
+  expect_true(is.matrix(po$state$c_matrix))
+  expect_equal(dim(po$state$c_matrix), c(2L, 2L))
+  expect_true(all(c("LV1_b1", "LV1_b2", "LV2_b1", "LV2_b2") %in% out_train$feature_names))
 
-  # clone & shuffle rows for "new" data
-  new_task = task$clone(deep = TRUE)$filter(sample(task$nrow))
-  pred_task = po$predict(list(new_task))[[1]]
-
-  expect_lv_columns(pred_task, block_list)
-  expect_equal(pred_task$nrow, new_task$nrow)
-})
-
-# ================================================================
-# 7  Feature‑importance vector shape
-# ----------------------------------------------------------------
-test_that("PipeOpMBsPLS – feature importance", {
-  po = PipeOpMBsPLS$new(param_vals = list(
-    blocks = block_list,
-    c = 2L,
-    compute_feature_importance = TRUE
-  ))
-  po$train(list(task))
-
-  fi = po$state$feature_importance
-  expect_type(fi, "list")
-  expect_length(fi, 2)
-  expect_equal(length(fi[[1]]), length(block_list$clinical))
-})
-
-# ================================================================
-# 8  Error branch – invalid c length triggers stop()
-# ----------------------------------------------------------------
-test_that("PipeOpMBsPLS – invalid c specification", {
+  # wrong dimensions should error early
   expect_error(
-    PipeOpMBsPLS$new(param_vals = list(
-      blocks = block_list,
-      c      = c(1L, 2L, 3L) # wrong length -> 3 vs 2 blocks
-    ))$train(list(task)),
-    "Length of 'c'" # FIXED: match the actual error message pattern
+    PipeOpMBsPLS$new(
+      blocks = blocks,
+      param_vals = list(
+        ncomp = 2L,
+        c_matrix = matrix(1, nrow = 1, ncol = 2),
+        append = FALSE
+      )
+    ),
+    sprintf("c_matrix must have %s rows \\(blocks\\); got 1", length(blocks))
   )
+})
+
+
+test_that("PipeOpMBsPLS - writes expected payloads to log_env", {
+  set.seed(7)
+
+  n = 40
+  p1 = 4
+  p2 = 6
+
+  b1 = matrix(rnorm(n * p1), nrow = n, ncol = p1)
+  colnames(b1) = paste0("x", seq_len(p1))
+  b2 = matrix(rnorm(n * p2), nrow = n, ncol = p2)
+  colnames(b2) = paste0("z", seq_len(p2))
+  y = rnorm(n)
+
+  df = data.frame(b1, b2, y = y)
+  task = mlr3::TaskRegr$new(id = "mb", backend = df, target = "y")
+  blocks = list(b1 = colnames(b1), b2 = colnames(b2))
+
+  log_env = new.env(parent = emptyenv())
+  po = PipeOpMBsPLS$new(
+    blocks = blocks,
+    param_vals = list(
+      ncomp = 1L,
+      c_b1 = 2L,
+      c_b2 = 2L,
+      log_env = log_env,
+      store_train_blocks = TRUE,
+      append = FALSE
+    )
+  )
+
+  po$train(list(task))
+  expect_true(is.list(log_env$mbspls_state))
+  expect_true(all(c("blocks", "weights", "loadings", "T_mat_train") %in% names(log_env$mbspls_state)))
+
+  po$predict(list(task))
+  expect_true(is.list(log_env$last))
+  expect_true(all(c("mac_comp", "ev_block", "ev_comp", "T_mat") %in% names(log_env$last)))
 })

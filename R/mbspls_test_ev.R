@@ -130,7 +130,7 @@
 #'
 #' @keywords internal
 #' @export
-compute_test_ev <- function(
+compute_test_ev = function(
   X_blocks_test,
   W_all,
   P_all = NULL,
@@ -141,14 +141,14 @@ compute_test_ev <- function(
   loading_source = c("auto", "train", "test_ls"),
   clamp_ev = c("none", "zero", "zero_one")
 ) {
-  performance_metric <- match.arg(performance_metric)
-  correlation_method <- match.arg(correlation_method)
-  loading_source <- match.arg(loading_source)
-  clamp_ev <- match.arg(clamp_ev)
+  performance_metric = match.arg(performance_metric)
+  correlation_method = match.arg(correlation_method)
+  loading_source = match.arg(loading_source)
+  clamp_ev = match.arg(clamp_ev)
 
   # Resolve loading source automatically if requested
   if (identical(loading_source, "auto")) {
-    loading_source <- if (!is.null(P_all) && length(P_all) > 0L) "train" else "test_ls"
+    loading_source = if (!is.null(P_all) && length(P_all) > 0L) "train" else "test_ls"
   }
   if (identical(loading_source, "train") && (is.null(P_all) || length(P_all) == 0L)) {
     stop("loading_source='train' requested but P_all is NULL/empty.")

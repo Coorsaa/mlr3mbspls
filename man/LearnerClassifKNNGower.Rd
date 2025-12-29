@@ -18,9 +18,9 @@ factors contribute 0/1 mismatches, and ordered factors are mapped to
 skipped pairwise in the distance.
 }
 \details{
-k-Nearest Neighbours with Gower Distance — Classification
+k-Nearest Neighbours with Gower Distance - Classification
 \itemize{
-\item \strong{Numeric}: each column scaled by its training \emph{range} (min–max).
+\item \strong{Numeric}: each column scaled by its training \emph{range} (min-max).
 \item \strong{Categorical}: integer-coded with \code{0 = NA}, \verb{1..L = known levels},
 and \verb{-1 = unseen test level} (forces mismatch).
 \item \strong{Ordered}: integer codes \verb{1..L} scaled to \verb{[0, 1]} as
@@ -60,13 +60,13 @@ if (requireNamespace("mlr3", quietly = TRUE)) {
   lrn = lrn("classif.knngower", k = 7, predict_type = "prob")
   lrn$train(task)
   p = lrn$predict(task)
-  p$score(msr("classif.mlogloss"))
+  p$score(msr("classif.logloss"))
 }
 
 }
 \references{
 Gower, J. C. (1971). A general coefficient of similarity and some of its
-properties. \emph{Biometrics}, 27(4), 857–874.
+properties. \emph{Biometrics}, 27(4), 857-874.
 }
 \section{Super classes}{
 \code{\link[mlr3:Learner]{mlr3::Learner}} -> \code{\link[mlr3:LearnerClassif]{mlr3::LearnerClassif}} -> \code{LearnerClassifKNNGower}

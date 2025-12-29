@@ -7,7 +7,7 @@
 #' summarises per-feature weights, then **selects features** via:
 #' \itemize{
 #'   \item \code{selection_method = "ci"} (default): keep if CI excludes 0 AND |mean| > 1e-3;
-#'   \item \code{selection_method = "frequency"}: keep if non-zero frequency ≥ \code{frequency_threshold}.
+#'   \item \code{selection_method = "frequency"}: keep if non-zero frequency >= \code{frequency_threshold}.
 #' }
 #' Blocks with no kept features **vanish** for that component; components with no
 #' non-empty blocks are dropped. Remaining components are **renumbered**.
@@ -30,7 +30,7 @@
 #'   but do **not** modify the task: upstream LV columns and original block features are passed through
 #'   unchanged (no dropping, no stable LV replacement). Default \code{FALSE}.
 #' @param B Bootstrap replicates (default \code{500}).
-#' @param alpha CI alpha (default \code{0.05} → 95\% CI).
+#' @param alpha CI alpha (default \code{0.05} -> 95\% CI).
 #' @param align \code{"block_sign"} (default) or \code{"score_correlation"}.
 #' @param selection_method \code{"ci"} (default) or \code{"frequency"}.
 #' @param frequency_threshold Only for \code{"frequency"}; default \code{0.60}.
@@ -96,32 +96,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
 
     # ---------- utils ----------
     .with_seed_local = function(seed, fn) {
-      # If seed is NULL/invalid -> no change in behavior
-      if (is.null(seed) || length(seed) != 1L || !is.finite(seed)) {
-        return(fn())
-      }
-
-      seed = as.integer(seed)
-      if (!is.finite(seed) || seed <= 0L) {
-        return(fn())
-      }
-
-      # Save existing RNG state (if any), then restore after fn()
-      had_seed = exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
-      old_seed = if (had_seed) get(".Random.seed", envir = .GlobalEnv, inherits = FALSE) else NULL
-
-      on.exit({
-        if (is.null(old_seed)) {
-          if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
-            rm(".Random.seed", envir = .GlobalEnv)
-          }
-        } else {
-          assign(".Random.seed", old_seed, envir = .GlobalEnv)
-        }
-      }, add = TRUE)
-
-      set.seed(seed)
-      fn()
+      with_seed_local(seed, fn)
     },
 
     .lv_column_map = function(dt_names) {
@@ -631,8 +606,13 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       st_env = private$.get_env_state(pv)
       blocks_map = st_env$blocks
 
-      # Always record this flag for predict()
-      self$state$stability_only = isTRUE(pv$stability_only)
+      # ---- training-time flags (used by predict) ---------------------------
+      # 'stability_only' is only meaningful if bootstrap is enabled.
+      self$state$bootstrap_enabled = isTRUE(pv$bootstrap)
+      self$state$stability_only = isTRUE(pv$stability_only) && self$state$bootstrap_enabled
+      if (isTRUE(pv$stability_only) && !self$state$bootstrap_enabled) {
+        lgr$warn("stability_only=TRUE is ignored when bootstrap=FALSE; acting as a pure LV finalizer.")
+      }
 
       if (!isTRUE(pv$bootstrap)) {
         # Keep behavior: do not compute stability/selection,
@@ -650,10 +630,6 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       lm = private$.lv_column_map(names(dt_all))
       if (lm$K == 0L && !isTRUE(pv$stability_only)) {
         stop("No LV columns found. Ensure po('mbspls') is upstream.")
-      }
-
-      if (!isTRUE(pv$bootstrap)) {
-        return(task)
       }
 
       lgr$info("Bootstrap selection: B=%d, align='%s', method='%s'",
@@ -679,9 +655,25 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         # In stability_only mode, avoid modifying the task's data.table by reference
         dt_boot = if (isTRUE(pv$stability_only)) data.table::copy(dt_all) else dt_all
 
+        # If upstream PipeOpMBsPLS did not store the original block matrices and
+        # the raw block feature columns are not present (e.g., append=FALSE and
+        # upstream emitted only LV columns), rebuilding would silently create
+        # all-zero blocks and yield meaningless stability results.
+        required_cols = unique(unlist(blocks_map, use.names = FALSE))
+        missing_req = setdiff(required_cols, names(dt_boot))
+        if (length(missing_req)) {
+          stop(sprintf(
+            paste0(
+              "Cannot rebuild X_train_blocks for bootstrap selection: ",
+              "%d required block feature column(s) are missing from the task backend (e.g., '%s').\n",
+              "Fix: set store_train_blocks=TRUE in po('mbspls') (recommended), or set append=TRUE ",
+              "and ensure the bootstrap-select PipeOp runs before raw block features are dropped."
+            ),
+            length(missing_req), missing_req[[1]]
+          ))
+        }
+
         X_blocks_train = lapply(blocks_map, function(cols) {
-          miss = setdiff(cols, names(dt_boot))
-          if (length(miss)) for (m in miss) dt_boot[, (m) := 0.0]
           m = as.matrix(dt_boot[, ..cols])
           storage.mode(m) = "double"
           m
@@ -786,6 +778,9 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         }
 
         pv$log_env$mbspls_state = st_env
+        if (isTRUE(pv$stability_only)) {
+          return(task)
+        }
         return(private$.finalize_scores_only(task, blocks_map))
       }
 
@@ -878,6 +873,11 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
 
       pv$log_env$mbspls_state = st_env
 
+      # In stability_only mode, the task must pass through unchanged.
+      if (isTRUE(pv$stability_only)) {
+        return(task)
+      }
+
       return(private$.finalize_scores_only(task, blocks_map))
     },
 
@@ -885,9 +885,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
     .predict_task = function(task) {
       # Stability-only mode: do not alter the task at predict time
       if (isTRUE(self$state$stability_only)) {
-        env = self$param_set$values$log_env
-        blocks_map = env$mbspls_state$blocks
-        return(private$.finalize_scores_only(task, blocks_map))
+        return(task)
       }
 
       st = self$state

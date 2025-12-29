@@ -1,6 +1,6 @@
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 # Batchtools: run each OUTER fold of mbspls_nested_cv() as a separate job
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------------
 
 # internal job function (one OUTER fold)
 .mbspls_outer_job = function(
@@ -101,7 +101,7 @@
       mac_evwt_test  = sum(w * mac),
       ncomp_kept     = length(mac),
       perf_metric    = or_null(payload$perf_metric, performance_metric),
-      val_p_last     = if (!is.null(vp)) as.numeric(tail(vp, 1L)) else NA_real_,
+      val_p_last     = if (!is.null(vp)) as.numeric(utils::tail(vp, 1L)) else NA_real_,
       val_p_all      = list(vp),
       val_stat_all   = list(vs)
     )
@@ -150,8 +150,9 @@
 #'   each outer fold (may consume a lot of memory).
 #' @param reg_dir Character, directory to store the `batchtools` registry.
 #' @param seed Integer, random seed for reproducibility.
-#' @param workers Integer, number of parallel workers to use (default is
-#'   number of CPU cores minus one).
+#' @param cluster_function A `batchtools` cluster function object.
+#'   Defaults to a local socket setup created via
+#'   `batchtools::makeClusterFunctionsSocket()`.
 #' @param autosubmit Logical, whether to automatically submit the jobs
 #'   after creating the registry (default is FALSE).
 #' @return A `batchtools` registry object. Use `collect_mbspls_nested_cv()`

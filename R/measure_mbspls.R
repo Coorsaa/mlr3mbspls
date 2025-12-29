@@ -9,12 +9,12 @@
 #' the **test split** seen by the downstream learner in resampling/tuning.
 #'
 #' Required payload fields (written by the PipeOp):
-#' * `mac_comp`  – numeric vector of per-component latent correlations on test
+#' * `mac_comp`  - numeric vector of per-component latent correlations on test
 #'                 data (either MAC or Frobenius, depending on training)
-#' * `ev_comp`   – numeric vector of per-component explained variance (test)
-#' * `ev_block`  – matrix (K × B) of block-wise EVs on test data
-#' * `perf_metric` – `"mac"` or `"frobenius"` (to normalise Frobenius)
-#' * `blocks`    – character vector of block names (to count block pairs)
+#' * `ev_comp`   - numeric vector of per-component explained variance (test)
+#' * `ev_block`  - matrix (K x B) of block-wise EVs on test data
+#' * `perf_metric` - `"mac"` or `"frobenius"` (to normalise Frobenius)
+#' * `blocks`    - character vector of block names (to count block pairs)
 #'
 #' Make sure the same `log_env` is passed into your PipeOp inside the Graph:
 #' \preformatted{

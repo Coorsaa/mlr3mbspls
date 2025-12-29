@@ -2,7 +2,7 @@
 % Please edit documentation in R/graph_mbspls.R
 \name{mbspls_preproc_graph}
 \alias{mbspls_preproc_graph}
-\title{Default MB‑sPLS Preprocessing Graph}
+\title{Default MB-sPLS Preprocessing Graph}
 \usage{
 mbspls_preproc_graph(
   blocks,
@@ -30,5 +30,5 @@ mbspls_preproc_graph(
 \code{\link[mlr3pipelines:Graph]{mlr3pipelines::Graph}}
 }
 \description{
-Site correction → encoding/imputation → scaling. No MB‑sPLS here.
+Site correction -> encoding/imputation -> scaling. No MB-sPLS here.
 }

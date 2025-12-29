@@ -17,7 +17,7 @@
 #' @param gl (`GraphLearner`)\cr A **trained** graph learner containing a
 #'   `PipeOpMBsPLS` node.
 #' @param task (`Task`)\cr An \pkg{mlr3} task with **new** data to evaluate on.
-#'   The graph’s preprocessing will be applied automatically.
+#'   The graph's preprocessing will be applied automatically.
 #' @param mbspls_id (`character(1)` | `NULL`)\cr Optional id of the MB-sPLS node
 #'   in the graph. If `NULL` (default), the first node inheriting from
 #'   `PipeOpMBsPLS` is used. If multiple nodes are present, the first is chosen
@@ -25,17 +25,17 @@
 #'
 #' @return `list` with the following elements (all computed on the **new** data):
 #' \itemize{
-#'   \item `ev_block` (`matrix [ncomp × n_blocks]`): explained variance per block and component.
+#'   \item `ev_block` (`matrix [ncomp x n_blocks]`): explained variance per block and component.
 #'   \item `ev_comp`  (`numeric [ncomp]`): total explained variance per component (across blocks).
 #'   \item `mac_comp` (`numeric [ncomp]`): objective per component on new data
 #'     (MAC or Frobenius, matching the trained operator).
-#'   \item `T_mat` (`matrix [n_obs × (ncomp*n_blocks)]`): block scores; columns
-#'     ordered as \code{LV1_<block1>, …, LV1_<blockB>, LV2_<block1>, …}.
+#'   \item `T_mat` (`matrix [n_obs x (ncomp*n_blocks)]`): block scores; columns
+#'     ordered as \code{LV1_<block1>, ..., LV1_<blockB>, LV2_<block1>, ...}.
 #'   \item `blocks` (`character [n_blocks]`): block names (for convenience).
 #'   \item `weights` (`list`): trained weights \eqn{w_b^{(k)}}\; list-of-lists:
-#'     component → block → named numeric vector (feature weights).
+#'     component -> block -> named numeric vector (feature weights).
 #'   \item `loadings` (`list`): trained loadings \eqn{p_b^{(k)}} used for deflation.
-#'   \item `blocks_map` (`list`): mapping block → feature names (training).
+#'   \item `blocks_map` (`list`): mapping block -> feature names (training).
 #'   \item `ncomp` (`integer(1)`): number of retained components.
 #'   \item `perf_metric` (`character(1)`): `"mac"` or `"frobenius"` (from training).
 #' }

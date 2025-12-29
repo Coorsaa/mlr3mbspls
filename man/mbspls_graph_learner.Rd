@@ -2,7 +2,7 @@
 % Please edit documentation in R/graph_mbspls.R
 \name{mbspls_graph_learner}
 \alias{mbspls_graph_learner}
-\title{MB‑sPLS GraphLearner: preproc → MB‑sPLS → bootstrap‑select (two selection methods) → learner}
+\title{MB-sPLS GraphLearner: preproc -> MB-sPLS -> bootstrap-select (two selection methods) -> learner}
 \usage{
 mbspls_graph_learner(
   learner = lrn("clust.kmeans", centers = 1L),
@@ -14,7 +14,7 @@ mbspls_graph_learner(
 )
 }
 \arguments{
-\item{learner}{Downstream learner (default k‑means with 1 center).}
+\item{learner}{Downstream learner (default k-means with 1 center).}
 
 \item{blocks, site_correction, site_correction_methods, ncomp}{Main settings.}
 
@@ -24,5 +24,5 @@ mbspls_graph_learner(
 \link[mlr3pipelines:mlr_learners_graph]{mlr3pipelines::GraphLearner}
 }
 \description{
-MB‑sPLS GraphLearner: preproc → MB‑sPLS → bootstrap‑select (two selection methods) → learner
+MB-sPLS GraphLearner: preproc -> MB-sPLS -> bootstrap-select (two selection methods) -> learner
 }

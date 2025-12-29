@@ -33,7 +33,7 @@ or your previous \code{c(glearner$model$mbspls, glearner$model$mbspls_bootstrap_
 \item "excludes_zero": keep if (ci_low >= 0 | ci_high <= 0) AND |mean| > 1e-3.
 }}
 
-\item{top_n}{Integer or NULL. Keep top-N features per block×component by |mean|.}
+\item{top_n}{Integer or NULL. Keep top-N features per blockxcomponent by |mean|.}
 
 \item{add_block_rule}{Logical; thin rule between block facets (default FALSE; safe implementation).}
 

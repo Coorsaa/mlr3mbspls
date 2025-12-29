@@ -19,7 +19,7 @@ permutation testing, and (iv) deflates before moving to the next component.
   budget             = 1500L,                # iterations per component
   resampling         = rsmp("cv", folds = 3),
   parallel           = "none",
-  early_stopping     = TRUE,                 # stop on non‑sig. component
+  early_stopping     = TRUE,                 # stop on non-sig. component
   n_perm             = 1000L,
   perm_alpha         = 0.05,
   performance_metric = "mac",                # or "frobenius"
@@ -109,8 +109,8 @@ default) or \code{"frobenius"} (Frobenius norm of the block-score
 correlation matrix).}
 
 \item{\code{additional_task}}{\link[mlr3:Task]{mlr3::Task} or \code{NULL}. Optional \strong{unlabelled} task
-whose rows are appended to the inner‑CV training features when extracting
-MB‑sPLS weights. Only features are used; labels (if present) are ignored.
+whose rows are appended to the inner-CV training features when extracting
+MB-sPLS weights. Only features are used; labels (if present) are ignored.
 At prediction time and for evaluation, \strong{only} the original task is used.}
 }
 \if{html}{\out{</div>}}

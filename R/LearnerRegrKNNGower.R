@@ -1,4 +1,4 @@
-#' k-Nearest Neighbours with Gower Distance — Regression
+#' k-Nearest Neighbours with Gower Distance - Regression
 #'
 #' @title Learner: `regr.knngower`
 #' @name LearnerRegrKNNGower

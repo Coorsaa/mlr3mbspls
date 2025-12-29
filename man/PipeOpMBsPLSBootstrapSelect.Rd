@@ -13,7 +13,7 @@ Performs post-hoc \strong{bootstrap}, aligns replicate components (two alignment
 summarises per-feature weights, then \strong{selects features} via:
 \itemize{
 \item \code{selection_method = "ci"} (default): keep if CI excludes 0 AND |mean| > 1e-3;
-\item \code{selection_method = "frequency"}: keep if non-zero frequency ≥ \code{frequency_threshold}.
+\item \code{selection_method = "frequency"}: keep if non-zero frequency >= \code{frequency_threshold}.
 }
 Blocks with no kept features \strong{vanish} for that component; components with no
 non-empty blocks are dropped. Remaining components are \strong{renumbered}.

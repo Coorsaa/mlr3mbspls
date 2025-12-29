@@ -20,9 +20,9 @@ impute_knn_graph = function(k = 5) {
 }
 
 
-#' Default MB‑sPLS Preprocessing Graph
+#' Default MB-sPLS Preprocessing Graph
 #' @description
-#' Site correction → encoding/imputation → scaling. No MB‑sPLS here.
+#' Site correction -> encoding/imputation -> scaling. No MB-sPLS here.
 #' @param blocks Named list of character vectors per block.
 #' @param site_correction Named list of features used for site correction.
 #' @param site_correction_methods Named list of methods for site correction.
@@ -73,21 +73,23 @@ mbspls_preproc_graph = function(
 }
 
 
-#' MB‑sPLS Graph: preproc → MB‑sPLS → bootstrap‑select (two selection methods)
+#' MB-sPLS Graph: preproc -> MB-sPLS -> bootstrap-select (two selection methods)
 #'
 #' @param blocks,site_correction,site_correction_methods,keep_site_col Preproc settings.
-#' @param ncomp Number of MB‑sPLS components.
-#' @param k k‑NN for imputation (preproc).
+#' @param ncomp Number of MB-sPLS components.
+#' @param k k-NN for imputation (preproc).
 #' @param performance_metric "mac" or "frobenius".
 #' @param correlation_method "pearson" or "spearman".
-#' @param c_matrix Optional L1 constraint matrix for MB‑sPLS.
+#' @param c_matrix Optional L1 constraint matrix for MB-sPLS.
 #'
-#' @param permutation_test,n_perm,perm_alpha Train‑time permutation test (MB‑sPLS).
+#' @param permutation_test,n_perm,perm_alpha Train-time permutation test (MB-sPLS).
 #' @param predict_weights character; one of "auto","raw","stable_ci","stable_frequency".
 #'   Controls which weights PipeOpMBsPLS uses at predict/validation time.
-#' @param val_test,val_test_alpha,val_test_n,val_test_permute_all Prediction‑side validation (MB‑sPLS).
+#' @param val_test,val_test_alpha,val_test_n,val_test_permute_all Prediction-side validation (MB-sPLS).
 #'
 #' @param bootstrap Logical; run bootstrap selection (default TRUE).
+#' @param bootstrap_selection Logical; whether to run bootstrap-based feature
+#'   selection inside [PipeOpMBsPLSBootstrapSelect] (default TRUE).
 #' @param stability_only Logical; only compute stability, no selection (default FALSE).
 #' @param B Integer; bootstrap replicates (default 500).
 #' @param alpha Numeric; CI alpha (default 0.05).
@@ -96,8 +98,8 @@ mbspls_preproc_graph = function(
 #' @param frequency_threshold Numeric in `[0,1]`; only if selection_method="frequency" (default 0.6).
 #' @param stable_weight_source "training" (default) or "bootstrap_mean".
 #' @param stratify_by_block Optional dummy block for stratified bootstrap (e.g., "Studygroup").
-#' @param workers Integer; Unix workers (default cores‑1).
-#' @param seed_train Optional seed for MB‑sPLS training.
+#' @param workers Integer; Unix workers (default cores-1).
+#' @param seed_train Optional seed for MB-sPLS training.
 #' @param seed_bootstrap Optional seed for bootstrap selection.
 #' @param id_suffix Optional suffix for PipeOp ids.
 #' @param log_env Shared environment (created if NULL).
@@ -221,9 +223,9 @@ mbspls_graph = function(
 
 
 
-#' MB‑sPLS GraphLearner: preproc → MB‑sPLS → bootstrap‑select (two selection methods) → learner
+#' MB-sPLS GraphLearner: preproc -> MB-sPLS -> bootstrap-select (two selection methods) -> learner
 #'
-#' @param learner Downstream learner (default k‑means with 1 center).
+#' @param learner Downstream learner (default k-means with 1 center).
 #' @param blocks,site_correction,site_correction_methods,ncomp Main settings.
 #' @param ... Additional arguments passed to [mbspls_graph()].
 #'

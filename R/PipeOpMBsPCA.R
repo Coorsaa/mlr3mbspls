@@ -11,7 +11,7 @@
 #' (`perm_test_component_mbspca()`) can stop extraction early if a component
 #' explains no more variance than expected under the null.
 #'
-#' The operator appends one column per *block × component* (name:
+#' The operator appends one column per *block x component* (name:
 #' `PC<k>_<block>`) to the feature table.
 #'
 #' @section Input and Output:
@@ -22,11 +22,11 @@
 #'
 #' @section State:
 #' The `$state` stores:
-#' * `blocks`: the (sanitised) named list of block → feature names used.
+#' * `blocks`: the (sanitised) named list of block -> feature names used.
 #' * `ncomp`: number of retained components.
-#' * `weights`: list(`PCk` → list(`block` → numeric named vector)).
+#' * `weights`: list(`PCk` -> list(`block` -> numeric named vector)).
 #' * `loadings`: same shape as `weights`, block-wise loadings used for deflation.
-#' * `ev_block`: matrix `[components × blocks]` of variance explained by each PC
+#' * `ev_block`: matrix `[components x blocks]` of variance explained by each PC
 #'   within each block.
 #' * `ev_comp`: numeric vector of total variance explained by each PC.
 #' * `T_mat`: numeric matrix of appended latent scores (column names match the
@@ -39,11 +39,11 @@
 #'   (may be shortened by permutation early-stopping).
 #' * `permutation_test` (`lgl`, default `FALSE`; tag `"train"`): enable early-stop test.
 #' * `n_perm` (`int`, default `500`; tag `"train"`): permutations for the test.
-#' * `perm_alpha` (`dbl` in `[0,1]`, default `0.05`; tag `"train"`): test α.
+#' * `perm_alpha` (`dbl` in `[0,1]`, default `0.05`; tag `"train"`): test alpha.
 #' * `c_<block>` (one `dbl` per block, lower `1`, upper `sqrt(#features in block)`,
-#'   default `sqrt(#features)`; tags `c("train","tune")`): √(L¹-budget) for that block.
+#'   default `sqrt(#features)`; tags `c("train","tune")`): sqrt(L1-budget) for that block.
 #' * `c_matrix` (`uty`, default `NULL`; tags `c("train","tune")`): optional
-#'   matrix (`blocks × components`) overriding single-value `c_<block>` parameters.
+#'   matrix (`blocks x components`) overriding single-value `c_<block>` parameters.
 #'
 #' @section Methods:
 #' * `$plot_variance()`: stacked bar chart of `ev_block`.
@@ -52,14 +52,14 @@
 #' * `$plot_scree(type = c("component","cumulative"))`: scree/cumulative EV.
 #' * `$plot_score_heatmap(method = "spearman")`: heat-map of score correlations.
 #' * `$plot_score_network(cutoff = 0.3, method = "spearman")`: network of score
-#'   correlations with |r| ≥ cutoff.
+#'   correlations with |r| >= cutoff.
 #'
 #' @section Construction:
 #' `PipeOpMBsPCA$new(id = "mbspca", blocks, param_vals = list())`
 #'
 #' @param id (`character(1)`) Identifier of the PipeOp.
 #' @param blocks (`named list`)\cr
-#'   Map of `block → character()` feature names.
+#'   Map of `block -> character()` feature names.
 #' @param param_vals (`list`)\cr
 #'   Initial parameter values passed to the `ParamSet`.
 #'
@@ -101,7 +101,7 @@ PipeOpMBsPCA = R6::R6Class(
 
     #' @description Create a new PipeOpMBsPCA.
     #' @param id character(1). Identifier (default: "mbspca").
-    #' @param blocks named list. Block → character() of feature names (required).
+    #' @param blocks named list. Block -> character() of feature names (required).
     #' @param param_vals list. Initial ParamSet values.
     initialize = function(id = "mbspca",
       blocks,
@@ -109,7 +109,7 @@ PipeOpMBsPCA = R6::R6Class(
 
       checkmate::assert_list(blocks, min.len = 1L, names = "unique")
 
-      ## ── build ParamSet ─────────────────────────────────────────────
+      ## -- build ParamSet ---------------------------------------------
       ps_base = list(
         blocks = paradox::p_uty(tags = "train", default = blocks),
         ncomp = paradox::p_int(lower = 1L, default = 1L, tags = "train"),
@@ -121,7 +121,7 @@ PipeOpMBsPCA = R6::R6Class(
           default = NULL)
       )
 
-      ## one sparsity hyper‑parameter per block (√L¹ budget)
+      ## one sparsity hyper-parameter per block (sqrtL1 budget)
       for (bn in names(blocks)) {
         p = length(blocks[[bn]])
         ps_base[[paste0("c_", bn)]] = paradox::p_dbl(
@@ -142,7 +142,7 @@ PipeOpMBsPCA = R6::R6Class(
       self$blocks = blocks
     },
 
-    # ──────────────────────────────── plots ────────────────────────────
+    # -------------------------------- plots ----------------------------
     #' @description Stacked bar plot of block-wise variance explained per component (training).
     #' @return A ggplot object.
     plot_variance = function() {
@@ -151,7 +151,7 @@ PipeOpMBsPCA = R6::R6Class(
       }
       st = self$state
       if (is.null(st$ev_block)) {
-        stop("No variance information stored – did you train the operator?")
+        stop("No variance information stored - did you train the operator?")
       }
       dt = data.table::as.data.table(st$ev_block)
       dt[, component := factor(rownames(st$ev_block),
@@ -184,17 +184,20 @@ PipeOpMBsPCA = R6::R6Class(
         stop("PipeOp must be trained first.")
       }
 
-      comp_names = names(st$weights)
-      block_names = names(st$weights[[1]])
-
-      long = purrr::imap_dfr(st$weights, \(Wk, comp)
-      purrr::imap_dfr(Wk, \(wb, block)
-      tibble::tibble(
-        component = comp,
-        block     = block,
-        feature   = names(wb),
-        weight    = as.numeric(wb)
-      )))
+      # Convert weights list-of-lists to a long data.frame without extra deps.
+      long = do.call(rbind, lapply(names(st$weights), function(comp) {
+        Wk = st$weights[[comp]]
+        do.call(rbind, lapply(names(Wk), function(block) {
+          wb = Wk[[block]]
+          data.frame(
+            component = comp,
+            block = block,
+            feature = names(wb),
+            weight = as.numeric(wb),
+            stringsAsFactors = FALSE
+          )
+        }))
+      }))
 
       if (length(palette) == 1L) {
         if (!palette %in% rownames(RColorBrewer::brewer.pal.info)) {
@@ -207,31 +210,42 @@ PipeOpMBsPCA = R6::R6Class(
         palette[1:2]
       }
 
-      long %>%
-        dplyr::mutate(abs_w = abs(weight)) %>%
-        dplyr::filter(abs_w > 0) %>%
-        dplyr::group_by(component, block) %>%
-        dplyr::slice_max(abs_w, n = max(1, top_n), with_ties = FALSE) %>%
-        dplyr::ungroup() %>%
-        dplyr::arrange(component, block, abs_w) %>%
+      long2 = long |>
+        dplyr::mutate(abs_w = abs(weight)) |>
+        dplyr::filter(abs_w > 0) |>
+        dplyr::group_by(component, block) |>
+        dplyr::slice_max(abs_w, n = max(1, top_n), with_ties = FALSE) |>
+        dplyr::ungroup() |>
+        dplyr::arrange(component, block, abs_w) |>
         dplyr::mutate(
           feature_unique = paste(component, block, feature, sep = "_"),
           feature_unique = factor(feature_unique, levels = feature_unique)
-        ) %>%
-        ggplot2::ggplot(ggplot2::aes(feature_unique, weight,
-          fill = weight > 0)) +
-        ggplot2::geom_col(show.legend = FALSE) +
-        ggplot2::facet_grid(block ~ component, scales = "free") +
-        ggplot2::scale_fill_manual(values = pal_vals) +
-        ggplot2::scale_x_discrete(labels = function(x) {
-          sapply(strsplit(x, "_"), function(z) paste(z[-(1:2)], collapse = "_"))
-        }) +
-        ggplot2::coord_flip() +
-        ggplot2::labs(x = NULL, y = "Weight",
-          title = "Sparse loadings (top features)") +
-        ggplot2::theme_bw(base_size = 10) +
-        ggplot2::theme(strip.text.y = ggplot2::element_text(angle = 0),
-          axis.text.y = ggplot2::element_text(size = 8))
+        )
+
+      p = long2 |>
+        ggplot2::ggplot(ggplot2::aes(
+          feature_unique,
+          weight,
+          fill = weight > 0
+        ))
+      p = p + ggplot2::geom_col(show.legend = FALSE)
+      p = p + ggplot2::facet_grid(block ~ component, scales = "free")
+      p = p + ggplot2::scale_fill_manual(values = pal_vals)
+      p = p + ggplot2::scale_x_discrete(labels = function(x) {
+        sapply(strsplit(x, "_"), function(z) paste(z[-(1:2)], collapse = "_"))
+      })
+      p = p + ggplot2::coord_flip()
+      p = p + ggplot2::labs(
+        x = NULL,
+        y = "Weight",
+        title = "Sparse loadings (top features)"
+      )
+      p = p + ggplot2::theme_bw(base_size = 10)
+      p = p + ggplot2::theme(
+        strip.text.y = ggplot2::element_text(angle = 0),
+        axis.text.y = ggplot2::element_text(size = 8)
+      )
+      p
     },
 
     #' @description Scree or cumulative variance-explained plot (training).
@@ -263,7 +277,7 @@ PipeOpMBsPCA = R6::R6Class(
         } else {
           "Cumulative variance explained"
         },
-        x = NULL, title = "MB‑sPCA variance profile") +
+        x = NULL, title = "MB-sPCA variance profile") +
         ggplot2::theme_minimal(11)
     },
 
@@ -276,7 +290,7 @@ PipeOpMBsPCA = R6::R6Class(
       }
       st = self$state
       if (is.null(st$T_mat) || ncol(st$T_mat) < 2) {
-        stop("Need at least two PCs to draw a heat‑map.")
+        stop("Need at least two PCs to draw a heat-map.")
       }
 
       C = cor(st$T_mat, method = method)
@@ -343,14 +357,14 @@ PipeOpMBsPCA = R6::R6Class(
         ggraph::geom_node_text(ggplot2::aes(label = name), repel = TRUE,
           size = 3) +
         ggplot2::theme_void() +
-        ggplot2::labs(title = sprintf("PC network |r| ≥ %.2f (%s)",
+        ggplot2::labs(title = sprintf("PC network |r| >= %.2f (%s)",
           cutoff, method))
     }
   ),
 
   private = list(
 
-    # ─────────────────────────── train helper ────────────────────────
+    # --------------------------- train helper ------------------------
     .train_dt = function(dt, levels, target = NULL) {
 
       pv = utils::modifyList(
@@ -362,14 +376,14 @@ PipeOpMBsPCA = R6::R6Class(
       blocks = pv$blocks
       n_block = length(blocks)
 
-      ## 0) sanity‑filter columns: numeric, non‑constant ---------------
+      ## 0) sanity-filter columns: numeric, non-constant ---------------
       blocks = lapply(blocks, function(cols) {
         cols = intersect(cols, names(dt)) # still present?
         cols = cols[vapply(cols, \(cl) is.numeric(dt[[cl]]),
           logical(1))] # numeric only
         cols = cols[vapply(cols,
           \(cl) stats::var(dt[[cl]], na.rm = TRUE) > 0,
-          logical(1))] # non‑constant
+          logical(1))] # non-constant
         cols
       })
       blocks = Filter(length, blocks) # drop empty blocks
@@ -377,14 +391,14 @@ PipeOpMBsPCA = R6::R6Class(
         stop("No block contains at least one usable numeric column.")
       }
 
-      ## 1) materialise block matrices ---------------------------------
+      ## 1) materialise block matrices ---------------------------------
       X = lapply(blocks, \(cols) {
         M = as.matrix(dt[, ..cols])
         storage.mode(M) = "double"
         M
       })
 
-      ## 2) handle c‑matrix vs single‑value per block ------------------
+      ## 2) handle c-matrix vs single-value per block ------------------
       if (!is.null(pv$c_matrix)) {
         cm = pv$c_matrix
         if (!is.null(rownames(cm))) {
@@ -445,12 +459,12 @@ PipeOpMBsPCA = R6::R6Class(
         W_all[[k]] = Wk
         P_all[[k]] = Pk
 
-        ## permutation early‑stop? ------------------------------------
+        ## permutation early-stop? ------------------------------------
         if (isTRUE(pv$permutation_test)) {
           p_val = perm_test_component_mbspca(X_res, Wk, c_k,
             n_perm = pv$n_perm,
             alpha = pv$perm_alpha)
-          if (p_val > pv$perm_alpha && k != 1L) { # always keep PC‑1
+          if (p_val > pv$perm_alpha && k != 1L) { # always keep PC-1
             W_all = W_all[seq_len(k - 1)]
             P_all = P_all[seq_len(k - 1)]
             ev_blk = ev_blk[seq_len(k - 1), , drop = FALSE]
@@ -471,7 +485,7 @@ PipeOpMBsPCA = R6::R6Class(
         }
       }
 
-      ## ── build output latent score table ---------------------------
+      ## -- build output latent score table ---------------------------
       coln = unlist(lapply(seq_len(ncomp),
         \(k) paste0("PC", k, "_", names(blocks))))
       T_mat = do.call(cbind, lapply(seq_len(ncomp), \(k) {
@@ -481,7 +495,7 @@ PipeOpMBsPCA = R6::R6Class(
       colnames(T_mat) = coln
       dt_lat = data.table::as.data.table(T_mat)
 
-      ## ── add names so downstream plots work ──────────────────────────
+      ## -- add names so downstream plots work --------------------------
       pad_and_name = function(x, feat) {
         if (length(x) == 0) {
           x = numeric(length(feat))
@@ -517,7 +531,7 @@ PipeOpMBsPCA = R6::R6Class(
       dt_lat
     },
 
-    # ────────────────────────── predict helper ───────────────────────
+    # -------------------------- predict helper -----------------------
     .predict_dt = function(dt, levels, target = NULL) {
 
       st = self$state

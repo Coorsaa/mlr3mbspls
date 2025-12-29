@@ -22,7 +22,7 @@
 #' @param invert \code{logical(1)}. If \code{TRUE}, invert the selection.
 #' @param drop_unused_levels \code{logical(1)}. If \code{TRUE} (default),
 #'   drop unused factor levels on \emph{non-target} factor columns after filtering.
-#'   The target’s level set is controlled explicitly (see Details).
+#'   The target's level set is controlled explicitly (see Details).
 #' @param drop_stratum \code{logical(1)}. If \code{TRUE} (default \code{FALSE}),
 #'   remove the \code{"stratum"} role from columns that are neither features nor targets.
 #'

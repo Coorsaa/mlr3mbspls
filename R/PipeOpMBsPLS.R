@@ -5,7 +5,7 @@
 #'
 #' @description
 #' \strong{PipeOpMBsPLS} fits \emph{sequential} MB-sPLS models and appends one
-#' latent variable (LV) per block and component to the task’s backend.
+#' latent variable (LV) per block and component to the task's backend.
 #' After each component the corresponding rank-1 structure is removed
 #' (block-wise score deflation in the sense of Westerhuis et al., 2001),
 #' ensuring that successive LVs are orthogonal within every block.
@@ -25,7 +25,7 @@
 #' validation tests} can be requested (permutation or bootstrap; see Parameters).
 #'
 #' The operator is a pure transformer: it performs no internal resampling,
-#' tuning or preprocessing. Hyper-parameters such as the L¹ sparsity levels
+#' tuning or preprocessing. Hyper-parameters such as the L1 sparsity levels
 #' \eqn{c_\mathrm{block}} are tuned externally (e.g., with \pkg{mlr3tuning}).
 #'
 #' @section State (after training):
@@ -50,9 +50,9 @@
 #' A list containing:
 #' \itemize{
 #'   \item \code{mac_comp}: numeric vector (length \code{ncomp}) with test MAC/Frobenius per component,
-#'   \item \code{ev_block}: matrix \code{(ncomp × n_blocks)} with test per-block explained variances,
+#'   \item \code{ev_block}: matrix \code{(ncomp x n_blocks)} with test per-block explained variances,
 #'   \item \code{ev_comp}: numeric vector \code{(ncomp)} with test per-component EV (summed across blocks),
-#'   \item \code{T_mat}: test scores \code{(n_test × (ncomp * n_blocks))} with the same column order as training,
+#'   \item \code{T_mat}: test scores \code{(n_test x (ncomp * n_blocks))} with the same column order as training,
 #'   \item \code{blocks}: character vector with block names,
 #'   \item \code{perf_metric}: objective used (\code{"mac"} or \code{"frobenius"}),
 #'   \item \code{time}: POSIXct timestamp,
@@ -77,8 +77,8 @@
 #'   exceeds \code{perm_alpha} (LV1 is always retained).
 #' @param n_perm \code{integer(1)}. Number of permutations (training).
 #' @param perm_alpha \code{numeric(1)}. Significance level for training-time permutation test.
-#' @param c_<block> \code{numeric(1)}. One L¹ sparsity limit per block; upper bound defaults to \eqn{\sqrt{p_b}}.
-#' @param c_matrix \code{matrix}. Optional matrix of L¹ limits (rows = blocks, cols = components).
+#' @param c_<block> \code{numeric(1)}. One L1 sparsity limit per block; upper bound defaults to \eqn{\sqrt{p_b}}.
+#' @param c_matrix \code{matrix}. Optional matrix of L1 limits (rows = blocks, cols = components).
 #' @param store_train_blocks \code{logical(1)}. If \code{TRUE} and \code{log_env} is provided,
 #'   store preprocessed training block matrices and sparsity settings in \code{log_env$mbspls_state}.
 #' @param predict_weights character; one of "auto","raw","stable_ci","stable_frequency".
@@ -192,32 +192,7 @@ PipeOpMBsPLS = R6::R6Class(
     },
 
     .with_seed_local = function(seed, fn) {
-      # If seed is NULL/invalid -> no change in behavior
-      if (is.null(seed) || length(seed) != 1L || !is.finite(seed)) {
-        return(fn())
-      }
-
-      seed = as.integer(seed)
-      if (!is.finite(seed) || seed <= 0L) {
-        return(fn())
-      }
-
-      # Save existing RNG state (if any), then restore after fn()
-      had_seed = exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
-      old_seed = if (had_seed) get(".Random.seed", envir = .GlobalEnv, inherits = FALSE) else NULL
-
-      on.exit({
-        if (is.null(old_seed)) {
-          if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
-            rm(".Random.seed", envir = .GlobalEnv)
-          }
-        } else {
-          assign(".Random.seed", old_seed, envir = .GlobalEnv)
-        }
-      }, add = TRUE)
-
-      set.seed(seed)
-      fn()
+      with_seed_local(seed, fn)
     },
 
     # ------------------------------- train -----------------------------------
@@ -295,7 +270,7 @@ PipeOpMBsPLS = R6::R6Class(
 
       self$state$c_matrix = c_matrix
 
-      if (length(fit$W) == 0) stop("No components extracted – check sparsity settings.")
+      if (length(fit$W) == 0) stop("No components extracted - check sparsity settings.")
       lgr$info("C++ returned %d component(s)", length(fit$W))
       lgr$info("Objectives per component: %s", paste(round(fit$objective, 4), collapse = ", "))
       if (!is.null(fit$p_values)) {
@@ -375,7 +350,7 @@ PipeOpMBsPLS = R6::R6Class(
       self$state$p_values = pvals
       self$state$ev_block = ev_blk
       self$state$ev_comp = ev_cmp
-      self$state$latent_cor_train = tail(obj, 1)
+      self$state$latent_cor_train = utils::tail(obj, 1)
       self$state$performance_metric = pv$performance_metric
       self$state$correlation_method = pv$correlation_method
 
@@ -404,7 +379,7 @@ PipeOpMBsPLS = R6::R6Class(
         pv$log_env$mbspls_state = payload
       }
 
-      lgr$info("Training done; last latent correlation = %.4f", tail(obj, 1))
+      lgr$info("Training done; last latent correlation = %.4f", utils::tail(obj, 1))
 
       # ---- output: append or replace
       if (isTRUE(pv$append)) {

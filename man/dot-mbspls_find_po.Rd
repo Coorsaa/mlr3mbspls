@@ -6,6 +6,14 @@
 \usage{
 .mbspls_find_po(gl)
 }
+\arguments{
+\item{gl}{\link[mlr3pipelines:mlr_learners_graph]{mlr3pipelines::GraphLearner}
+A trained graph learner.}
+}
+\value{
+A \link{PipeOpMBsPLS}.
+}
 \description{
 Find first MB-sPLS pipeop in a GraphLearner
 }
+\keyword{internal}

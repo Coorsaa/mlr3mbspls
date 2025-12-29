@@ -12,6 +12,15 @@
   ...
 )
 }
+\arguments{
+\item{object}{\link[mlr3pipelines:mlr_learners_graph]{mlr3pipelines::GraphLearner}
+Trained \link[mlr3pipelines:mlr_learners_graph]{mlr3pipelines::GraphLearner}.}
+
+\item{type}{\link{character}
+Plot type identifier. See Details.}
+
+\item{...}{Additional arguments passed down to the corresponding plot helper.}
+}
 \description{
 Requires: ggplot2, dplyr, tibble
 Optional: patchwork, ggraph, igraph, RColorBrewer, scales, hexbin

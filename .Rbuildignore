@@ -1,1 +1,10 @@
 ^\.pre-commit-config\.yaml$
+^\.github$
+^\.git$
+^\.gitignore$
+^__MACOSX$
+^\.DS_Store$
+^build\.R$
+^paper$
+^.*\.Rproj$
+^\.Rproj\.user$

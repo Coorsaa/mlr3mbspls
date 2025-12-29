@@ -26,10 +26,12 @@ workflows, with support for classification and clustering pipelines.
 
 \itemize{
 \item \code{\link{PipeOpMBsPLS}}: Main PipeOp for MB-sPLS transformation
-\item \code{\link{LearnerGraphMB}}: Graph Learner with MB-sPLS capabilities
-\item \code{\link{make_task_multiblock}}: Create multi-block tasks
-\item \code{\link{get_loadings}}: Extract and format loadings from a model
-\item \code{\link{plot_latent_space}}: Visualize the latent space
+\item \code{\link{PipeOpSiteCorrection}}: Site/batch correction as a PipeOp
+\item \code{\link{mbspls_graph}}: Construct a full preprocessing + MB-sPLS graph
+\item \code{\link{mbspls_graph_learner}}: Wrap a graph as a GraphLearner
+\item \code{\link{mbspls_eval_new_data}}: Evaluate new data via a trained graph
+\item \code{\link{mbspls_nested_cv}} / \code{\link{mbspls_nested_cv_batchtools}}:
+Nested resampling utilities
 }
 }
 

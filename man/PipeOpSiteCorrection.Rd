@@ -15,13 +15,13 @@ Site/covariate columns referenced by \code{site_correction} are dropped unless \
 \strong{multi-block data} inside an \emph{mlr3} pipeline. Behavior is controlled by
 two named lists (by \strong{block}):
 \itemize{
-\item \code{site_correction}: block → \strong{specification of site/batch and optional covariates}.
+\item \code{site_correction}: block -> \strong{specification of site/batch and optional covariates}.
 \itemize{
 \item For \code{"partial_corr"}: a \strong{character vector of columns} (categorical site and/or numeric covariates).
 \item For \code{"dir"}: a \strong{single categorical column} (protected attribute).
 \item For \code{"combat"} (\strong{new structured format}): a \strong{list} with fixed elements
 \verb{list(site = <character(1)>, covariates = <character()>)}.
-The \code{site} column is mapped to ComBat’s \code{batch}; the \code{covariates} are
+The \code{site} column is mapped to ComBat's \code{batch}; the \code{covariates} are
 encoded into a model matrix and passed as \code{mod}.
 \emph{(Backward compatible: if a single string is provided, it is treated as \code{site}.)}
 }
@@ -45,18 +45,18 @@ we construct the design as \code{cbind(1, Z)} via \code{model.matrix(~ .)}.
 subtract them; optional mean re-add (\code{zero_center = FALSE} by default).
 }
 
-\strong{ComBat (\code{"combat"}, via \pkg{neuroCombat}) — now with \code{mod} support}
+\strong{ComBat (\code{"combat"}, via \pkg{neuroCombat}) - now with \code{mod} support}
 \itemize{
 \item Trains using \code{neuroCombat(dat = t(X), batch = site, mod = MM, ...)}, where
 \code{MM = model.matrix(~ ., data = covariates)}; character covariates are
 auto-factorized. ComBat accepts \strong{one} batch vector, but \strong{many covariates}.
 We store the returned \code{estimates}, the valid batch levels, the \code{site_var},
-and the list of \code{covariates}. :contentReference[oaicite:2]{index=2}
+and the list of \code{covariates}.
 \item At predict, we apply \code{neuroCombatFromTraining(dat, batch, estimates)}.
 The upstream function \strong{does not support} supplying \code{mod} for new data;
 if estimates were trained with \code{mod}, it uses an internal mean-imputation
 of the training covariate effects. Unseen batches can be handled with
-\code{combat_unknown = "noop"} (skip) or \code{"baseline"} (map to \code{ref_batch}). :contentReference[oaicite:3]{index=3}
+\code{combat_unknown = "noop"} (skip) or \code{"baseline"} (map to \code{ref_batch}).
 }
 
 \strong{DIR (\code{"dir"}, via \pkg{fairmodels})}
@@ -88,9 +88,9 @@ PipeOpSiteCorrection$new(
 features form one block \code{".all"}.
 \item \code{site_correction} (\code{list()}): Named list \strong{by block}. For \code{"combat"}
 use \verb{list(site=<char1>, covariates=<char_vec>)}; for other methods,
-character vectors as described above. Missing block ⇒ no correction.
+character vectors as described above. Missing block => no correction.
 \item \code{method} (\code{list()}): Named list \code{block -> "partial_corr"|"combat"|"dir"}.
-Missing block ⇒ \code{"partial_corr"}.
+Missing block => \code{"partial_corr"}.
 \item \code{keep_site_col} (\code{logical(1)}): Keep all site/covariate columns referenced by
 \code{site_correction}? Default \code{FALSE}.
 }
@@ -102,7 +102,7 @@ unseen \strong{categorical} site under \code{"partial_corr"}. Default \code{"oth
 \item \code{zero_center} (\code{logical(1)}): Re-add grand means? Default \code{FALSE}.
 \item \code{revertflag} (\code{logical(1)}): Add instead of subtract the site effect.
 \item \code{regularization} (\code{numeric(1)}): Ridge penalty to stabilize the site
-regression (\code{0} ⇒ internally \code{1e-6}).
+regression (\code{0} => internally \code{1e-6}).
 \item \code{subgroup} (\code{logical()}/\code{integer()}): Optional row subset for fitting.
 }
 }

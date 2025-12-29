@@ -4,7 +4,7 @@
 #' `TunerSeqMBsPCA` tunes one component at a time for `PipeOpMBsPCA`, choosing
 #' a block-sparsity vector **c** that maximises **cross-validated total variance
 #' explained**. After each component it refits on the full residuals, performs
-#' an optional permutation test for significance, and—if significant—deflates
+#' an optional permutation test for significance, and-if significant-deflates
 #' all blocks before proceeding to the next component.
 #'
 #' The public interface mirrors `TunerSeqMBsPLS`; only the objective (variance
@@ -12,8 +12,8 @@
 #'
 #' @section Works with:
 #' A learner whose pipeline contains a `PipeOpMBsPCA` named `"mbspca"`. The
-#' tuner writes the chosen √(L¹) budgets into `param_vals$c_matrix`
-#' (`blocks × components`) of that pipeop.
+#' tuner writes the chosen sqrt(L1) budgets into `param_vals$c_matrix`
+#' (`blocks x components`) of that pipeop.
 #'
 #' @section Construction:
 #' `TunerSeqMBsPCA$new(tuner = "random_search", budget = 100L,`
@@ -31,12 +31,12 @@
 #' @param early_stopping (`logical(1)`) Perform permutation test after each
 #'   component and stop if not significant (PC-1 is always kept).
 #' @param n_perm (`integer(1)`) Number of permutations for the test.
-#' @param perm_alpha (`numeric(1)` in `[0,1]`) α-level for the test.
+#' @param perm_alpha (`numeric(1)` in `[0,1]`) alpha-level for the test.
 #'
 #' @section Optimisation procedure:
-#' For component *k*, a search space over integer proxies `c_b ∈ [1, p_b]` is
+#' For component *k*, a search space over integer proxies `c_b in [1, p_b]` is
 #' defined per block (*p_b* = #features). The objective evaluates CV mean of
-#' total variance explained. The optimal integers are mapped to √(L¹) budgets
+#' total variance explained. The optimal integers are mapped to sqrt(L1) budgets
 #' via `sqrt(c_b)` and stored in column *k* of `c_matrix`. Residuals are
 #' deflated and the procedure continues for the next component (up to the
 #' requested maximum, possibly shortened by early stopping).
@@ -102,7 +102,7 @@ TunerSeqMBsPCA = R6::R6Class(
       checkmate::assert_number(perm_alpha, lower = 0, upper = 1)
 
       if (grepl("async", tuner, ignore.case = TRUE)) {
-        lgr$warning("Asynchronous tuners are unsupported – using 'random_search' instead.")
+        lgr$warning("Asynchronous tuners are unsupported - using 'random_search' instead.")
         tuner = "random_search"
       }
 
@@ -128,7 +128,7 @@ TunerSeqMBsPCA = R6::R6Class(
 
   private = list(
 
-    # ───────────────────────── helpers ───────────────────────────────
+    # ------------------------- helpers -------------------------------
     .pre_graph_before_mbspca = function(learner) {
       ids = learner$graph$ids()
       pos = match("mbspca", ids)
@@ -161,7 +161,7 @@ TunerSeqMBsPCA = R6::R6Class(
       X
     },
 
-    # ───────────────────────── main loop ─────────────────────────────
+    # ------------------------- main loop -----------------------------
     .run = function(inst) {
 
       learner_tpl = inst$objective$learner
@@ -223,7 +223,7 @@ TunerSeqMBsPCA = R6::R6Class(
           paste0("PC", seq_len(K_max))))
 
       for (k in seq_len(K_max)) {
-        lgr$info("➡️  MB-sPCA component %d / %d", k, K_max)
+        lgr$info("->  MB-sPCA component %d / %d", k, K_max)
 
         ## ----- search space -----------------------------------------
         ps_k = do.call(
@@ -297,8 +297,8 @@ TunerSeqMBsPCA = R6::R6Class(
           lgr$info("    permutation p-value = %.4g", p_val)
 
           if (p_val > private$.perm_alpha) {
-            lgr$info("    🔴 early stop triggered (component not significant)")
-            if (k == 1L) { # keep PC‑1 regardless
+            lgr$info("     early stop triggered (component not significant)")
+            if (k == 1L) { # keep PC-1 regardless
               C_star = C_star[, 1, drop = FALSE]
             } else {
               C_star = C_star[, seq_len(k - 1L), drop = FALSE]

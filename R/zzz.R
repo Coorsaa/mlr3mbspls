@@ -24,7 +24,7 @@
   mlr3::mlr_learners$add("regr.knngower", function() LearnerRegrKNNGower$new())
   mlr3::mlr_learners$add("classif.knngower", function() LearnerClassifKNNGower$new())
 
-  # a discoverable default graph: site correction ➜ MB‑sPLS ➜ dummy learner
+  # a discoverable default graph: site correction -> MB-sPLS -> dummy learner
   # mlr3pipelines::mlr_graphs$add("mbspls_default", graph_mbspls)
 }
 .onUnload = function(libpath) {

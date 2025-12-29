@@ -11,7 +11,7 @@
 #'   `PipeOpMBsPLS$predict()` with fields `mac_comp`, `ev_block`, `ev_comp`,
 #'   `T_mat`, `blocks`, and optionally `val_test_p`, `val_test_stat`.
 #' @param weight_by character(1). Weights for cross-fold means:
-#'   `"sqrt_n"` (default; weight = √n_test), `"n"` (weight = n_test), or `"equal"`.
+#'   `"sqrt_n"` (default; weight = sqrtn_test), `"n"` (weight = n_test), or `"equal"`.
 #' @param p_method character(1). How to combine validation p-values across folds:
 #'   `"stouffer"` (default), `"fisher"`, or `"none"`.
 #' @param enforce_monotone logical(1). If TRUE, makes combined p-values
@@ -22,11 +22,41 @@
 #'   \item \code{summary}: list of matrices/vectors
 #'     (\code{mac_mean}, \code{mac_sd}, \code{ev_block_mean}, \code{ev_comp_mean},
 #'      \code{p_combined}, \code{perf_metric}, \code{blocks})
-#'   \item \code{fold_table}: long data.table (fold × component × block)
+#'   \item \code{fold_table}: long data.table (fold x component x block)
 #'     with per-fold metrics and n_test
 #' }
 #' @examples
+#' # Minimal example with two outer folds, two components and two blocks.
+#' payloads = list(
+#'   list(
+#'     mac_comp = c(0.50, 0.40),
+#'     ev_comp = c(0.30, 0.20),
+#'     ev_block = matrix(
+#'       c(0.15, 0.10,
+#'         0.12, 0.08),
+#'       nrow = 2,
+#'       dimnames = list(NULL, c("b1", "b2"))
+#'     ),
+#'     T_mat = matrix(0, nrow = 10, ncol = 4),
+#'     blocks = c("b1", "b2"),
+#'     perf_metric = "mac"
+#'   ),
+#'   list(
+#'     mac_comp = c(0.60, 0.45),
+#'     ev_comp = c(0.32, 0.22),
+#'     ev_block = matrix(
+#'       c(0.16, 0.11,
+#'         0.13, 0.09),
+#'       nrow = 2,
+#'       dimnames = list(NULL, c("b1", "b2"))
+#'     ),
+#'     T_mat = matrix(0, nrow = 12, ncol = 4),
+#'     blocks = c("b1", "b2"),
+#'     perf_metric = "mac"
+#'   )
+#' )
 #' agg = aggregate_mbspls_payloads(payloads)
+#' agg$summary$mac_mean
 #'
 #' @export
 aggregate_mbspls_payloads = function(
@@ -169,7 +199,7 @@ aggregate_mbspls_payloads = function(
   evc_mean = evc_mean[match(comp_names, component)]
   evc_mean_vec = setNames(evc_mean$mean, comp_names)
 
-  # block-wise EV (component × block)
+  # block-wise EV (component x block)
   evb_dt = fold_table[!is.na(block) & !is.na(ev_block),
     .(w = weight, evb = ev_block),
     by = .(component, block, fold)]

@@ -19,7 +19,7 @@ neighbour responses; the (weighted) variance provides an approximate
 back to the training mean/variance.
 }
 \details{
-k-Nearest Neighbours with Gower Distance — Regression
+k-Nearest Neighbours with Gower Distance - Regression
 }
 \section{Parameters (in \code{param_set})}{
 

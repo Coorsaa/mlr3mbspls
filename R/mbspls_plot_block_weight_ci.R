@@ -9,7 +9,7 @@
 #'   * "weights"  : aggregates across multiple MB-sPLS fits (means + Wald CIs).
 #' @param ci_filter One of c("none","excludes_zero","overlaps_zero").
 #'   * "excludes_zero": keep if (ci_low >= 0 | ci_high <= 0) AND |mean| > 1e-3.
-#' @param top_n Integer or NULL. Keep top-N features per block×component by |mean|.
+#' @param top_n Integer or NULL. Keep top-N features per blockxcomponent by |mean|.
 #' @param add_block_rule Logical; thin rule between block facets (default FALSE; safe implementation).
 #' @param font Character; font family (default "sans").
 #' @param alpha_by_stability Logical; for source="bootstrap", map bar alpha to selection frequency.
@@ -100,7 +100,7 @@ mbspls_plot_block_weight_ci = function(
       if (!length(present_comp)) stop("No bootstrap CI rows for any component in selection state.")
       comp_levels = present_comp
 
-      # grid (component × block × features) to fill missing rows with zeros
+      # grid (component x block x features) to fill missing rows with zeros
       grid_df = dplyr::bind_rows(lapply(comp_levels, function(k) {
         dplyr::bind_rows(lapply(block_levels, function(b) {
           tibble::tibble(component = k, block = b, feature = blocks[[b]])
@@ -146,8 +146,8 @@ mbspls_plot_block_weight_ci = function(
       comp_levels = intersect(unique(d$component), comp_levels)
       if (!length(comp_levels)) stop("No bootstrap draws for any component in the supplied model.")
 
-      df = d %>%
-        dplyr::group_by(component, block, feature) %>%
+      df = d |>
+        dplyr::group_by(component, block, feature) |>
         dplyr::summarise(
           mean = mean(weight, na.rm = TRUE),
           ci_low = .q(weight, 0.025),
@@ -239,23 +239,24 @@ mbspls_plot_block_weight_ci = function(
   }
 
   # -- CI filter (exact rule for excludes_zero) --------------------------------
-  df = df %>%
+  df = df |>
     dplyr::mutate(abs_m = abs(mean))
 
   if (ci_filter == "excludes_zero") {
-    df = df %>%
-      dplyr::filter(ci_low >= 0 | ci_high <= 0) %>%
+    df = df |>
+      dplyr::filter(ci_low >= 0 | ci_high <= 0) |>
       dplyr::filter(abs_m > 1e-3)
   } else if (ci_filter == "overlaps_zero") {
-    df = df %>% dplyr::filter(ci_low <= 0 & ci_high >= 0)
+    df = df |>
+      dplyr::filter(ci_low <= 0 & ci_high >= 0)
   }
   if (!nrow(df)) stop("No features passed the '", ci_filter, "' filter.")
 
-  # -- top-N per block×component ----------------------------------------------
+  # -- top-N per blockxcomponent ----------------------------------------------
   if (!is.null(top_n) && is.numeric(top_n) && top_n > 0) {
-    df = df %>%
-      dplyr::group_by(component, block) %>%
-      dplyr::slice_max(abs_m, n = top_n, with_ties = FALSE) %>%
+    df = df |>
+      dplyr::group_by(component, block) |>
+      dplyr::slice_max(abs_m, n = top_n, with_ties = FALSE) |>
       dplyr::ungroup()
   }
 
@@ -264,14 +265,14 @@ mbspls_plot_block_weight_ci = function(
   if (!length(comp_levels)) stop("No components left after filtering.")
 
   # -- ordering & labels -------------------------------------------------------
-  df = df %>%
+  df = df |>
     dplyr::mutate(
       signpos = mean >= 0,
       block_lab = factor(.nice(block), levels = .nice(block_levels)),
       component_lab = factor(gsub("^LC_0?", "LC ", component),
         levels = gsub("^LC_0?", "LC ", comp_levels)),
       axis_id = paste(block, feature, sep = "___")
-    ) %>%
+    ) |>
     dplyr::arrange(match(block, block_levels), match(component, comp_levels), abs_m)
 
   df$axis_id = factor(df$axis_id, levels = unique(df$axis_id))
@@ -296,7 +297,7 @@ mbspls_plot_block_weight_ci = function(
   subtitle_bits = c(
     if (source == "weights") "Across models" else "Across bootstrap replicates",
     "95% CI",
-    if (!is.null(top_n)) sprintf("Top %d per block×component", as.integer(top_n)) else NULL,
+    if (!is.null(top_n)) sprintf("Top %d per blockxcomponent", as.integer(top_n)) else NULL,
     if (ci_filter != "none") {
       switch(ci_filter,
         excludes_zero = "Filter: CI excludes 0 & |mean|>1e-3",
@@ -305,7 +306,7 @@ mbspls_plot_block_weight_ci = function(
     },
     if (!is.null(align_tag) && source == "bootstrap") paste0("Aligned: ", align_tag)
   )
-  subtitle_text = paste(subtitle_bits, collapse = " · ")
+  subtitle_text = paste(subtitle_bits, collapse = " . ")
 
   ggplot2::ggplot(df, ggplot2::aes(x = axis_id, y = mean, fill = signpos, alpha = alpha_freq)) +
     ggplot2::geom_col(width = 0.85, show.legend = FALSE) +

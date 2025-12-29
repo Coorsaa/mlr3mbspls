@@ -199,6 +199,12 @@ mbspls_flip_weights.GraphLearner = function(x, signs = -1L, inplace = TRUE, ...)
 }
 
 #' Find first MB-sPLS pipeop in a GraphLearner
+#'
+#' @param gl [GraphLearner]
+#'   A trained graph learner.
+#'
+#' @return A [PipeOpMBsPLS].
+#' @keywords internal
 .mbspls_find_po = function(gl) {
   pops = gl$graph$pipeops
   idx = vapply(pops, function(p) inherits(p, "PipeOpMBsPLS"), logical(1))

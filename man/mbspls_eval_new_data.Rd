@@ -11,7 +11,7 @@ mbspls_eval_new_data(gl, task, mbspls_id = NULL)
 \code{PipeOpMBsPLS} node.}
 
 \item{task}{(\code{Task})\cr An \pkg{mlr3} task with \strong{new} data to evaluate on.
-The graph’s preprocessing will be applied automatically.}
+The graph's preprocessing will be applied automatically.}
 
 \item{mbspls_id}{(\code{character(1)} | \code{NULL})\cr Optional id of the MB-sPLS node
 in the graph. If \code{NULL} (default), the first node inheriting from
@@ -21,17 +21,17 @@ with a warning unless \code{mbspls_id} is supplied.}
 \value{
 \code{list} with the following elements (all computed on the \strong{new} data):
 \itemize{
-\item \code{ev_block} (\verb{matrix [ncomp × n_blocks]}): explained variance per block and component.
+\item \code{ev_block} (\verb{matrix [ncomp x n_blocks]}): explained variance per block and component.
 \item \code{ev_comp}  (\code{numeric [ncomp]}): total explained variance per component (across blocks).
 \item \code{mac_comp} (\code{numeric [ncomp]}): objective per component on new data
 (MAC or Frobenius, matching the trained operator).
-\item \code{T_mat} (\verb{matrix [n_obs × (ncomp*n_blocks)]}): block scores; columns
-ordered as \code{LV1_<block1>, …, LV1_<blockB>, LV2_<block1>, …}.
-  \item \code{blocks} (\code{character [n_blocks]}): block names (for convenience).
+\item \code{T_mat} (\verb{matrix [n_obs x (ncomp*n_blocks)]}): block scores; columns
+ordered as \code{LV1_<block1>, ..., LV1_<blockB>, LV2_<block1>, ...}.
+\item \code{blocks} (\code{character [n_blocks]}): block names (for convenience).
 \item \code{weights} (\code{list}): trained weights \eqn{w_b^{(k)}}\; list-of-lists:
-component → block → named numeric vector (feature weights).
+component -> block -> named numeric vector (feature weights).
 \item \code{loadings} (\code{list}): trained loadings \eqn{p_b^{(k)}} used for deflation.
-\item \code{blocks_map} (\code{list}): mapping block → feature names (training).
+\item \code{blocks_map} (\code{list}): mapping block -> feature names (training).
 \item \code{ncomp} (\code{integer(1)}): number of retained components.
 \item \code{perf_metric} (\code{character(1)}): \code{"mac"} or \code{"frobenius"} (from training).
 }

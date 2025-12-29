@@ -10,12 +10,12 @@ the \strong{test split} seen by the downstream learner in resampling/tuning.
 
 Required payload fields (written by the PipeOp):
 \itemize{
-\item \code{mac_comp}  – numeric vector of per-component latent correlations on test
+\item \code{mac_comp}  - numeric vector of per-component latent correlations on test
 data (either MAC or Frobenius, depending on training)
-\item \code{ev_comp}   – numeric vector of per-component explained variance (test)
-\item \code{ev_block}  – matrix (K × B) of block-wise EVs on test data
-\item \code{perf_metric} – \code{"mac"} or \code{"frobenius"} (to normalise Frobenius)
-\item \code{blocks}    – character vector of block names (to count block pairs)
+\item \code{ev_comp}   - numeric vector of per-component explained variance (test)
+\item \code{ev_block}  - matrix (K x B) of block-wise EVs on test data
+\item \code{perf_metric} - \code{"mac"} or \code{"frobenius"} (to normalise Frobenius)
+\item \code{blocks}    - character vector of block names (to count block pairs)
 }
 
 Make sure the same \code{log_env} is passed into your PipeOp inside the Graph:

@@ -10,7 +10,7 @@ A \code{PipeOpMBsPLS} that outputs either only \code{LVk_<block>} columns
 }
 \description{
 \strong{PipeOpMBsPLS} fits \emph{sequential} MB-sPLS models and appends one
-latent variable (LV) per block and component to the task’s backend.
+latent variable (LV) per block and component to the task's backend.
 After each component the corresponding rank-1 structure is removed
 (block-wise score deflation in the sense of Westerhuis et al., 2001),
 ensuring that successive LVs are orthogonal within every block.
@@ -30,7 +30,7 @@ payload is written to \code{log_env$last}. Optionally, \emph{prediction-side
 validation tests} can be requested (permutation or bootstrap; see Parameters).
 
 The operator is a pure transformer: it performs no internal resampling,
-tuning or preprocessing. Hyper-parameters such as the L¹ sparsity levels
+tuning or preprocessing. Hyper-parameters such as the L1 sparsity levels
 \eqn{c_\mathrm{block}} are tuned externally (e.g., with \pkg{mlr3tuning}).
 }
 \details{
@@ -61,9 +61,9 @@ columns ordered \code{LV1_<block1>, ..., LV1_<blockB>, LV2_<block1>, ...}.}
 A list containing:
 \itemize{
 \item \code{mac_comp}: numeric vector (length \code{ncomp}) with test MAC/Frobenius per component,
-\item \code{ev_block}: matrix \code{(ncomp × n_blocks)} with test per-block explained variances,
+\item \code{ev_block}: matrix \code{(ncomp x n_blocks)} with test per-block explained variances,
 \item \code{ev_comp}: numeric vector \code{(ncomp)} with test per-component EV (summed across blocks),
-\item \code{T_mat}: test scores \code{(n_test × (ncomp * n_blocks))} with the same column order as training,
+\item \code{T_mat}: test scores \code{(n_test x (ncomp * n_blocks))} with the same column order as training,
 \item \code{blocks}: character vector with block names,
 \item \code{perf_metric}: objective used (\code{"mac"} or \code{"frobenius"}),
 \item \code{time}: POSIXct timestamp,

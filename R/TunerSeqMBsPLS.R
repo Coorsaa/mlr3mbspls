@@ -15,7 +15,7 @@
 #'   budget             = 1500L,                # iterations per component
 #'   resampling         = rsmp("cv", folds = 3),
 #'   parallel           = "none",
-#'   early_stopping     = TRUE,                 # stop on non‑sig. component
+#'   early_stopping     = TRUE,                 # stop on non-sig. component
 #'   n_perm             = 1000L,
 #'   perm_alpha         = 0.05,
 #'   performance_metric = "mac",                # or "frobenius"
@@ -51,8 +51,8 @@
 #'   default) or `"frobenius"` (Frobenius norm of the block-score
 #'   correlation matrix).
 #' @param additional_task [mlr3::Task] or `NULL`. Optional **unlabelled** task
-#'   whose rows are appended to the inner‑CV training features when extracting
-#'   MB‑sPLS weights. Only features are used; labels (if present) are ignored.
+#'   whose rows are appended to the inner-CV training features when extracting
+#'   MB-sPLS weights. Only features are used; labels (if present) are ignored.
 #'   At prediction time and for evaluation, **only** the original task is used.
 #'
 #' @import mlr3pipelines
@@ -88,7 +88,7 @@ TunerSeqMBsPLS = R6::R6Class(
       }
 
       if (grepl("async", tuner, ignore.case = TRUE)) {
-        warning("Asynchronous tuners not supported – switching to 'random_search'")
+        warning("Asynchronous tuners not supported - switching to 'random_search'")
         tuner = "random_search"
       }
 
@@ -286,7 +286,7 @@ TunerSeqMBsPLS = R6::R6Class(
           p_tr[[b]] = crossprod(X_tr_before[[b]], t_tr) / n2
         }
       }
-      # deflate validation with those p’s
+      # deflate validation with those p's
       for (b in seq_len(B)) {
         t_val = X_val[[b]] %*% W_list[[b]]
         X_val[[b]] = X_val[[b]] - tcrossprod(t_val, p_tr[[b]])
@@ -294,9 +294,9 @@ TunerSeqMBsPLS = R6::R6Class(
       X_val
     },
 
-    # ─────────────────────────────────────────────────────────────────
+    # -----------------------------------------------------------------
     #  Main optimisation loop
-    # ─────────────────────────────────────────────────────────────────
+    # -----------------------------------------------------------------
     .run = function(inst) {
 
       learner_tpl = inst$objective$learner
@@ -426,7 +426,7 @@ TunerSeqMBsPLS = R6::R6Class(
       pvals_combined = numeric(K_max)
 
       for (k in seq_len(K_max)) {
-        lgr$info("⏩  Component %d / %d", k, K_max)
+        lgr$info(">>  Component %d / %d", k, K_max)
 
         ps_k = do.call(
           paradox::ps,

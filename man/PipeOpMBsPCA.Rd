@@ -19,7 +19,7 @@ structure. Optionally, a permutation test
 (\code{perm_test_component_mbspca()}) can stop extraction early if a component
 explains no more variance than expected under the null.
 
-The operator appends one column per \emph{block × component} (name:
+The operator appends one column per \emph{block x component} (name:
 \verb{PC<k>_<block>}) to the feature table.
 }
 \details{
@@ -44,11 +44,11 @@ scores for each block & component.
 
 The \verb{$state} stores:
 \itemize{
-\item \code{blocks}: the (sanitised) named list of block → feature names used.
+\item \code{blocks}: the (sanitised) named list of block -> feature names used.
 \item \code{ncomp}: number of retained components.
-\item \code{weights}: list(\code{PCk} → list(\code{block} → numeric named vector)).
+\item \code{weights}: list(\code{PCk} -> list(\code{block} -> numeric named vector)).
 \item \code{loadings}: same shape as \code{weights}, block-wise loadings used for deflation.
-\item \code{ev_block}: matrix \verb{[components × blocks]} of variance explained by each PC
+\item \code{ev_block}: matrix \verb{[components x blocks]} of variance explained by each PC
 within each block.
 \item \code{ev_comp}: numeric vector of total variance explained by each PC.
 \item \code{T_mat}: numeric matrix of appended latent scores (column names match the
@@ -65,11 +65,11 @@ to character vectors of feature names.
 (may be shortened by permutation early-stopping).
 \item \code{permutation_test} (\code{lgl}, default \code{FALSE}; tag \code{"train"}): enable early-stop test.
 \item \code{n_perm} (\code{int}, default \code{500}; tag \code{"train"}): permutations for the test.
-\item \code{perm_alpha} (\code{dbl} in \verb{[0,1]}, default \code{0.05}; tag \code{"train"}): test α.
+\item \code{perm_alpha} (\code{dbl} in \verb{[0,1]}, default \code{0.05}; tag \code{"train"}): test alpha.
 \item \verb{c_<block>} (one \code{dbl} per block, lower \code{1}, upper \verb{sqrt(#features in block)},
-default \verb{sqrt(#features)}; tags \code{c("train","tune")}): √(L¹-budget) for that block.
+default \verb{sqrt(#features)}; tags \code{c("train","tune")}): sqrt(L1-budget) for that block.
 \item \code{c_matrix} (\code{uty}, default \code{NULL}; tags \code{c("train","tune")}): optional
-matrix (\verb{blocks × components}) overriding single-value \verb{c_<block>} parameters.
+matrix (\verb{blocks x components}) overriding single-value \verb{c_<block>} parameters.
 }
 }
 
@@ -82,7 +82,7 @@ loadings per block/component.
 \item \verb{$plot_scree(type = c("component","cumulative"))}: scree/cumulative EV.
 \item \verb{$plot_score_heatmap(method = "spearman")}: heat-map of score correlations.
 \item \verb{$plot_score_network(cutoff = 0.3, method = "spearman")}: network of score
-correlations with |r| ≥ cutoff.
+correlations with |r| >= cutoff.
 }
 }
 
@@ -154,7 +154,7 @@ Create a new PipeOpMBsPCA.
 \describe{
 \item{\code{id}}{character(1). Identifier (default: "mbspca").}
 
-\item{\code{blocks}}{named list. Block → character() of feature names (required).}
+\item{\code{blocks}}{named list. Block -> character() of feature names (required).}
 
 \item{\code{param_vals}}{list. Initial ParamSet values.}
 }
