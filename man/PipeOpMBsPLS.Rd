@@ -76,6 +76,9 @@ observed statistic, bootstrap mean/SE, p-value, and CI per component.
 
 \section{Parameters}{
 
+Hyperparameters are defined in the object's \code{param_set} and can be set
+via \code{param_vals}. Block membership (\code{blocks}) is a constructor
+argument and stored in the object state.
 }
 
 \section{Construction}{

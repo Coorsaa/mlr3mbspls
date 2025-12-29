@@ -23,6 +23,10 @@
 #' only the kept stable LV columns remain downstream. No fallback to upstream LVs.
 #'
 #' @section Parameters:
+#' Hyperparameters are defined in the object's \code{param_set} and can be set
+#' via \code{param_vals}. This PipeOp is designed to be placed downstream of
+#' \code{po("mbspls")} and typically uses its \code{log_env}.
+#'
 #' @param log_env Environment shared with upstream \code{po("mbspls")} (required).
 #' @param bootstrap Run bootstrap selection (default \code{TRUE}).
 #' @param stability_only Logical; if TRUE, run bootstrap + selection computations and store all

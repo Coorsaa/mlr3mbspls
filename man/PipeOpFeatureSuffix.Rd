@@ -14,6 +14,8 @@ Feature Suffixer
 }
 \section{Parameters}{
 
+Hyperparameters are defined in the object's \code{param_set} and can be set
+via \code{param_vals} (e.g. for tuning in an \pkg{mlr3} pipeline).
 }
 
 \section{Construction}{

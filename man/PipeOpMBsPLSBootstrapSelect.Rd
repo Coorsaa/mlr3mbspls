@@ -33,6 +33,9 @@ MB-sPLS Bootstrap Selection with Two Methods ("ci" | "frequency")
 }
 \section{Parameters}{
 
+Hyperparameters are defined in the object's \code{param_set} and can be set
+via \code{param_vals}. This PipeOp is designed to be placed downstream of
+\code{po("mbspls")} and typically uses its \code{log_env}.
 }
 
 \section{Super classes}{

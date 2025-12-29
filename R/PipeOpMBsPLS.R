@@ -63,6 +63,10 @@
 #' }
 #'
 #' @section Parameters:
+#' Hyperparameters are defined in the object's \code{param_set} and can be set
+#' via \code{param_vals}. Block membership (\code{blocks}) is a constructor
+#' argument and stored in the object state.
+#'
 #' @param blocks \code{list}. **Required.** Named list assigning each block
 #'   name to a character vector of feature column names.
 #' @param ncomp \code{integer(1)}. Number of latent components to extract

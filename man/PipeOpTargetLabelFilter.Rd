@@ -31,6 +31,8 @@ this PipeOp only guarantees the metadata (level set), not the label balance.
 }
 \section{Parameters}{
 
+Hyperparameters are defined in the object's \code{param_set} and can be set
+via \code{param_vals}.
 }
 
 \seealso{

@@ -39,7 +39,10 @@
 #' columns that existed at training but are missing at prediction are created
 #' as all-zero columns.
 #'
-#' @section Parameter:
+#' @section Parameters:
+#' Hyperparameters are defined in the object's \code{param_set} and can be set
+#' via \code{param_vals}.
+#'
 #' @param blocks \code{list}. **Required.** Named list: block name -> character
 #'   vector of base feature names (expanded to post-encoding columns at training).
 #' @param ncomp \code{integer(1)}. Number of components to extract (default \code{1L}).

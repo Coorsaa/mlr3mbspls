@@ -12,6 +12,9 @@
 #' no-op and passes the task through unchanged.
 #'
 #' @section Parameters:
+#' Hyperparameters are defined in the object's \code{param_set} and can be set
+#' via \code{param_vals}.
+#'
 #' @param labels \code{vector} or \code{NULL}.
 #'   Target label(s) used for filtering.
 #'   If \code{invert = FALSE} (default), rows with \code{target \%in\% labels} are kept.

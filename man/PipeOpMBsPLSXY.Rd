@@ -51,8 +51,10 @@ columns that existed at training but are missing at prediction are created
 as all-zero columns.
 }
 
-\section{Parameter}{
+\section{Parameters}{
 
+Hyperparameters are defined in the object's \code{param_set} and can be set
+via \code{param_vals}.
 }
 
 \seealso{
