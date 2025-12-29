@@ -1,83 +1,65 @@
 ---
-title: 'mlr3mbspls: Multi-block sparse PLS transformers and stability selection for multimodal learning in mlr3'
+title: 'mlr3mbspls: Multi-block sparse PLS representation learning and bootstrap stability selection for mlr3'
 tags:
   - R
-  - machine learning
-  - multiblock
+  - multiblock data
+  - sparse partial least squares
+  - stability selection
   - multi-omics
-  - partial least squares
-  - feature selection
-  - clustering
+  - machine learning pipelines
+  - representation learning
 authors:
   - name: Stefan Coors
-    affiliation: 1
-    corresponding: true
+    orcid: 0000-0002-7465-2146
+    equal-contrib: true
+    affiliation: "1, 3"
   - name: Clara Sophie Vetter
-    affiliation: 1
+    orcid: 0000-0003-4268-2890
+    equal-contrib: true
+    affiliation: "2, 3"
 affiliations:
-  - name: Ludwig-Maximilians-Universität München, Germany
+  - name: Statistical Learning and Data Science, Ludwig-Maximilians-Universität München, Munich, Germany
     index: 1
+  - name: Department of Psychiatry and Psychotherapy, Ludwig-Maximilians-Universität München, Munich, Germany
+    index: 2
+  - name: Munich Center for Machine Learning (MCML), Munich, Germany
+    index: 3
 date: 29 December 2025
 bibliography: paper.bib
 ---
 
 # Summary
 
-Modern biomedical and industrial studies increasingly combine multiple data modalities measured on the same samples (e.g., clinical covariates, transcriptomics, proteomics, metabolomics, or imaging-derived features). Multi-block partial least squares (MB-PLS) models are a natural fit for these settings because they learn *block-wise* latent variables that capture shared structure across modalities, while remaining interpretable at the level of the original features.
+Multi-block datasets measure multiple feature sets (“blocks”) for the same samples—for example multi-omics assays, multimodal neuroimaging, or combined clinical and biomarker covariates. Analyses in this setting often require (i) a low-dimensional representation that integrates information across blocks, (ii) block-wise feature selection for interpretability, and (iii) evaluation procedures that remain valid under resampling and hyperparameter tuning.
 
-`mlr3mbspls` is an R package that implements **multi-block sparse PLS (MB-sPLS)** as first-class operators in the `mlr3` ecosystem [@mlr3; @mlr3pipelines]. The package provides pipeline building blocks (`PipeOp`s) for (i) learning multi-block latent representations with block-wise feature sparsity and (ii) performing bootstrap-based stability selection to obtain more robust, reproducible feature sets and latent variables.
-
-The source code is developed openly in a public Git repository [@mlr3mbspls].
+`mlr3mbspls` provides a native implementation of multi-block sparse partial least squares (MB‑sPLS) as composable preprocessing operators within the `mlr3` machine learning ecosystem [@mlr3] and its pipeline package `mlr3pipelines` [@mlr3pipelines]. MB‑sPLS latent variables are produced as ordinary task features and can therefore be tuned, resampled, and combined with arbitrary downstream learners. The package also includes a dedicated bootstrap operator that performs stability-oriented feature and component selection, yielding stable weight vectors and stability-filtered latent representations for downstream modeling. Core computations are implemented in C++ via Rcpp and RcppArmadillo [@rcpp; @rcpparmadillo] to support high-dimensional blocks and repeated resampling. Source code and usage documentation are available in the public repository [@mlr3mbsplssoftware].
 
 # Statement of need
 
-In practice, multi-block latent variable methods are rarely used in isolation: they must be combined with preprocessing (scaling, batch/site correction), resampling, hyperparameter tuning, and downstream learners (clustering, classification, regression). While established R toolkits such as `mixOmics` [@rohart2017mixomics; @singh2019diablo] and `multiblock` [@multiblock] provide rich implementations of multiblock PLS variants, integrating these methods into *end-to-end* machine learning workflows—without leakage between training and test splits, and with consistent logging of intermediate quantities—requires substantial bespoke code.
+PLS-based integration is widely used for exploratory analysis and prediction with heterogeneous, high-dimensional biomedical data. In R, `mixOmics` offers a comprehensive toolbox for (sparse) PLS-based multi-omics integration and visualization [@mixomics], and sparse PLS formulations have been studied extensively for variable selection in high-dimensional problems [@lecao2008spls]. However, these workflows are commonly implemented as bespoke scripts. This makes it harder to (a) benchmark competing preprocessing choices in a leakage-free way, (b) tune sparsity schedules and component counts under cross-validation, and (c) couple representation learning with downstream learners using a consistent interface.
 
-`mlr3mbspls` addresses this gap by exposing MB-sPLS as composable pipeline operators that work natively with `mlr3` resampling and tuning. In addition, the package implements bootstrap stability selection within the same pipeline abstraction, enabling stable feature selection and stable latent variables that can be propagated to prediction and downstream learners.
+`mlr3mbspls` addresses this gap by turning MB‑sPLS into first-class, trainable transformers in `mlr3pipelines`. This design allows users to place MB‑sPLS within directed acyclic graphs that also include imputation, scaling, batch/site correction, and downstream learners, while preserving the separation of training and prediction phases required for valid model evaluation. In addition, the bootstrap selection operator supports stability-oriented model interpretation by reducing the sensitivity of sparse weight vectors to sampling variation. The target audience are applied researchers and method developers who work with multi-block data and want an interoperable workflow for representation learning, feature selection, and downstream modeling in the `mlr3` ecosystem.
 
-# MB-sPLS as an mlr3 pipeline operator
+# Methods and implementation
 
-The core transformer is `PipeOpMBsPLS`. Given a user-defined *block map* from modalities to feature columns, the operator learns a set of block scores (latent variables) for each component and returns them as new features (e.g., `LV1_genomics`, `LV1_proteomics`). The implementation follows a sequential multiblock PLS formulation with deflation, allowing components to capture complementary shared structure across blocks [@westerhuis2001deflation].
+## MB‑sPLS as an `mlr3pipelines` transformer
 
-High-dimensional settings motivate sparsity in the loading weights to improve interpretability and reduce overfitting. `PipeOpMBsPLS` supports **block-specific and component-specific sparsity** via either (i) per-block sparsity parameters or (ii) an explicit sparsity matrix, generalizing sparse PLS ideas that use ℓ1-type penalties or soft-thresholding to induce sparse loading vectors [@lecao2008spls]. Computationally intensive steps are implemented in C++ via `RcppArmadillo`.
+`PipeOpMBsPLS` implements sequential orthogonal MB‑sPLS with block-wise sparsity constraints. For each latent component, the method learns one sparse weight vector per block and optimizes a global association criterion across blocks. The package supports two objectives: mean absolute correlation of block scores (a scale-free association measure) and a Frobenius-norm objective based on squared correlations. Multiple components are extracted sequentially using deflation adapted to multiblock settings [@westerhuis2001deflation].
 
-Beyond representation learning, the operator records diagnostic quantities (objective trajectories, explained variance by block and component, weight sparsity) and supports optional **permutation-based component stopping**. At prediction time, `PipeOpMBsPLS` can optionally perform out-of-sample permutation or bootstrap tests for latent correlations, providing an additional sanity check on whether the learned cross-block signal generalizes.
+Sparsity can be specified either through automatically generated hyperparameters (`c_<block>`, convenient for tuning) or through an explicit sparsity schedule matrix (`c_matrix`, rows = blocks, columns = components) for fully reproducible configurations. The operator outputs per-block latent score columns with consistent names (`LVk_<block>`), enabling downstream clustering, classification, or regression learners to operate directly on the MB‑sPLS representation. For model assessment under resampling, the operator records weights and loadings, as well as block-wise and component-wise explained variance on both training and new data, and the optimized association objective.
 
-# Bootstrap stability selection for MB-sPLS
+## Bootstrap stability selection and stable prediction weights
 
-Sparse multiblock models can be sensitive to sampling noise: different training splits may yield different selected features and component orientations. To improve robustness, `mlr3mbspls` provides `PipeOpMBsPLSBootstrapSelect`, a downstream operator that runs MB-sPLS on multiple bootstrap resamples [@efron1994bootstrap] and derives stability statistics for each feature and component.
+Sparse latent models can be sensitive to sampling variability, especially when blocks are high-dimensional. `PipeOpMBsPLSBootstrapSelect` performs post-hoc bootstrap analysis of MB‑sPLS weights (Efron & Tibshirani [@efron1994bootstrap]) and selects features and components using either (i) confidence intervals (retain features whose bootstrap confidence interval excludes zero) or (ii) selection frequency (retain features whose non-zero frequency exceeds a user-defined threshold), relating to stability-selection ideas [@meinshausen2010stability]. Because MB‑sPLS components are only identifiable up to permutation and sign, bootstrap solutions are aligned prior to aggregation using either block-wise sign rules or score-correlation alignment.
 
-The operator (i) aligns components across bootstrap replicates (to resolve sign and ordering ambiguities), (ii) aggregates loading weights into bootstrap means and confidence intervals, and (iii) selects stable features either by **confidence-interval filtering** (interval excludes zero) or by **selection frequency** thresholds. This workflow is closely related in spirit to stability selection ideas that emphasize reproducibility of selected variables under resampling [@meinshausen2010stability].
+After selection, the operator recomputes stable latent scores using deflation and replaces upstream latent-score columns with the stability-filtered representation, dropping unstable components and blocks. Stable weights can optionally be taken from the original training solution (“training”) or from aligned bootstrap means (“bootstrap_mean”), while selection itself is driven by bootstrap summaries. These stable weight variants are stored so that the upstream MB‑sPLS operator can optionally use stability-filtered weights at prediction time, enabling downstream learners to operate on stable representations without changing the pipeline structure.
 
-After selecting stable weights, the operator recomputes **stable latent variables** by projecting the original blocks onto the selected weight vectors and applying component-wise deflation. The stable weights can be stored and reused by `PipeOpMBsPLS` for predicting new data, enabling a consistent latent representation between training and deployment.
+## Resampling-friendly validation and diagnostics
 
-# Usage in end-to-end mlr3 workflows
+To quantify whether latent associations generalize, `PipeOpMBsPLS` includes optional train-time permutation testing (as an early-stopping criterion for component extraction) and prediction-side validation of the latent association objective via permutation or bootstrap inference. Together with `mlr3` measures for MB‑sPLS objectives and explained variance, these tools support benchmarking and nested cross-validation workflows that compare preprocessing choices, sparsity schedules, and component counts.
 
-`mlr3mbspls` integrates with `mlr3pipelines` graphs so that preprocessing, MB-sPLS, stability selection, and downstream learners can be composed and tuned within nested resampling. For example, a typical unsupervised pipeline for multimodal clustering can be built as:
+# Acknowledgements
 
-```r
-library(mlr3)
-library(mlr3cluster)
-library(mlr3pipelines)
-library(mlr3mbspls)
-
-blocks = list(
-  genomics   = grep("^rna_", task$feature_names, value = TRUE),
-  proteomics = grep("^prot_", task$feature_names, value = TRUE)
-)
-
-glrn = mbspls_graph_learner(
-  learner = lrn("clust.kmeans", centers = 3L),
-  blocks = blocks,
-  ncomp = 3L,
-  bootstrap_selection = TRUE,
-  B = 200L,
-  selection_method = "ci"
-)
-
-rr = resample(task, glrn, rsmp("cv", folds = 5))
-```
-
-The same graph can be tuned with `mlr3tuning` to optimize sparsity levels and the number of components using nested cross-validation, while `autoplot()` methods provide visualizations of weights, cross-block correlations, explained variance, and bootstrap stability diagnostics.
+We thank the `mlr3` community for discussions and infrastructure that enabled a pipeline-oriented implementation of multi-block representation learning in R.
 
 # References
