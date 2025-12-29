@@ -117,14 +117,19 @@ blocks <- list(
   metabolites = paste0("metabol_", 1:15)
 )
 
-# Define site correction variables
+# Define site/batch correction variables **by block**
+# (each entry lists site/batch and optional covariates present in the task backend)
 site_correction <- list(
-  site_batch = c("site", "batch")
+  clinical = c("site", "batch"),
+  genes = c("site", "batch"),
+  metabolites = c("site", "batch")
 )
 
-# Site correction methods
+# Choose a correction method per block: "partial_corr" (default), "combat", or "dir"
 site_correction_methods <- list(
-  site_batch = "combat"  # or "limma", "zscore"
+  clinical = "partial_corr",
+  genes = "partial_corr",
+  metabolites = "partial_corr"
 )
 
 print("Block structure:")
@@ -143,8 +148,8 @@ task <- TaskClust$new(
   target = "id"
 )
 
-# Remove metadata columns from features
-task$select(setdiff(task$feature_names, c("site", "batch")))
+# Keep site/batch columns available for `PipeOpSiteCorrection`
+# (they will be dropped automatically after correction unless `keep_site_col = TRUE`).
 
 print(task)
 print(paste("Features per block:"))

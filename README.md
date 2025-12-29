@@ -312,7 +312,7 @@ If you use `mlr3mbspls` in academic work please cite:
   title = {mlr3mbspls: Multi-Block Sparse PLS for mlr3},
   author = {Stefan Coors and Clara Sophie Vetter},
   year = {2025},
-  note = {R package version 0.2.9},
+  note = {R package version 0.2.10},
   url = {https://github.com/coorsaa/mlr3mbspls}
 }
 ```
@@ -325,4 +325,4 @@ Issues & PRs welcome. Please open an issue for substantial interface changes bef
 ---
 ## 📜 License
 
-GPL (>= 3)
+LGPL-3

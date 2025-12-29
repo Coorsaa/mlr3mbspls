@@ -377,6 +377,7 @@ PipeOpMBsPLS = R6::R6Class(
       self$state$ev_comp = ev_cmp
       self$state$latent_cor_train = tail(obj, 1)
       self$state$performance_metric = pv$performance_metric
+      self$state$correlation_method = pv$correlation_method
 
       if (!is.null(pv$log_env) && inherits(pv$log_env, "environment")) {
         sparsity = if (is.null(c_matrix)) {
@@ -544,9 +545,18 @@ PipeOpMBsPLS = R6::R6Class(
       st_active$ncomp = K_active
 
       # Then compute EV/MAC safely
-      test_ev_results = compute_pipeop_test_ev(X_for_ev, st_active)
+      test_ev_results = compute_test_ev(
+        X_blocks_test      = X_for_ev,
+        W_all              = W_active,
+        P_all              = P_active,
+        deflate            = TRUE,
+        performance_metric = pv$performance_metric,
+        correlation_method = pv$correlation_method,
+        # if stable weights have no loadings, this will default to test_ls internally
+        loading_source     = if (!is.null(P_active) && length(P_active)) "train" else "test_ls"
+      )
 
-      use_frob = identical(self$state$performance_metric, "frobenius")
+      use_frob = identical(pv$performance_metric, "frobenius")
       use_spear = identical(pv$correlation_method, "spearman")
 
       val_test = pv$val_test
@@ -737,9 +747,12 @@ PipeOpMBsPLS = R6::R6Class(
           mac_comp = mac_comp_test,
           ev_block = ev_block_test,
           ev_comp = ev_comp_test,
+          ev_block_cum = as.matrix(test_ev_results$ev_block_cum),
+          ev_comp_cum = as.numeric(test_ev_results$ev_comp_cum),
+          corr_method = pv$correlation_method,
           T_mat = T_mat_test,
           blocks = block_names,
-          perf_metric = self$state$performance_metric,
+          perf_metric = pv$performance_metric,
           weights_source = used_source, # <- NEW
           time = Sys.time()
         )
