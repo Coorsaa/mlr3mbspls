@@ -1,6 +1,6 @@
 #' MB-sPLS Bootstrap Selection with Two Methods ("ci" | "frequency")
 #'
-#' @title PipeOp \code{mbspls_bootstrap_select}
+#' @title Post-hoc bootstrap feature selection
 #'
 #' @description
 #' Performs post-hoc **bootstrap**, aligns replicate components (two alignment modes),

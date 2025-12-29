@@ -1,4 +1,4 @@
-#' Sequential Component-wise Tuner for Group-Sparse MB-sPCA
+#' @title Sequential Component-wise Tuner for Group-Sparse MB-sPCA
 #'
 #' @description
 #' `TunerSeqMBsPCA` tunes one component at a time for `PipeOpMBsPCA`, choosing

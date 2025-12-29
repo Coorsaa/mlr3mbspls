@@ -1,7 +1,6 @@
 #' Multi-Block Sparse Partial Least Squares (MB-sPLS) Transformer
 #'
-#' @title PipeOp \code{mbspls}: extract up to \code{ncomp} orthogonal latent
-#'   components from multiple data blocks
+#' @title Extract up to \code{ncomp} orthogonal latent components from multiple data blocks
 #'
 #' @description
 #' \strong{PipeOpMBsPLS} fits \emph{sequential} MB-sPLS models and appends one

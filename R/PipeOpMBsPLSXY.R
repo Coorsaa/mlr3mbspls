@@ -1,6 +1,6 @@
 #' Supervised Multi-Block Sparse PLS (MB-sPLS-XY) Transformer
 #'
-#' @title PipeOp \code{mbsplsxy}: supervised multi-block sPLS treating the target as an extra block
+#' @title Supervised multi-block sPLS treating the target as an extra block
 #'
 #' @description
 #' **PipeOpMBsPLSXY** is a supervised variant of MB-sPLS. During training, the

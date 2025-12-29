@@ -1,6 +1,6 @@
 #' Target-Label Filter
 #'
-#' @title PipeOp \code{target_label_filter}: filter observations by target label(s)
+#' @title Filter observations by target label(s)
 #'
 #' @description
 #' \strong{PipeOpTargetLabelFilter} filters the input \code{Task} by its target

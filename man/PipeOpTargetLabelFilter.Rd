@@ -2,7 +2,7 @@
 % Please edit documentation in R/PipeOpTargetLabelFilter.R
 \name{PipeOpTargetLabelFilter}
 \alias{PipeOpTargetLabelFilter}
-\title{PipeOp \code{target_label_filter}: filter observations by target label(s)}
+\title{Filter observations by target label(s)}
 \value{
 A \code{PipeOpTargetLabelFilter}.
 }

@@ -11,7 +11,7 @@ Authors@R:
 Description: Integration of multi-block sparse partial least squares (MB-sPLS) 
     with the mlr3 machine learning framework. This package provides custom PipeOp 
     components for MB-sPLS projection and dimensionality reduction in multi-block
-    data analysis workflows, with support for classification and clustering pipelines.
+    data analysis workflows, with support for supervised and unsupervised pipelines.
     It contains a complete native implementation of the MB-sPLS algorithm, fully
     integrated with the mlr3 ecosystem.
 License: LGPL-3 + file LICENSE
@@ -19,14 +19,14 @@ URL: https://mlr3.mlr-org.com, https://github.com/coorsaa/mlr3mbspls
 BugReports: https://github.com/coorsaa/mlr3mbspls/issues
 Encoding: UTF-8
 Config/testthat/edition: 3
-Config/testthat/parallel: false
+Config/testthat/parallel: true
 Roxygen: list(markdown = TRUE, r6 = TRUE)
 RoxygenNote: 7.3.3
 Depends:
-    R (>= 4.3.0),
-    mlr3 (>= 1.0.0),
-    mlr3pipelines (>= 0.8.0)
+    R (>= 4.3.0)
 Imports:
+    mlr3 (>= 1.0.0),
+    mlr3pipelines (>= 0.8.0),
     paradox (>= 1.0.1),
     mlr3cluster (>= 0.1.11),
     mlr3tuning (>= 1.4.0),
@@ -59,7 +59,7 @@ Suggests:
     testthat (>= 3.2.0),
     tibble
 VignetteBuilder:
-    knitr
+    knitr, rmarkdown
 LinkingTo:
     Rcpp,
     RcppArmadillo

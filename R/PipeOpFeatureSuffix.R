@@ -1,6 +1,6 @@
 #' Feature Suffixer
 #'
-#' @title PipeOp \code{feature_suffix}: append a suffix to all task feature names
+#' @title Append a suffix to all task feature names
 #'
 #' @description
 #' Renames all feature columns by appending a user-defined \code{suffix}.

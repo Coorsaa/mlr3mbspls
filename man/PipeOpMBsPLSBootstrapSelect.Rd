@@ -2,7 +2,7 @@
 % Please edit documentation in R/PipeOpMBsPLSBootstrapSelect.R
 \name{PipeOpMBsPLSBootstrapSelect}
 \alias{PipeOpMBsPLSBootstrapSelect}
-\title{PipeOp \code{mbspls_bootstrap_select}}
+\title{Post-hoc bootstrap feature selection}
 \value{
 Replaces task LV columns with kept components' LV columns (renumbered).
 Stores \code{weights_ci}, \code{weights_selectfreq}, \code{weights_stable},

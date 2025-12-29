@@ -2,7 +2,7 @@
 % Please edit documentation in R/PipeOpMBsPLSXY.R
 \name{PipeOpMBsPLSXY}
 \alias{PipeOpMBsPLSXY}
-\title{PipeOp \code{mbsplsxy}: supervised multi-block sPLS treating the target as an extra block}
+\title{Supervised multi-block sPLS treating the target as an extra block}
 \value{
 A \code{PipeOpMBsPLSXY} that appends columns \code{LVk_<block>} for
 each X-block.

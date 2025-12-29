@@ -1,4 +1,4 @@
-#' Sequential Component-wise Tuner for MB-sPLS
+#' @title Sequential Component-wise Tuner for MB-sPLS
 #'
 #' @description
 #' `TunerSeqMBsPLS` performs *sequential* hyper-parameter optimisation of a

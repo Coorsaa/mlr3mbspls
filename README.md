@@ -1,16 +1,16 @@
-<div align="center">
-
 # mlr3mbspls: Multi-Block Sparse PLS for mlr3
 
-[![R-CMD-check](https://github.com/coorsaa/mlr3mbspls/workflows/R-CMD-check/badge.svg)](https://github.com/coorsaa/mlr3mbspls/actions)
-[![CRAN status](https://www.r-pkg.org/badges/version/mlr3mbspls)](https://CRAN.R-project.org/package=mlr3mbspls)
+<div align="center">
+
+[![r-cmd-check](https://github.com/coorsaa/mlr3mbspls/actions/workflows/r-cmd-check.yml/badge.svg)](https://github.com/coorsaa/mlr3mbspls/actions/workflows/r-cmd-check.yml)
+[![no-suggest-cmd-check](https://github.com/coorsaa/mlr3mbspls/actions/workflows/no-suggest-cmd-check.yml/badge.svg)](https://github.com/coorsaa/mlr3mbspls/actions/workflows/no-suggest-cmd-check.yml)
+[![pkgdown](https://github.com/coorsaa/mlr3mbspls/actions/workflows/pkgdown.yml/badge.svg)](https://github.com/coorsaa/mlr3mbspls/actions/workflows/pkgdown.yml)
 
 </div>
 
 `mlr3mbspls` integrates **multi-block sparse partial least squares (MB-sPLS)** with the mlr3 ecosystem: pipelines, tuning, resampling, custom measures, rich visualisations, bootstrap stability selection, prediction‑side validation and nested CV utilities. A high‑performance C++/Armadillo backend powers the core algorithms (training + test EV, permutation, bootstrap, sparsity by block/component, deflation).
 
----
-## 🔑 Highlights
+## Highlights
 
 ### Multi-Block Representation Learning
 * Sequential orthogonal MB‑sPLS with per‑block L¹ sparsity (vector or full `c_matrix`)
@@ -56,8 +56,8 @@
 ### Visualisation (S3 Autoplot on `GraphLearner`)
 Types include: weights (raw / stability‑filtered), variance, scree, correlation heatmap, network, scores, block EV trajectories, bootstrap diagnostics.
 
----
-## 📦 Installation
+
+## Installation
 
 ```r
 # Development version
@@ -69,8 +69,8 @@ install.packages(c("mlr3","mlr3pipelines","mlr3cluster","data.table","ggplot2"))
 
 Optional: network plots require `igraph` + `ggraph`.
 
----
-## 🚀 Quick Start (Unsupervised Multi-Block Latent Space)
+
+## Quick Start (Unsupervised Multi-Block Latent Space)
 
 ```r
 library(mlr3)
@@ -110,8 +110,8 @@ autoplot(gl, type = "mbspls_variance", show_total = TRUE)
 autoplot(gl, type = "mbspls_heatmap", method = "spearman", absolute = FALSE)
 ```
 
----
-## 🧪 Prediction-Side Validation & Bootstrap Selection
+
+## Prediction-Side Validation & Bootstrap Selection
 
 ```r
 # Optional: parallel bootstrap selection (cross-platform) via future
@@ -142,8 +142,8 @@ gl_sel$train(task)
 gl_sel$model$mbspls_bootstrap_select$kept_blocks_per_comp
 ```
 
----
-## 🛠 Higher Level Convenience Graph
+
+## Higher Level Convenience Graph
 
 ```r
 # --- Site / batch effect correction example ---
@@ -197,8 +197,8 @@ gl_full = mbspls_graph_learner(
 gl_full$train(task)
 ```
 
----
-## 📊 Visualisation Examples
+
+## Visualisation Examples
 
 ```r
 library(mlr3viz)
@@ -216,8 +216,8 @@ autoplot(gl_sel, type = "mbspls_heatmap", method = "spearman", absolute = FALSE)
 mbspls_plot_block_weight_ci(gl_sel, source = "bootstrap", alpha_by_stability = TRUE)
 ```
 
----
-## 📏 Measures
+
+## Measures
 
 | Measure Class | Purpose |
 | ------------- | ------- |
@@ -235,8 +235,8 @@ rr = resample(task, gl, rsmp("cv", folds = 3), store_models = TRUE, measures = m
 rr$aggregate()
 ```
 
----
-## 🔄 Nested Cross-Validation
+
+## Nested Cross-Validation
 
 ```r
 library(mlr3tuning)
@@ -254,8 +254,8 @@ str(res_nested)
 
 Batchtools version (for HPC) is available via `mbspls_nested_cv_batchtools()`.
 
----
-## 🔧 Sequential Component Tuning
+
+## Sequential Component Tuning
 
 ```r
 tuner = TunerSeqMBsPLS$new()
@@ -270,8 +270,8 @@ instance = ti(
 # instance$result$learner_param_vals[[1]]$c_matrix
 ```
 
----
-## 🔍 Useful Low-Level Helpers
+
+## Useful Low-Level Helpers
 
 | Function | Role |
 | -------- | ---- |
@@ -283,8 +283,8 @@ instance = ti(
 | `aggregate_mbspls_payloads()` | Merge logged payloads (e.g. across resamples) |
 | `collect_mbspls_nested_cv()` | Collect nested CV payload archives |
 
----
-## 🧠 Custom Learners (Gower kNN)
+
+## Custom Learners (Gower kNN)
 
 ```r
 knn_cls = lrn("classif.knngower", k = 5)
@@ -293,8 +293,8 @@ knn_reg = lrn("regr.knngower", k = 5)
 
 These are used implicitly inside `impute_knn_graph()` and can be part of supervised pipelines downstream of MB‑sPLS/MB‑sPCA representations.
 
----
-## 🧷 Reproducible Sparsity Specification
+
+## Reproducible Sparsity Specification
 
 Two options:
 
@@ -305,8 +305,8 @@ Two options:
 graph_cmat = po("mbspls", blocks = blocks, c_matrix = matrix(c(2,2,3,3,1,1), nrow = 3, byrow = TRUE))
 ```
 
----
-## 📄 Vignette
+
+## Vignette
 
 See the Quickstart vignette for an end‑to‑end multi‑omics example:
 
@@ -314,8 +314,8 @@ See the Quickstart vignette for an end‑to‑end multi‑omics example:
 vignette("quickstart", package = "mlr3mbspls")
 ```
 
----
-## 📚 Citation
+
+## Citation
 
 If you use `mlr3mbspls` in academic work please cite:
 
@@ -329,12 +329,12 @@ If you use `mlr3mbspls` in academic work please cite:
 }
 ```
 
----
-## 🤝 Contributing
+
+## Contributing
 
 Issues & PRs welcome. Please open an issue for substantial interface changes before implementing. Run `pre-commit` hooks + `R CMD check` locally.
 
----
-## 📜 License
+
+## License
 
 LGPL-3

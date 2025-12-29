@@ -2,8 +2,7 @@
 % Please edit documentation in R/PipeOpMBsPLS.R
 \name{PipeOpMBsPLS}
 \alias{PipeOpMBsPLS}
-\title{PipeOp \code{mbspls}: extract up to \code{ncomp} orthogonal latent
-components from multiple data blocks}
+\title{Extract up to \code{ncomp} orthogonal latent components from multiple data blocks}
 \value{
 A \code{PipeOpMBsPLS} that outputs either only \code{LVk_<block>} columns
 (default) or the original features plus appended LV columns (if \code{append=TRUE}).

@@ -2,7 +2,7 @@
 % Please edit documentation in R/PipeOpFeatureSuffix.R
 \name{PipeOpFeatureSuffix}
 \alias{PipeOpFeatureSuffix}
-\title{PipeOp \code{feature_suffix}: append a suffix to all task feature names}
+\title{Append a suffix to all task feature names}
 \description{
 Renames all feature columns by appending a user-defined \code{suffix}.
 Targets and other roles are left unchanged. The same mapping is applied
