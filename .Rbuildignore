@@ -6,5 +6,6 @@
 ^\.DS_Store$
 ^build\.R$
 ^paper$
+^docs$
 ^.*\.Rproj$
 ^\.Rproj\.user$
