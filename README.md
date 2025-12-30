@@ -4,6 +4,7 @@
 
 [![r-cmd-check](https://github.com/coorsaa/mlr3mbspls/actions/workflows/r-cmd-check.yml/badge.svg)](https://github.com/coorsaa/mlr3mbspls/actions/workflows/r-cmd-check.yml)
 [![no-suggest-cmd-check](https://github.com/coorsaa/mlr3mbspls/actions/workflows/no-suggest-cmd-check.yml/badge.svg)](https://github.com/coorsaa/mlr3mbspls/actions/workflows/no-suggest-cmd-check.yml)
+[![Codecov test coverage](https://codecov.io/gh/coorsaa/mlr3mbspls/graph/badge.svg)](https://app.codecov.io/gh/coorsaa/mlr3mbspls/actions/workflows/test-coverage.yaml)
 [![pkgdown](https://github.com/coorsaa/mlr3mbspls/actions/workflows/pkgdown.yml/badge.svg)](https://github.com/coorsaa/mlr3mbspls/actions/workflows/pkgdown.yml)
 
 </div>
