@@ -56,4 +56,3 @@ cpp_lm_coeff_ridge <- function(X, Y, lambda, unpen_idx) {
 cpp_lm_coeff <- function(X, Y) {
     .Call(`_mlr3mbspls_cpp_lm_coeff`, X, Y)
 }
-
