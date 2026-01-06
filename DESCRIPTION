@@ -61,7 +61,7 @@ Suggests:
     testthat (>= 3.2.0),
     tibble
 Remotes:
-    BiocParallel=bioc::BiocParallel,
+    bioc::BiocParallel,
     neuroCombat=github::Jfortin1/neuroCombat_Rpackage
 VignetteBuilder:
     knitr, rmarkdown
