@@ -51,7 +51,6 @@ Suggests:
     knitr,
     mlr3learners (>= 0.12.0),
     BiocManager,
-    BiocParallel,
     neuroCombat,
     patchwork,
     RColorBrewer,
@@ -61,7 +60,6 @@ Suggests:
     testthat (>= 3.2.0),
     tibble
 Remotes:
-    bioc::BiocParallel,
     neuroCombat=github::Jfortin1/neuroCombat_Rpackage
 VignetteBuilder:
     knitr, rmarkdown

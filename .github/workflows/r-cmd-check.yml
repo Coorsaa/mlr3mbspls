@@ -53,7 +53,24 @@ jobs:
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
           needs: check
-          extra-packages: any::rcmdcheck
+          extra-packages: |
+            any::rcmdcheck
+            neuroCombat=?ignore
+        
+      # Install Bioconductor deps + neuroCombat after pak is done
+      - name: Install neuroCombat and Bioconductor deps
+        run: |
+          install.packages("BiocManager")
+          # Ensures Bioconductor repos match the current R version
+          BiocManager::install("BiocParallel", ask = FALSE, update = FALSE)
+        
+          install.packages("remotes")
+          remotes::install_github(
+            "Jfortin1/neuroCombat_Rpackage",
+            upgrade = "never",
+            dependencies = TRUE
+          )
+        shell: Rscript {0}
 
       - uses: mxschmitt/action-tmate@v3
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
