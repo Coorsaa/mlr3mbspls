@@ -88,7 +88,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         ),
 
         stratify_by_block = paradox::p_uty(default = NULL, tags = "train"),
-        seed_bootstrap = paradox::p_int(lower = 1L, default = 20250921L, tags = "train"),
+        seed_bootstrap = paradox::p_int(lower = 1L, default = 20250921L, tags = "train", special_vals = list(NULL)),
         workers = paradox::p_int(lower = 1L, default = 1L, tags = "train")
       )
 
