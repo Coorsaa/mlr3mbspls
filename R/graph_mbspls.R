@@ -226,18 +226,84 @@ mbspls_graph = function(
 #' MB-sPLS GraphLearner: preproc -> MB-sPLS -> bootstrap-select (two selection methods) -> learner
 #'
 #' @param learner Downstream learner (default k-means with 1 center).
-#' @param ... Arguments passed to [mbspls_graph()].
+#' @inheritParams mbspls_graph
 #'
 #' @return [mlr3pipelines::GraphLearner]
 #' @import mlr3 mlr3cluster mlr3pipelines checkmate
 #' @export
 mbspls_graph_learner = function(
   learner = lrn("clust.kmeans", centers = 1L),
-  ...
+  blocks,
+  site_correction,
+  site_correction_methods,
+  keep_site_col = FALSE,
+  ncomp,
+  k = 5,
+  performance_metric = c("mac", "frobenius"),
+  correlation_method = c("pearson", "spearman"),
+  c_matrix = NULL,
+
+  permutation_test = FALSE,
+  n_perm = 500L,
+  perm_alpha = 0.05,
+  predict_weights = c("auto", "raw", "stable_ci", "stable_frequency"),
+  val_test = c("none", "permutation", "bootstrap"),
+  val_test_alpha = 0.05,
+  val_test_n = 1000L,
+  val_test_permute_all = TRUE,
+
+  bootstrap = TRUE,
+  stability_only = FALSE,
+  B = 500L,
+  alpha = 0.05,
+  align = c("block_sign", "score_correlation"),
+  bootstrap_selection = TRUE,
+  selection_method = c("ci", "frequency"),
+  frequency_threshold = 0.60,
+  stable_weight_source = c("training", "bootstrap_mean"),
+  stratify_by_block = NULL,
+  seed_train = NULL,
+  seed_bootstrap = NULL,
+  workers = 1L,
+  id_suffix = NULL,
+  log_env = NULL
 ) {
   checkmate::assert_class(learner, "Learner")
 
-  graph = mbspls_graph(...)
+  graph = mbspls_graph(
+    blocks = blocks,
+    site_correction = site_correction,
+    site_correction_methods = site_correction_methods,
+    keep_site_col = keep_site_col,
+    ncomp = ncomp,
+    k = k,
+    performance_metric = performance_metric,
+    correlation_method = correlation_method,
+    c_matrix = c_matrix,
+    permutation_test = permutation_test,
+    n_perm = n_perm,
+    perm_alpha = perm_alpha,
+    predict_weights = predict_weights,
+    val_test = val_test,
+    val_test_alpha = val_test_alpha,
+    val_test_n = val_test_n,
+    val_test_permute_all = val_test_permute_all,
+    bootstrap = bootstrap,
+    stability_only = stability_only,
+    B = B,
+    alpha = alpha,
+    align = align,
+    bootstrap_selection = bootstrap_selection,
+    selection_method = selection_method,
+    frequency_threshold = frequency_threshold,
+    stable_weight_source = stable_weight_source,
+    stratify_by_block = stratify_by_block,
+    seed_train = seed_train,
+    seed_bootstrap = seed_bootstrap,
+    workers = workers,
+    id_suffix = id_suffix,
+    log_env = log_env
+  )
   as_learner(graph %>>%
     po("learner", learner))
 }

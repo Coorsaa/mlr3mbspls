@@ -4,12 +4,94 @@
 \alias{mbspls_graph_learner}
 \title{MB-sPLS GraphLearner: preproc -> MB-sPLS -> bootstrap-select (two selection methods) -> learner}
 \usage{
-mbspls_graph_learner(learner = lrn("clust.kmeans", centers = 1L), ...)
+mbspls_graph_learner(
+  learner = lrn("clust.kmeans", centers = 1L),
+  blocks,
+  site_correction,
+  site_correction_methods,
+  keep_site_col = FALSE,
+  ncomp,
+  k = 5,
+  performance_metric = c("mac", "frobenius"),
+  correlation_method = c("pearson", "spearman"),
+  c_matrix = NULL,
+  permutation_test = FALSE,
+  n_perm = 500L,
+  perm_alpha = 0.05,
+  predict_weights = c("auto", "raw", "stable_ci", "stable_frequency"),
+  val_test = c("none", "permutation", "bootstrap"),
+  val_test_alpha = 0.05,
+  val_test_n = 1000L,
+  val_test_permute_all = TRUE,
+  bootstrap = TRUE,
+  stability_only = FALSE,
+  B = 500L,
+  alpha = 0.05,
+  align = c("block_sign", "score_correlation"),
+  bootstrap_selection = TRUE,
+  selection_method = c("ci", "frequency"),
+  frequency_threshold = 0.6,
+  stable_weight_source = c("training", "bootstrap_mean"),
+  stratify_by_block = NULL,
+  seed_train = NULL,
+  seed_bootstrap = NULL,
+  workers = 1L,
+  id_suffix = NULL,
+  log_env = NULL
+)
 }
 \arguments{
 \item{learner}{Downstream learner (default k-means with 1 center).}
 
-\item{...}{Arguments passed to \code{\link[=mbspls_graph]{mbspls_graph()}}.}
+\item{blocks, site_correction, site_correction_methods, keep_site_col}{Preproc settings.}
+
+\item{ncomp}{Number of MB-sPLS components.}
+
+\item{k}{k-NN for imputation (preproc).}
+
+\item{performance_metric}{"mac" or "frobenius".}
+
+\item{correlation_method}{"pearson" or "spearman".}
+
+\item{c_matrix}{Optional L1 constraint matrix for MB-sPLS.}
+
+\item{permutation_test, n_perm, perm_alpha}{Train-time permutation test (MB-sPLS).}
+
+\item{predict_weights}{character; one of "auto","raw","stable_ci","stable_frequency".
+Controls which weights PipeOpMBsPLS uses at predict/validation time.}
+
+\item{val_test, val_test_alpha, val_test_n, val_test_permute_all}{Prediction-side validation (MB-sPLS).}
+
+\item{bootstrap}{Logical; run bootstrap selection (default TRUE).}
+
+\item{stability_only}{Logical; only compute stability, no selection (default FALSE).}
+
+\item{B}{Integer; bootstrap replicates (default 500).}
+
+\item{alpha}{Numeric; CI alpha (default 0.05).}
+
+\item{align}{"block_sign" (default) or "global_correlation".}
+
+\item{bootstrap_selection}{Logical; whether to run bootstrap-based feature
+selection inside \link{PipeOpMBsPLSBootstrapSelect} (default TRUE).}
+
+\item{selection_method}{"ci" (default) or "frequency".}
+
+\item{frequency_threshold}{Numeric in \verb{[0,1]}; only if selection_method="frequency" (default 0.6).}
+
+\item{stable_weight_source}{"training" (default) or "bootstrap_mean".}
+
+\item{stratify_by_block}{Optional dummy block for stratified bootstrap (e.g., "Studygroup").}
+
+\item{seed_train}{Optional seed for MB-sPLS training.}
+
+\item{seed_bootstrap}{Optional seed for bootstrap selection.}
+
+\item{workers}{Integer; Unix workers (default cores-1).}
+
+\item{id_suffix}{Optional suffix for PipeOp ids.}
+
+\item{log_env}{Shared environment (created if NULL).}
 }
 \value{
 \link[mlr3pipelines:mlr_learners_graph]{mlr3pipelines::GraphLearner}
