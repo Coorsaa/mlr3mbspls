@@ -60,7 +60,41 @@
     </div>
 
     <div id="ref-usage">
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">mbspls_graph_learner</span><span class="op">(</span>learner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"clust.kmeans"</span>, centers <span class="op">=</span> <span class="fl">1L</span><span class="op">)</span>, <span class="va">...</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">mbspls_graph_learner</span><span class="op">(</span></span>
+<span>  learner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"clust.kmeans"</span>, centers <span class="op">=</span> <span class="fl">1L</span><span class="op">)</span>,</span>
+<span>  <span class="va">blocks</span>,</span>
+<span>  <span class="va">site_correction</span>,</span>
+<span>  <span class="va">site_correction_methods</span>,</span>
+<span>  keep_site_col <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>  <span class="va">ncomp</span>,</span>
+<span>  k <span class="op">=</span> <span class="fl">5</span>,</span>
+<span>  performance_metric <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"mac"</span>, <span class="st">"frobenius"</span><span class="op">)</span>,</span>
+<span>  correlation_method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"pearson"</span>, <span class="st">"spearman"</span><span class="op">)</span>,</span>
+<span>  c_matrix <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  permutation_test <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>  n_perm <span class="op">=</span> <span class="fl">500L</span>,</span>
+<span>  perm_alpha <span class="op">=</span> <span class="fl">0.05</span>,</span>
+<span>  predict_weights <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"auto"</span>, <span class="st">"raw"</span>, <span class="st">"stable_ci"</span>, <span class="st">"stable_frequency"</span><span class="op">)</span>,</span>
+<span>  val_test <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"none"</span>, <span class="st">"permutation"</span>, <span class="st">"bootstrap"</span><span class="op">)</span>,</span>
+<span>  val_test_alpha <span class="op">=</span> <span class="fl">0.05</span>,</span>
+<span>  val_test_n <span class="op">=</span> <span class="fl">1000L</span>,</span>
+<span>  val_test_permute_all <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  bootstrap <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  stability_only <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>  B <span class="op">=</span> <span class="fl">500L</span>,</span>
+<span>  alpha <span class="op">=</span> <span class="fl">0.05</span>,</span>
+<span>  align <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"block_sign"</span>, <span class="st">"score_correlation"</span><span class="op">)</span>,</span>
+<span>  bootstrap_selection <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  selection_method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"ci"</span>, <span class="st">"frequency"</span><span class="op">)</span>,</span>
+<span>  frequency_threshold <span class="op">=</span> <span class="fl">0.6</span>,</span>
+<span>  stable_weight_source <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"training"</span>, <span class="st">"bootstrap_mean"</span><span class="op">)</span>,</span>
+<span>  stratify_by_block <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  seed_train <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  seed_bootstrap <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  workers <span class="op">=</span> <span class="fl">1L</span>,</span>
+<span>  id_suffix <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  log_env <span class="op">=</span> <span class="cn">NULL</span></span>
+<span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div id="arguments">
@@ -71,8 +105,102 @@
 <dd><p>Downstream learner (default k-means with 1 center).</p></dd>
 
 
-<dt id="arg--">...<a class="anchor" aria-label="anchor" href="#arg--"></a></dt>
-<dd><p>Arguments passed to <code><a href="mbspls_graph.html">mbspls_graph()</a></code>.</p></dd>
+<dt id="arg-blocks-site-correction-site-correction-methods-keep-site-col">blocks, site_correction, site_correction_methods, keep_site_col<a class="anchor" aria-label="anchor" href="#arg-blocks-site-correction-site-correction-methods-keep-site-col"></a></dt>
+<dd><p>Preproc settings.</p></dd>
+
+
+<dt id="arg-ncomp">ncomp<a class="anchor" aria-label="anchor" href="#arg-ncomp"></a></dt>
+<dd><p>Number of MB-sPLS components.</p></dd>
+
+
+<dt id="arg-k">k<a class="anchor" aria-label="anchor" href="#arg-k"></a></dt>
+<dd><p>k-NN for imputation (preproc).</p></dd>
+
+
+<dt id="arg-performance-metric">performance_metric<a class="anchor" aria-label="anchor" href="#arg-performance-metric"></a></dt>
+<dd><p>"mac" or "frobenius".</p></dd>
+
+
+<dt id="arg-correlation-method">correlation_method<a class="anchor" aria-label="anchor" href="#arg-correlation-method"></a></dt>
+<dd><p>"pearson" or "spearman".</p></dd>
+
+
+<dt id="arg-c-matrix">c_matrix<a class="anchor" aria-label="anchor" href="#arg-c-matrix"></a></dt>
+<dd><p>Optional L1 constraint matrix for MB-sPLS.</p></dd>
+
+
+<dt id="arg-permutation-test-n-perm-perm-alpha">permutation_test, n_perm, perm_alpha<a class="anchor" aria-label="anchor" href="#arg-permutation-test-n-perm-perm-alpha"></a></dt>
+<dd><p>Train-time permutation test (MB-sPLS).</p></dd>
+
+
+<dt id="arg-predict-weights">predict_weights<a class="anchor" aria-label="anchor" href="#arg-predict-weights"></a></dt>
+<dd><p>character; one of "auto","raw","stable_ci","stable_frequency".
+Controls which weights PipeOpMBsPLS uses at predict/validation time.</p></dd>
+
+
+<dt id="arg-val-test-val-test-alpha-val-test-n-val-test-permute-all">val_test, val_test_alpha, val_test_n, val_test_permute_all<a class="anchor" aria-label="anchor" href="#arg-val-test-val-test-alpha-val-test-n-val-test-permute-all"></a></dt>
+<dd><p>Prediction-side validation (MB-sPLS).</p></dd>
+
+
+<dt id="arg-bootstrap">bootstrap<a class="anchor" aria-label="anchor" href="#arg-bootstrap"></a></dt>
+<dd><p>Logical; run bootstrap selection (default TRUE).</p></dd>
+
+
+<dt id="arg-stability-only">stability_only<a class="anchor" aria-label="anchor" href="#arg-stability-only"></a></dt>
+<dd><p>Logical; only compute stability, no selection (default FALSE).</p></dd>
+
+
+<dt id="arg-b">B<a class="anchor" aria-label="anchor" href="#arg-b"></a></dt>
+<dd><p>Integer; bootstrap replicates (default 500).</p></dd>
+
+
+<dt id="arg-alpha">alpha<a class="anchor" aria-label="anchor" href="#arg-alpha"></a></dt>
+<dd><p>Numeric; CI alpha (default 0.05).</p></dd>
+
+
+<dt id="arg-align">align<a class="anchor" aria-label="anchor" href="#arg-align"></a></dt>
+<dd><p>"block_sign" (default) or "global_correlation".</p></dd>
+
+
+<dt id="arg-bootstrap-selection">bootstrap_selection<a class="anchor" aria-label="anchor" href="#arg-bootstrap-selection"></a></dt>
+<dd><p>Logical; whether to run bootstrap-based feature
+selection inside <a href="PipeOpMBsPLSBootstrapSelect.html">PipeOpMBsPLSBootstrapSelect</a> (default TRUE).</p></dd>
+
+
+<dt id="arg-selection-method">selection_method<a class="anchor" aria-label="anchor" href="#arg-selection-method"></a></dt>
+<dd><p>"ci" (default) or "frequency".</p></dd>
+
+
+<dt id="arg-frequency-threshold">frequency_threshold<a class="anchor" aria-label="anchor" href="#arg-frequency-threshold"></a></dt>
+<dd><p>Numeric in <code>[0,1]</code>; only if selection_method="frequency" (default 0.6).</p></dd>
+
+
+<dt id="arg-stable-weight-source">stable_weight_source<a class="anchor" aria-label="anchor" href="#arg-stable-weight-source"></a></dt>
+<dd><p>"training" (default) or "bootstrap_mean".</p></dd>
+
+
+<dt id="arg-stratify-by-block">stratify_by_block<a class="anchor" aria-label="anchor" href="#arg-stratify-by-block"></a></dt>
+<dd><p>Optional dummy block for stratified bootstrap (e.g., "Studygroup").</p></dd>
+
+
+<dt id="arg-seed-train">seed_train<a class="anchor" aria-label="anchor" href="#arg-seed-train"></a></dt>
+<dd><p>Optional seed for MB-sPLS training.</p></dd>
+
+
+<dt id="arg-seed-bootstrap">seed_bootstrap<a class="anchor" aria-label="anchor" href="#arg-seed-bootstrap"></a></dt>
+<dd><p>Optional seed for bootstrap selection.</p></dd>
+
+
+<dt id="arg-workers">workers<a class="anchor" aria-label="anchor" href="#arg-workers"></a></dt>
+<dd><p>Integer; Unix workers (default cores-1).</p></dd>
+
+
+<dt id="arg-id-suffix">id_suffix<a class="anchor" aria-label="anchor" href="#arg-id-suffix"></a></dt>
+<dd><p>Optional suffix for PipeOp ids.</p></dd>
+
+
+<dt id="arg-log-env">log_env<a class="anchor" aria-label="anchor" href="#arg-log-env"></a></dt>
+<dd><p>Shared environment (created if NULL).</p></dd>
 
 </dl></div>
     <div id="value">
