@@ -4,21 +4,12 @@
 \alias{mbspls_graph_learner}
 \title{MB-sPLS GraphLearner: preproc -> MB-sPLS -> bootstrap-select (two selection methods) -> learner}
 \usage{
-mbspls_graph_learner(
-  learner = lrn("clust.kmeans", centers = 1L),
-  blocks,
-  site_correction,
-  site_correction_methods,
-  ncomp,
-  ...
-)
+mbspls_graph_learner(learner = lrn("clust.kmeans", centers = 1L), ...)
 }
 \arguments{
 \item{learner}{Downstream learner (default k-means with 1 center).}
 
-\item{blocks, site_correction, site_correction_methods, ncomp}{Main settings.}
-
-\item{...}{Additional arguments passed to \code{\link[=mbspls_graph]{mbspls_graph()}}.}
+\item{...}{Arguments passed to \code{\link[=mbspls_graph]{mbspls_graph()}}.}
 }
 \value{
 \link[mlr3pipelines:mlr_learners_graph]{mlr3pipelines::GraphLearner}

@@ -226,29 +226,18 @@ mbspls_graph = function(
 #' MB-sPLS GraphLearner: preproc -> MB-sPLS -> bootstrap-select (two selection methods) -> learner
 #'
 #' @param learner Downstream learner (default k-means with 1 center).
-#' @param blocks,site_correction,site_correction_methods,ncomp Main settings.
-#' @param ... Additional arguments passed to [mbspls_graph()].
+#' @param ... Arguments passed to [mbspls_graph()].
 #'
 #' @return [mlr3pipelines::GraphLearner]
 #' @import mlr3 mlr3cluster mlr3pipelines checkmate
 #' @export
 mbspls_graph_learner = function(
   learner = lrn("clust.kmeans", centers = 1L),
-  blocks,
-  site_correction,
-  site_correction_methods,
-  ncomp,
   ...
 ) {
   checkmate::assert_class(learner, "Learner")
 
-  graph = mbspls_graph(
-    blocks = blocks,
-    site_correction = site_correction,
-    site_correction_methods = site_correction_methods,
-    ncomp = ncomp,
-    ...
-  )
+  graph = mbspls_graph(...)
   as_learner(graph %>>%
     po("learner", learner))
 }
