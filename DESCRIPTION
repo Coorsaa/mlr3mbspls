@@ -1,6 +1,6 @@
 Package: mlr3mbspls
 Title: Multi-Block Sparse Partial Least Squares for mlr3
-Version: 0.2.11
+Version: 0.2.12
 Authors@R: 
     c(
       person("Stefan", "Coors", email = "mail@stefancoors.de", role = c("aut", "cre"),
