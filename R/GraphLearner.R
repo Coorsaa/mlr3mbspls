@@ -238,14 +238,13 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
       if (inherits(ve, "environment")) ve else NULL
     }, error = function(e) NULL)
   } else {
-    sel = mod$mbspls_bootstrap_select %||% gl$graph$pipeops$mbspls_bootstrap_select
-    sel_po = gl$graph$pipeops$mbspls_bootstrap_select
-    if (is.null(sel)) {
-      hits = names(gl$graph$pipeops)[vapply(gl$graph$pipeops, inherits, logical(1), "PipeOpMBsPLSBootstrapSelect")]
-      if (length(hits)) {
-        sel = mod[[hits[1]]] %||% gl$graph$pipeops[[hits[1]]]
-        sel_po = gl$graph$pipeops[[hits[1]]]
-      }
+    sel = NULL
+    sel_po = NULL
+    hits = names(gl$graph$pipeops)[vapply(gl$graph$pipeops, inherits, logical(1), "PipeOpMBsPLSBootstrapSelect")]
+    if (length(hits)) {
+      sid = hits[1]
+      sel = mod[[sid]] %||% gl$graph$pipeops[[sid]]
+      sel_po = gl$graph$pipeops[[sid]]
     }
     if (!is.null(sel)) {
       sel_state = if (!is.null(sel$state)) sel$state else sel
@@ -278,16 +277,10 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
     sel_po = gr$pipeops[[select_id]]
     sel_state = gr$state[[select_id]] %||% sel_po$state
   } else {
-    # try conventional id first
-    if (!is.null(gr$pipeops$mbspls_bootstrap_select)) {
-      sel_po = gr$pipeops$mbspls_bootstrap_select
-      sel_state = gr$state$mbspls_bootstrap_select %||% sel_po$state
-    } else {
-      hits = names(gr$pipeops)[vapply(gr$pipeops, inherits, logical(1), "PipeOpMBsPLSBootstrapSelect")]
-      if (length(hits)) {
-        sel_po = gr$pipeops[[hits[1]]]
-        sel_state = gr$state[[hits[1]]] %||% sel_po$state
-      }
+    hits = names(gr$pipeops)[vapply(gr$pipeops, inherits, logical(1), "PipeOpMBsPLSBootstrapSelect")]
+    if (length(hits)) {
+      sel_po = gr$pipeops[[hits[1]]]
+      sel_state = gr$state[[hits[1]]] %||% sel_po$state
     }
   }
 

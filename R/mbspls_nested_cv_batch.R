@@ -21,7 +21,8 @@
 
   gl_tune = graphlearner$clone(deep = TRUE)
   # ensure mbspls node reflects arguments (ncomp + metric)
-  po_tune = gl_tune$graph$pipeops$mbspls
+  mbspls_id_tune = .mbspls_pipeop_id(gl_tune$graph, where = "gl_tune$graph")
+  po_tune = gl_tune$graph$pipeops[[mbspls_id_tune]]
   po_tune$param_set$values$ncomp = ncomp
   po_tune$param_set$values$performance_metric = performance_metric
 
@@ -58,7 +59,8 @@
 
   # evaluation GraphLearner clone for outer test
   gl_eval = graphlearner$clone(deep = TRUE)
-  po_eval = gl_eval$graph$pipeops$mbspls
+  mbspls_id_eval = .mbspls_pipeop_id(gl_eval$graph, where = "gl_eval$graph")
+  po_eval = gl_eval$graph$pipeops[[mbspls_id_eval]]
   po_eval$param_set$values$ncomp = ncol(c_star)
   po_eval$param_set$values$performance_metric = performance_metric
   po_eval$param_set$values$c_matrix = c_star

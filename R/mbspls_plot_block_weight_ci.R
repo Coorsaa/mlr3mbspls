@@ -43,6 +43,25 @@ mbspls_plot_block_weight_ci = function(
 
   # -- extract states ----------------------------------------------------------
   .get_state = function(obj) if (!is.null(obj$state)) obj$state else obj
+  .fit_state_from_graphlearner = function(gl) {
+    fit_id = .mbspls_pipeop_id(gl$graph, where = "GraphLearner$graph")
+    po_fit = gl$model[[fit_id]] %||% gl$graph$pipeops[[fit_id]]
+    if (is.null(po_fit)) stop("Cannot locate MB-sPLS node in the graph/model.")
+    .get_state(po_fit)
+  }
+  .select_state_from_graphlearner = function(gl) {
+    ids = names(gl$graph$pipeops)
+    hits = ids[vapply(gl$graph$pipeops, inherits, logical(1), "PipeOpMBsPLSBootstrapSelect")]
+    if (!length(hits)) {
+      return(NULL)
+    }
+    sid = hits[1L]
+    po_sel = gl$model[[sid]] %||% gl$graph$pipeops[[sid]]
+    if (is.null(po_sel)) {
+      return(NULL)
+    }
+    .get_state(po_sel)
+  }
   .blocks_named = function(b) {
     if (is.list(b) && !is.null(names(b))) {
       b
@@ -56,13 +75,10 @@ mbspls_plot_block_weight_ci = function(
   if (inherits(x, "GraphLearner")) {
     mdl = x$model
     if (is.null(mdl)) stop("GraphLearner is untrained (model is NULL).")
-    po_fit = mdl$mbspls %||% (x$graph$pipeops$mbspls)
-    po_sel = mdl$mbspls_bootstrap_select %||% (x$graph$pipeops$mbspls_bootstrap_select)
-    if (is.null(po_fit)) stop("Cannot locate 'mbspls' in the graph/model.")
-    st_fit = .get_state(po_fit)
+    st_fit = .fit_state_from_graphlearner(x)
     if (source == "bootstrap") {
-      if (is.null(po_sel)) stop("Cannot locate 'mbspls_bootstrap_select' in the model for bootstrap plotting.")
-      st_sel = .get_state(po_sel)
+      st_sel = .select_state_from_graphlearner(x)
+      if (is.null(st_sel)) stop("Cannot locate a PipeOpMBsPLSBootstrapSelect node in the model for bootstrap plotting.")
     }
   } else if (is.list(x)) {
     if (!is.null(x$mbspls)) st_fit <- .get_state(x$mbspls)
@@ -183,9 +199,7 @@ mbspls_plot_block_weight_ci = function(
     } else if (is.list(x)) {
       grab_fit = function(elem) {
         if (inherits(elem, "GraphLearner")) {
-          mdl = elem$model
-          po_fit = mdl$mbspls %||% elem$graph$pipeops$mbspls
-          .get_state(po_fit)
+          .fit_state_from_graphlearner(elem)
         } else if (!is.null(elem$weights)) {
           elem
         } else if (!is.null(elem$mbspls)) {

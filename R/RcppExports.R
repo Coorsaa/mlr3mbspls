@@ -17,6 +17,10 @@ perm_test_component_mbspca <- function(X_blocks, W_list, c_vec, n_perm = 999L, a
     .Call(`_mlr3mbspls_perm_test_component_mbspca`, X_blocks, W_list, c_vec, n_perm, alpha)
 }
 
+cpp_block_objective_oos <- function(X_blocks, W_list, spearman = FALSE, frobenius = FALSE) {
+    .Call(`_mlr3mbspls_cpp_block_objective_oos`, X_blocks, W_list, spearman, frobenius)
+}
+
 cpp_mbspls_one_lv <- function(X_blocks, c_constraints, max_iter, tol, frobenius = FALSE, spearman = FALSE) {
     .Call(`_mlr3mbspls_cpp_mbspls_one_lv`, X_blocks, c_constraints, max_iter, tol, frobenius, spearman)
 }
@@ -37,6 +41,10 @@ cpp_ev_test <- function(X_test, weights, loadings, ncomp) {
     .Call(`_mlr3mbspls_cpp_ev_test`, X_test, weights, loadings, ncomp)
 }
 
+cpp_compute_test_ev_core <- function(X_blocks_test, W_all, P_all, deflate = TRUE, spearman = FALSE, frobenius = FALSE, eps_var = 1e-12, use_train_loadings = TRUE, clamp_mode = 0L) {
+    .Call(`_mlr3mbspls_cpp_compute_test_ev_core`, X_blocks_test, W_all, P_all, deflate, spearman, frobenius, eps_var, use_train_loadings, clamp_mode)
+}
+
 cpp_mbspls_bootstrap <- function(X_blocks, c_constraints, W_ref, R = 500L, spearman = FALSE, frobenius = FALSE, max_iter = 500L, tol = 1e-6, store_weights = TRUE) {
     .Call(`_mlr3mbspls_cpp_mbspls_bootstrap`, X_blocks, c_constraints, W_ref, R, spearman, frobenius, max_iter, tol, store_weights)
 }
@@ -47,6 +55,10 @@ cpp_bootstrap_latent_correlation <- function(weights_matrix, component_idx, bloc
 
 cpp_perm_test_oos <- function(X_test, W_trained, n_perm = 1000L, spearman = FALSE, frobenius = FALSE, early_stop_threshold = 1.0, permute_all_blocks = TRUE) {
     .Call(`_mlr3mbspls_cpp_perm_test_oos`, X_test, W_trained, n_perm, spearman, frobenius, early_stop_threshold, permute_all_blocks)
+}
+
+cpp_bootstrap_test_oos <- function(X_test, W_trained, n_boot = 1000L, spearman = FALSE, frobenius = FALSE, alpha = 0.05) {
+    .Call(`_mlr3mbspls_cpp_bootstrap_test_oos`, X_test, W_trained, n_boot, spearman, frobenius, alpha)
 }
 
 cpp_lm_coeff_ridge <- function(X, Y, lambda, unpen_idx) {

@@ -56,6 +56,8 @@ mbspls_nested_cv = function(
     rs_outer$instantiate(task)
   }
 
+  mbspls_id = .mbspls_pipeop_id(graphlearner$graph, where = "graphlearner$graph")
+
   outer_iters = rs_outer$iters
   res_tbl = data.table::data.table()
   c_mats = vector("list", outer_iters)
@@ -68,6 +70,10 @@ mbspls_nested_cv = function(
     te_idx = rs_outer$test_set(i)
     task_tr = task$clone()$filter(tr_idx)
     task_te = task$clone()$filter(te_idx)
+
+    po = graphlearner$graph$pipeops[[mbspls_id]]
+    po$param_set$values$ncomp = as.integer(ncomp)
+    po$param_set$values$performance_metric = performance_metric
 
     tuner = TunerSeqMBsPLS$new(
       tuner              = "random_search",
@@ -103,7 +109,6 @@ mbspls_nested_cv = function(
       error = function(e) NA_real_
     )
 
-    po = graphlearner$graph$pipeops$mbspls
     po$param_set$values$c_matrix = c_star
     po$param_set$values$permutation_test = TRUE
     po$param_set$values$val_test = val_test

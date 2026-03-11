@@ -604,70 +604,22 @@ PipeOpMBsPLS = R6::R6Class(
           })
           n_test = nrow(dt)
           if (n_test >= 10) {
-            observed_correlation = 0
-            Tk_num = as.matrix(score_tables[[k]])
-            if (B >= 2 && nrow(Tk_num) >= 3) {
-              sc = c()
-              for (i in seq_len(B - 1L)) {
-                for (j in (i + 1L):B) {
-                  if (stats::sd(Tk_num[, i]) > 0 && stats::sd(Tk_num[, j]) > 0) {
-                    r = stats::cor(Tk_num[, i], Tk_num[, j], method = pv$correlation_method)
-                    if (is.finite(r)) sc <- c(sc, if (use_frob) r^2 else abs(r))
-                  }
-                }
-              }
-              observed_correlation = if (length(sc)) {
-                if (use_frob) sqrt(sum(sc)) else mean(sc)
-              } else {
-                0
-              }
-            }
-            boot_cor = numeric(val_test_n)
-            for (rep in seq_len(val_test_n)) {
-              idx = sample.int(n_test, replace = TRUE)
-              Tk_b = matrix(0, length(idx), B)
-              bi = 0L
-              for (bn in block_names) {
-                bi = bi + 1L
-                w_b = Wk[[bn]]
-                if (is.null(w_b)) next
-                cols = colnames(Xk_list[[bn]])
-                if (!is.null(names(w_b))) {
-                  wv = as.numeric(w_b[cols])
-                  wv[is.na(wv)] = 0
-                } else {
-                  wv = as.numeric(w_b)
-                  if (length(wv) != length(cols)) wv <- numeric(length(cols))
-                }
-                Tk_b[, bi] = Xk_list[[bn]][idx, , drop = FALSE] %*% wv
-              }
-              if (B >= 2 && nrow(Tk_b) >= 3) {
-                sc = c()
-                for (i in seq_len(B - 1L)) {
-                  for (j in (i + 1L):B) {
-                    if (stats::sd(Tk_b[, i]) > 0 && stats::sd(Tk_b[, j]) > 0) {
-                      r = stats::cor(Tk_b[, i], Tk_b[, j], method = pv$correlation_method)
-                      if (is.finite(r)) sc <- c(sc, if (use_frob) r^2 else abs(r))
-                    }
-                  }
-                }
-                boot_cor[rep] = if (length(sc)) {
-                  if (use_frob) sqrt(sum(sc)) else mean(sc)
-                } else {
-                  0
-                }
-              } else {
-                boot_cor[rep] = 0
-              }
-            }
-            boot_mean = mean(boot_cor, na.rm = TRUE)
-            boot_se = stats::sd(boot_cor, na.rm = TRUE)
-            valid_boot = boot_cor[is.finite(boot_cor)]
-            boot_p_value = if (length(valid_boot) > 0) mean(valid_boot <= observed_correlation) else NA_real_
+            bres = cpp_bootstrap_test_oos(
+              X_test = Xk_list,
+              W_trained = Wk,
+              n_boot = val_test_n,
+              spearman = use_spear,
+              frobenius = use_frob,
+              alpha = pv$val_test_alpha
+            )
+            observed_correlation = as.numeric(bres$stat_obs %||% NA_real_)
+            boot_mean = as.numeric(bres$boot_mean %||% NA_real_)
+            boot_se = as.numeric(bres$boot_se %||% NA_real_)
+            boot_p_value = as.numeric(bres$p_value %||% NA_real_)
+            ci_lower = as.numeric(bres$ci_lower %||% NA_real_)
+            ci_upper = as.numeric(bres$ci_upper %||% NA_real_)
+            n_boot_done = as.integer(bres$n_boot %||% val_test_n)
             conf = 1 - (if (is.null(pv$val_test_alpha)) 0.05 else pv$val_test_alpha)
-            zval = stats::qnorm(1 - (1 - conf) / 2)
-            ci_lower = boot_mean - zval * boot_se
-            ci_upper = boot_mean + zval * boot_se
             val_test_p[k] = boot_p_value
             val_test_stat[k] = observed_correlation
             if (k == 1L) {
@@ -676,7 +628,7 @@ PipeOpMBsPLS = R6::R6Class(
                 boot_mean = boot_mean, boot_se = boot_se,
                 boot_p_value = boot_p_value,
                 boot_ci_lower = ci_lower, boot_ci_upper = ci_upper,
-                confidence_level = conf, n_boot = val_test_n
+                confidence_level = conf, n_boot = n_boot_done
               )
             } else {
               val_bootstrap_results = rbind(val_bootstrap_results, data.table::data.table(
@@ -684,7 +636,7 @@ PipeOpMBsPLS = R6::R6Class(
                 boot_mean = boot_mean, boot_se = boot_se,
                 boot_p_value = boot_p_value,
                 boot_ci_lower = ci_lower, boot_ci_upper = ci_upper,
-                confidence_level = conf, n_boot = val_test_n
+                confidence_level = conf, n_boot = n_boot_done
               ), fill = TRUE)
             }
           } else {
