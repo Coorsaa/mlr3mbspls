@@ -31,10 +31,28 @@
   # Remove PipeOps from mlr3pipelines dictionary
   x = utils::getFromNamespace("mlr_pipeops", ns = "mlr3pipelines")
 
-  pipeops_to_remove = c("sitecorr", "mbspls", "mbsplsxy", "mbspca", "blockscale")
+  pipeops_to_remove = c(
+    "sitecorr",
+    "mbspls",
+    "mbspls_bootstrap_select",
+    "mbsplsxy",
+    "mbspca",
+    "blockscale",
+    "target_label_filter",
+    "feature_suffix"
+  )
   for (pipeop in pipeops_to_remove) {
     if (pipeop %in% x$keys()) {
       x$remove(pipeop)
+    }
+  }
+
+  # Remove Graphs from mlr3pipelines dictionary
+  g = utils::getFromNamespace("mlr_graphs", ns = "mlr3pipelines")
+  graphs_to_remove = c("mbspls_preproc", "mbspls_graph_learner", "imputeknn")
+  for (graph in graphs_to_remove) {
+    if (graph %in% g$keys()) {
+      g$remove(graph)
     }
   }
 

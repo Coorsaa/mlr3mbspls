@@ -182,3 +182,47 @@ test_that("PipeOpMBsPLS - writes expected payloads to log_env", {
   expect_true(is.list(log_env$last))
   expect_true(all(c("mac_comp", "ev_block", "ev_comp", "T_mat") %in% names(log_env$last)))
 })
+
+test_that("PipeOpMBsPLS - prediction-side bootstrap validation logs summary payload", {
+  set.seed(71)
+
+  n = 44
+  p1 = 5
+  p2 = 6
+
+  b1 = matrix(rnorm(n * p1), nrow = n, ncol = p1)
+  colnames(b1) = paste0("x", seq_len(p1))
+  b2 = matrix(rnorm(n * p2), nrow = n, ncol = p2)
+  colnames(b2) = paste0("z", seq_len(p2))
+  y = rnorm(n)
+
+  df = data.frame(b1, b2, y = y)
+  task = mlr3::TaskRegr$new(id = "mb_boot_val", backend = df, target = "y")
+  blocks = list(b1 = colnames(b1), b2 = colnames(b2))
+
+  log_env = new.env(parent = emptyenv())
+  po = PipeOpMBsPLS$new(
+    blocks = blocks,
+    param_vals = list(
+      ncomp = 1L,
+      c_b1 = 2L,
+      c_b2 = 2L,
+      log_env = log_env,
+      val_test = "bootstrap",
+      val_test_n = 20L,
+      val_test_alpha = 0.05,
+      append = FALSE
+    )
+  )
+
+  po$train(list(task))
+  po$predict(list(task))
+
+  expect_true(is.list(log_env$last))
+  expect_true("val_bootstrap" %in% names(log_env$last))
+  expect_true(is.data.frame(log_env$last$val_bootstrap))
+  expect_equal(nrow(log_env$last$val_bootstrap), 1L)
+  expect_true(all(c("observed_correlation", "boot_mean", "boot_se", "boot_p_value", "n_boot") %in%
+    names(log_env$last$val_bootstrap)))
+  expect_true(is.numeric(log_env$last$val_bootstrap$boot_p_value))
+})

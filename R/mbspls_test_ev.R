@@ -183,17 +183,6 @@ compute_test_ev = function(
     stop("loading_source='train' requested but P_all is NULL/empty.")
   }
 
-  # Total SS on ORIGINAL test blocks
-  ss_tot_test = vapply(X_blocks_test, function(x) sum(x * x), numeric(1))
-  ss_tot_all = sum(ss_tot_test)
-
-  clamp_ratio = switch(
-    clamp_ev,
-    none = function(x) x,
-    zero = function(x) ifelse(is.finite(x) & x < 0, 0, x),
-    zero_one = function(x) pmin(1, pmax(0, x))
-  )
-
   align_vec = function(v, cols, p) {
     if (is.null(v)) {
       return(rep(0, p))
@@ -210,162 +199,67 @@ compute_test_ev = function(
     out
   }
 
-  # Outputs
-  ev_block_inc = matrix(0, nrow = K, ncol = B,
-    dimnames = list(comp_names, block_names))
-  ev_block_cum = matrix(0, nrow = K, ncol = B,
-    dimnames = list(comp_names, block_names))
-  ev_comp_inc = stats::setNames(numeric(K), comp_names)
-  ev_comp_cum = stats::setNames(numeric(K), comp_names)
-  mac_comp = stats::setNames(numeric(K), comp_names)
-  valid_block = matrix(FALSE, nrow = K, ncol = B,
-    dimnames = list(comp_names, block_names))
+  # Align weights/loadings once in R (handles names), compute heavy loops in C++
+  W_aligned = vector("list", K)
+  P_aligned = vector("list", K)
+  for (k in seq_len(K)) {
+    Wk = W_all[[k]]
+    Pk = if (!is.null(P_all) && length(P_all) >= k) P_all[[k]] else NULL
+    W_aligned[[k]] = lapply(seq_len(B), function(b) {
+      Xb = X_blocks_test[[b]]
+      align_vec(if (is.list(Wk)) Wk[[b]] else NULL, colnames(Xb), ncol(Xb))
+    })
+    P_aligned[[k]] = lapply(seq_len(B), function(b) {
+      Xb = X_blocks_test[[b]]
+      align_vec(if (is.list(Pk)) Pk[[b]] else NULL, colnames(Xb), ncol(Xb))
+    })
+  }
 
-  T_mat = matrix(0, nrow = n_test, ncol = K * B)
+  clamp_mode = switch(clamp_ev,
+    none = 0L,
+    zero = 1L,
+    zero_one = 2L
+  )
+
+  res = cpp_compute_test_ev_core(
+    X_blocks_test = X_blocks_test,
+    W_all = W_aligned,
+    P_all = P_aligned,
+    deflate = isTRUE(deflate),
+    spearman = identical(correlation_method, "spearman"),
+    frobenius = identical(performance_metric, "frobenius"),
+    eps_var = eps_var,
+    use_train_loadings = identical(loading_source, "train"),
+    clamp_mode = clamp_mode
+  )
+
+  ev_block_inc = as.matrix(res$ev_block)
+  ev_block_cum = as.matrix(res$ev_block_cum)
+  ev_comp_inc = as.numeric(res$ev_comp)
+  ev_comp_cum = as.numeric(res$ev_comp_cum)
+  mac_comp = as.numeric(res$mac_comp)
+  valid_block = as.matrix(res$valid_block)
+  T_mat = as.matrix(res$T_mat)
+
+  dimnames(ev_block_inc) = list(comp_names, block_names)
+  dimnames(ev_block_cum) = list(comp_names, block_names)
+  dimnames(valid_block) = list(comp_names, block_names)
+  names(ev_comp_inc) = comp_names
+  names(ev_comp_cum) = comp_names
+  names(mac_comp) = comp_names
   colnames(T_mat) = as.vector(vapply(
     seq_len(K),
     function(k) paste0("LV", k, "_", block_names),
     character(B)
   ))
 
-  # Working residual for sequential components
-  X_work = if (deflate) lapply(X_blocks_test, function(x) x) else X_blocks_test
-
-  # Cumulative explained SS (raw, not clamped)
-  ss_exp_cum_block = numeric(B)
-  ss_exp_cum_total = 0
-
-  use_frob = identical(performance_metric, "frobenius")
-
-  for (k in seq_len(K)) {
-    Wk = W_all[[k]]
-    Pk = if (!is.null(P_all) && length(P_all) >= k) P_all[[k]] else NULL
-
-    # ----- Scores for this component (using current residual if deflate=TRUE) -----
-    Tk = matrix(0, nrow = n_test, ncol = B)
-    for (b in seq_len(B)) {
-      Xb = X_work[[b]]
-      p = ncol(Xb)
-      cols = colnames(Xb)
-
-      wb = if (is.list(Wk)) Wk[[b]] else NULL
-      wv = align_vec(wb, cols, p)
-
-      tb = drop(Xb %*% wv)
-      v = stats::var(tb)
-
-      if (is.finite(v) && v > eps_var) {
-        Tk[, b] = tb
-        valid_block[k, b] = TRUE
-      } else {
-        Tk[, b] = 0
-        valid_block[k, b] = FALSE
-      }
-    }
-
-    # Store scores (LVk_block1..B, then LVk+1_...)
-    idx = ((k - 1L) * B + 1L):(k * B)
-    T_mat[, idx] = Tk
-
-    # ----- MAC / Frobenius objective on test scores -----
-    acc = 0.0
-    n_pairs = 0L
-    if (B >= 2L) {
-      for (i in seq_len(B - 1L)) {
-        for (j in (i + 1L):B) {
-          if (!valid_block[k, i] || !valid_block[k, j]) next
-          r = suppressWarnings(stats::cor(Tk[, i], Tk[, j], method = correlation_method))
-          if (is.finite(r)) {
-            acc = acc + if (use_frob) r * r else abs(r)
-            n_pairs = n_pairs + 1L
-          }
-        }
-      }
-    }
-    mac_comp[k] = if (n_pairs > 0L) {
-      if (use_frob) sqrt(acc) else acc / n_pairs
-    } else {
-      0.0
-    }
-
-    # ----- EV via SS reduction on the residual (out-of-sample) -----
-    ss_exp_total_k = 0.0
-
-    for (b in seq_len(B)) {
-      Xb_cur = X_work[[b]]
-      p = ncol(Xb_cur)
-      cols = colnames(Xb_cur)
-
-      ss_before = sum(Xb_cur * Xb_cur)
-      tb_col = Tk[, b, drop = FALSE] # n x 1
-
-      # Choose loading vector for deflation / reconstruction
-      pb = NULL
-      if (identical(loading_source, "train")) {
-        pb0 = if (is.list(Pk)) Pk[[b]] else NULL
-        pb = align_vec(pb0, cols, p)
-      } else { # "test_ls"
-        tbv = drop(tb_col)
-        denom = sum(tbv * tbv)
-        if (is.finite(denom) && denom > 1e-12) {
-          pb = drop(crossprod(Xb_cur, tbv) / denom) # length p
-        } else {
-          pb = rep(0, p)
-        }
-      }
-
-      X_new = Xb_cur - tcrossprod(tb_col, pb)
-      ss_after = sum(X_new * X_new)
-
-      ss_exp_block_raw = ss_before - ss_after
-      ss_exp_total_k = ss_exp_total_k + ss_exp_block_raw
-
-      # Incremental EV relative to ORIGINAL SS of that block
-      inc_ratio = if (is.finite(ss_tot_test[b]) && ss_tot_test[b] > 1e-12) {
-        ss_exp_block_raw / ss_tot_test[b]
-      } else {
-        0.0
-      }
-      ev_block_inc[k, b] = clamp_ratio(inc_ratio)
-
-      # Update cumulative explained SS and cumulative EV
-      ss_exp_cum_block[b] = ss_exp_cum_block[b] + ss_exp_block_raw
-      cum_ratio = if (is.finite(ss_tot_test[b]) && ss_tot_test[b] > 1e-12) {
-        ss_exp_cum_block[b] / ss_tot_test[b]
-      } else {
-        0.0
-      }
-      ev_block_cum[k, b] = clamp_ratio(cum_ratio)
-
-      # Deflate residual for next component
-      if (deflate) {
-        X_work[[b]] = X_new
-      }
-    }
-
-    # Incremental EV across all blocks
-    ev_comp_inc[k] = clamp_ratio(if (is.finite(ss_tot_all) && ss_tot_all > 1e-12) {
-      ss_exp_total_k / ss_tot_all
-    } else {
-      0.0
-    })
-
-    # Cumulative EV across all blocks
-    ss_exp_cum_total = ss_exp_cum_total + ss_exp_total_k
-    ev_comp_cum[k] = clamp_ratio(if (is.finite(ss_tot_all) && ss_tot_all > 1e-12) {
-      ss_exp_cum_total / ss_tot_all
-    } else {
-      0.0
-    })
-  }
-
   list(
-    ev_block      = ev_block_inc, # incremental EV per (component x block)
-    ev_comp       = ev_comp_inc, # incremental EV per component across blocks
-    ev_block_cum  = ev_block_cum, # cumulative EV per (component x block)
-    ev_comp_cum   = ev_comp_cum, # cumulative EV across blocks
-    mac_comp      = mac_comp, # MAC or Frobenius per component
-    valid_block   = valid_block, # validity mask (matches C++ idea)
+    ev_block      = ev_block_inc,
+    ev_comp       = ev_comp_inc,
+    ev_block_cum  = ev_block_cum,
+    ev_comp_cum   = ev_comp_cum,
+    mac_comp      = mac_comp,
+    valid_block   = valid_block,
     T_mat         = T_mat
   )
 }

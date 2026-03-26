@@ -148,9 +148,10 @@ TunerSeqMBsPLS = R6::R6Class(
     .additional_task = NULL,
 
 
-    .pre_graph_before_mbspls = function(learner) {
+    .pre_graph_before_mbspls = function(learner, mbspls_id = NULL) {
       ids = learner$graph$ids()
-      pos = match("mbspls", ids)
+      mbspls_id = mbspls_id %||% .mbspls_pipeop_id(learner$graph, where = "learner$graph")
+      pos = match(mbspls_id, ids)
       if (is.na(pos) || pos == 1L) {
         return(mlr3pipelines::Graph$new())
       }
@@ -300,10 +301,12 @@ TunerSeqMBsPLS = R6::R6Class(
     .run = function(inst) {
 
       learner_tpl = inst$objective$learner
+      mbspls_id = .mbspls_pipeop_id(learner_tpl$graph, where = "inst$objective$learner$graph")
+      mbspls_po = learner_tpl$graph$pipeops[[mbspls_id]]
       task_full = inst$objective$task$clone(deep = TRUE)
 
       # preprocessing graph up to (but excluding) mbspls
-      pre_graph_tpl = private$.pre_graph_before_mbspls(learner_tpl)
+      pre_graph_tpl = private$.pre_graph_before_mbspls(learner_tpl, mbspls_id = mbspls_id)
 
       # get auxiliary training rows
       dt_extra_all = self$param_set$values$additional_task
@@ -313,12 +316,12 @@ TunerSeqMBsPLS = R6::R6Class(
 
       # correlation method
       use_spear = tryCatch({
-        identical(learner_tpl$graph$pipeops$mbspls$param_set$values$correlation_method, "spearman")
+        identical(mbspls_po$param_set$values$correlation_method, "spearman")
       }, error = function(e) FALSE)
 
       # blocks + #components from the learner
-      blocks = learner_tpl$graph$pipeops$mbspls$blocks
-      K_max = learner_tpl$graph$pipeops$mbspls$param_set$values$ncomp %||% 1L
+      blocks = mbspls_po$blocks
+      K_max = mbspls_po$param_set$values$ncomp %||% 1L
       B = length(blocks)
       if (B == 0) stop("No blocks specified in PipeOpMBsPLS")
 
@@ -452,35 +455,20 @@ TunerSeqMBsPLS = R6::R6Class(
 
               Xtr_aug = private$.rbind_blocks(Xtr, if (!is.null(fold_add)) fold_add[[f]] else NULL)
               Wfit = cpp_mbspls_one_lv(
-                Xtr_aug, c_vec, 1000L, 1e-4,
-                frobenius = (private$.perf_metric == "frobenius")
+                Xtr_aug,
+                c_vec,
+                1000L,
+                1e-4,
+                frobenius = (private$.perf_metric == "frobenius"),
+                spearman = use_spear
               )$W
 
-              B_ = length(Xva)
-              Tva = vapply(
-                seq_len(B_), \(b) Xva[[b]] %*% as.numeric(Wfit[[b]]),
-                numeric(nrow(Xva[[1]]))
+              cpp_block_objective_oos(
+                X_blocks = Xva,
+                W_list = Wfit,
+                spearman = use_spear,
+                frobenius = (private$.perf_metric == "frobenius")
               )
-
-              if (B_ < 2) {
-                return(0)
-              }
-
-              pairs = utils::combn(seq_len(B_), 2)
-              corrs = vapply(seq_len(ncol(pairs)), function(i) {
-                t1 = Tva[, pairs[1, i]]
-                t2 = Tva[, pairs[2, i]]
-                if (all(abs(t1) < 1e-12) || all(abs(t2) < 1e-12)) {
-                  return(0)
-                }
-                stats::cor(t1, t2, method = if (use_spear) "spearman" else "pearson")
-              }, numeric(1))
-
-              if (private$.perf_metric == "mac") {
-                mean(abs(corrs), na.rm = TRUE)
-              } else {
-                sqrt(sum(corrs^2, na.rm = TRUE))
-              }
             })
             n_va = vapply(seq_len(rs$iters), function(f) nrow(fold_val[[f]][[1]]), integer(1))
             score = sum(fold_scores * n_va) / sum(n_va) # weighted mean
@@ -502,11 +490,6 @@ TunerSeqMBsPLS = R6::R6Class(
         C_star[, k] = sqrt(unlist(inst_k$result_x_domain, use.names = FALSE))
         lgr$info("      best c-vector: %s", paste(round(C_star[, k], 4), collapse = ", "))
 
-        fit_full = cpp_mbspls_one_lv(
-          X_blocks_residual, C_star[, k], 1000L, 1e-4,
-          (private$.perf_metric == "frobenius")
-        )
-
         # Per-fold refit for leakage-free deflation & OOS permutation
         p_folds = numeric(rs$iters)
         w_va = numeric(rs$iters)
@@ -523,7 +506,8 @@ TunerSeqMBsPLS = R6::R6Class(
             C_star[, k],
             1000L,
             1e-4,
-            (private$.perf_metric == "frobenius")
+            frobenius = (private$.perf_metric == "frobenius"),
+            spearman = use_spear
           )
 
           # OOS permutation test: *only* validation rows
@@ -571,11 +555,16 @@ TunerSeqMBsPLS = R6::R6Class(
         # keep for logging if you like
         pvals_combined[k] = p_k
 
+        fit_full = cpp_mbspls_one_lv(
+          X_blocks_residual,
+          C_star[, k],
+          1000L,
+          1e-4,
+          frobenius = (private$.perf_metric == "frobenius"),
+          spearman = use_spear
+        )
+
         X_blocks_residual = private$.deflate_blocks(X_blocks_residual, fit_full$W)
-        for (f in seq_len(rs$iters)) {
-          fold_tr[[f]] = private$.deflate_blocks(fold_tr[[f]], fit_full$W)
-          fold_val[[f]] = private$.deflate_blocks(fold_val[[f]], fit_full$W)
-        }
       }
 
       y_name = tryCatch(inst$objective$codomain$ids()[1], error = function(e) "score")

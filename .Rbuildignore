@@ -7,5 +7,6 @@
 ^build\.R$
 ^paper$
 ^docs$
+^slides$
 ^.*\.Rproj$
 ^\.Rproj\.user$

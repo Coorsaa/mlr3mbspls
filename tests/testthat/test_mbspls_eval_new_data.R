@@ -86,3 +86,141 @@ test_that("mbspls_eval_new_data errors if the graph has no PipeOpMBsPLS", {
     ignore.case = TRUE
   )
 })
+
+test_that("mbspls_eval_new_data works with custom MB-sPLS node id", {
+  testthat::skip_if_not("regr.featureless" %in% mlr3::mlr_learners$keys())
+
+  set.seed(203)
+
+  n = 40
+  X1 = matrix(rnorm(n * 4), nrow = n, ncol = 4)
+  colnames(X1) = paste0("x1_", seq_len(ncol(X1)))
+  X2 = matrix(rnorm(n * 6), nrow = n, ncol = 6)
+  colnames(X2) = paste0("x2_", seq_len(ncol(X2)))
+  y = rnorm(n)
+
+  df = data.frame(X1, X2, y = y)
+  task = mlr3::TaskRegr$new(id = "mb_eval_custom_id", backend = df, target = "y")
+  blocks = list(
+    b1 = colnames(X1),
+    b2 = colnames(X2)
+  )
+
+  graph = po(
+    "mbspls",
+    id = "mbspls_custom",
+    blocks = blocks,
+    ncomp = 2L,
+    c_b1 = 2L,
+    c_b2 = 2L,
+    permutation_test = FALSE,
+    val_test = "none"
+  ) %>>%
+    mlr3pipelines::po("learner", mlr3::lrn("regr.featureless"))
+
+  gl = mlr3::as_learner(graph)
+  gl$train(task)
+
+  res = mbspls_eval_new_data(gl = gl, task = task)
+
+  expect_type(res, "list")
+  expect_true(is.numeric(res$mac_comp))
+  expect_length(res$mac_comp, 2L)
+  expect_true(is.matrix(res$ev_block))
+  expect_equal(dim(res$ev_block), c(2L, 2L))
+})
+
+test_that("mbspls_plot_block_weight_ci works with custom MB-sPLS node id", {
+  testthat::skip_if_not_installed("ggplot2")
+  testthat::skip_if_not("regr.featureless" %in% mlr3::mlr_learners$keys())
+
+  set.seed(204)
+
+  n = 36
+  X1 = matrix(rnorm(n * 4), nrow = n, ncol = 4)
+  colnames(X1) = paste0("x1_", seq_len(ncol(X1)))
+  X2 = matrix(rnorm(n * 5), nrow = n, ncol = 5)
+  colnames(X2) = paste0("x2_", seq_len(ncol(X2)))
+  y = rnorm(n)
+
+  df = data.frame(X1, X2, y = y)
+  task = mlr3::TaskRegr$new(id = "mb_plot_custom_id", backend = df, target = "y")
+  blocks = list(
+    b1 = colnames(X1),
+    b2 = colnames(X2)
+  )
+
+  graph = po(
+    "mbspls",
+    id = "mbspls_custom",
+    blocks = blocks,
+    ncomp = 2L,
+    c_b1 = 2L,
+    c_b2 = 2L,
+    permutation_test = FALSE,
+    val_test = "none"
+  ) %>>%
+    mlr3pipelines::po("learner", mlr3::lrn("regr.featureless"))
+
+  gl = mlr3::as_learner(graph)
+  gl$train(task)
+
+  p = mbspls_plot_block_weight_ci(gl, source = "weights")
+
+  expect_s3_class(p, "ggplot")
+})
+
+test_that("mbspls_plot_block_weight_ci bootstrap path works with custom node ids", {
+  testthat::skip_if_not_installed("ggplot2")
+  testthat::skip_if_not("regr.featureless" %in% mlr3::mlr_learners$keys())
+
+  set.seed(205)
+
+  n = 32
+  X1 = matrix(rnorm(n * 4), nrow = n, ncol = 4)
+  colnames(X1) = paste0("x1_", seq_len(ncol(X1)))
+  X2 = matrix(rnorm(n * 5), nrow = n, ncol = 5)
+  colnames(X2) = paste0("x2_", seq_len(ncol(X2)))
+  y = rnorm(n)
+
+  df = data.frame(X1, X2, y = y)
+  task = mlr3::TaskRegr$new(id = "mb_plot_bootstrap_custom_ids", backend = df, target = "y")
+  log_env = new.env(parent = emptyenv())
+  blocks = list(
+    b1 = colnames(X1),
+    b2 = colnames(X2)
+  )
+
+  graph = po(
+    "mbspls",
+    id = "mbspls_custom",
+    blocks = blocks,
+    ncomp = 2L,
+    c_b1 = 2L,
+    c_b2 = 2L,
+    permutation_test = FALSE,
+    val_test = "none",
+    store_train_blocks = TRUE,
+    append = TRUE,
+    log_env = log_env
+  ) %>>%
+    po(
+      "mbspls_bootstrap_select",
+      id = "mbspls_bootstrap_select_custom",
+      log_env = log_env,
+      bootstrap = TRUE,
+      stability_only = FALSE,
+      B = 5L,
+      selection_method = "ci",
+      align = "block_sign",
+      workers = 1L
+    ) %>>%
+    mlr3pipelines::po("learner", mlr3::lrn("regr.featureless"))
+
+  gl = mlr3::as_learner(graph)
+  gl$train(task)
+
+  p = mbspls_plot_block_weight_ci(gl, source = "bootstrap")
+
+  expect_s3_class(p, "ggplot")
+})

@@ -32,6 +32,7 @@ utils::globalVariables(
     "r",
     "refw",
     "signpos",
+    "stable",
     "total",
     "w",
     "weight",

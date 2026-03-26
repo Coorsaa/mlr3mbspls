@@ -153,6 +153,101 @@ double compute_objective_direct_core(const std::vector<arma::mat>& X,
   return compute_block_objective_core(scores, spearman, frobenius);
 }
 
+// [[Rcpp::export]]
+double cpp_block_objective_oos(const Rcpp::List& X_blocks,
+                               const Rcpp::List& W_list,
+                               bool              spearman  = false,
+                               bool              frobenius = false)
+{
+  const int B = X_blocks.size();
+  if (B < 2) return 0.0;
+  if (W_list.size() != B) {
+    Rcpp::stop("W_list must have the same length as X_blocks.");
+  }
+
+  int n = -1;
+  std::vector<arma::vec> T(B);
+  std::vector<unsigned char> valid(B, 0);
+  int n_valid = 0;
+
+  for (int b = 0; b < B; ++b) {
+    Rcpp::NumericMatrix Xr = X_blocks[b];
+    Rcpp::NumericVector Wr = W_list[b];
+
+    const int nb = Xr.nrow();
+    const int pb = Xr.ncol();
+
+    if (n < 0) {
+      n = nb;
+    } else if (nb != n) {
+      Rcpp::stop("All blocks must have the same number of rows.");
+    }
+
+    if (nb < 1 || pb < 1 || Wr.size() < 1) {
+      continue;
+    }
+
+    arma::mat X(Xr.begin(), nb, pb, false, true);
+
+    arma::vec w;
+    if (Wr.size() == pb) {
+      w = arma::vec(Wr.begin(), pb, false, true);
+    } else {
+      w = arma::vec(pb, arma::fill::zeros);
+      const int m = std::min(pb, static_cast<int>(Wr.size()));
+      for (int j = 0; j < m; ++j) w(j) = Wr[j];
+    }
+
+    arma::vec tb = X * w;
+    if (!tb.is_finite() || tb.n_elem < 2) {
+      continue;
+    }
+
+    const double v = arma::var(tb);
+    if (std::isfinite(v) && v > 1e-12) {
+      T[b] = std::move(tb);
+      valid[b] = 1;
+      ++n_valid;
+    }
+  }
+
+  if (n_valid < 2) {
+    return 0.0;
+  }
+
+  auto fast_pearson = [](const arma::vec& x, const arma::vec& y) {
+    const double mx = arma::mean(x);
+    const double my = arma::mean(y);
+    const arma::vec xc = x - mx;
+    const arma::vec yc = y - my;
+    const double sxx = arma::dot(xc, xc);
+    const double syy = arma::dot(yc, yc);
+    if (!(std::isfinite(sxx) && std::isfinite(syy)) || sxx <= 1e-12 || syy <= 1e-12) {
+      return 0.0;
+    }
+    return arma::dot(xc, yc) / std::sqrt(sxx * syy);
+  };
+
+  double acc = 0.0;
+  int valid_pairs = 0;
+  for (int i = 0; i < B - 1; ++i) {
+    if (!valid[i]) continue;
+    for (int j = i + 1; j < B; ++j) {
+      if (!valid[j]) continue;
+      const double r = spearman ? compute_correlation_core(T[i], T[j], true) : fast_pearson(T[i], T[j]);
+      if (std::isfinite(r)) {
+        acc += frobenius ? (r * r) : std::abs(r);
+        ++valid_pairs;
+      }
+    }
+  }
+
+  if (valid_pairs == 0) {
+    return 0.0;
+  }
+  return frobenius ? std::sqrt(acc) : (acc / valid_pairs);
+}
+
 // CORE: Build target score for one-LV updates
 arma::vec build_target_score_core(const ScoreMatrix& scores, int exclude_block) {
   const int n = scores.T.n_rows;
@@ -311,24 +406,28 @@ Rcpp::List cpp_mbspls_one_lv(const Rcpp::List&  X_blocks,
   if (B == 0) Rcpp::stop("Empty X_blocks list");
   if (c_constraints.n_elem != B) Rcpp::stop("c_constraints length must match number of blocks");
 
-  std::vector<arma::mat> X(B), Xt(B);
+  std::vector<arma::mat> X;
+  std::vector<arma::mat> Xt;
+  X.reserve(B);
+  Xt.reserve(B);
   int n = -1;
   
   for (int b = 0; b < B; ++b) {
-    arma::mat Xi = Rcpp::as<arma::mat>(X_blocks[b]); // may be an external view
-    X[b] = arma::mat(Xi);
-    if (!is_valid_matrix(X[b])) {
+    Rcpp::NumericMatrix Xr = X_blocks[b];
+    arma::mat Xi(Xr.begin(), Xr.nrow(), Xr.ncol(), false, true);
+    if (!is_valid_matrix(Xi)) {
       Rcpp::stop("Invalid matrix in block " + std::to_string(b + 1));
     }
     
     if (n == -1) {
-      n = X[b].n_rows;
-    } else if (X[b].n_rows != n) {
+      n = Xi.n_rows;
+    } else if (Xi.n_rows != n) {
       Rcpp::stop("Inconsistent sample sizes across blocks");
     }
     
     if (n < 3) Rcpp::stop("Need at least 3 samples");
-    Xt[b] = X[b].t();
+    X.emplace_back(Xr.begin(), Xr.nrow(), Xr.ncol(), false, true);
+    Xt.emplace_back(X.back().t());
   }
 
   // Initialize weights
@@ -986,6 +1085,183 @@ Rcpp::List cpp_ev_test(const Rcpp::List&  X_test,
     Rcpp::_["total"] = ev_total);
 }
 
+// [[Rcpp::export]]
+Rcpp::List cpp_compute_test_ev_core(const Rcpp::List& X_blocks_test,
+                                    const Rcpp::List& W_all,
+                                    const Rcpp::List& P_all,
+                                    bool              deflate            = true,
+                                    bool              spearman           = false,
+                                    bool              frobenius          = false,
+                                    double            eps_var            = 1e-12,
+                                    bool              use_train_loadings = true,
+                                    int               clamp_mode         = 0)
+{
+  const int B = X_blocks_test.size();
+  const int K = W_all.size();
+
+  if (B < 1 || K < 1) {
+    return Rcpp::List::create(
+      Rcpp::_["ev_block"] = arma::mat(),
+      Rcpp::_["ev_comp"] = arma::vec(),
+      Rcpp::_["ev_block_cum"] = arma::mat(),
+      Rcpp::_["ev_comp_cum"] = arma::vec(),
+      Rcpp::_["mac_comp"] = arma::vec(),
+      Rcpp::_["valid_block"] = Rcpp::LogicalMatrix(0, 0),
+      Rcpp::_["T_mat"] = arma::mat()
+    );
+  }
+
+  std::vector<arma::mat> X_base(B);
+  std::vector<arma::mat> X_work(B);
+
+  int n_test = -1;
+  for (int b = 0; b < B; ++b) {
+    X_base[b] = Rcpp::as<arma::mat>(X_blocks_test[b]);
+    if (n_test < 0) n_test = static_cast<int>(X_base[b].n_rows);
+    if (static_cast<int>(X_base[b].n_rows) != n_test) {
+      Rcpp::stop("All test blocks must have the same number of rows.");
+    }
+    X_work[b] = X_base[b];
+  }
+
+  arma::vec ss_tot_test(B, arma::fill::zeros);
+  for (int b = 0; b < B; ++b) {
+    ss_tot_test(b) = arma::accu(X_base[b] % X_base[b]);
+  }
+  const double ss_tot_all = arma::accu(ss_tot_test);
+
+  auto clamp_ratio = [&](double x) {
+    if (!std::isfinite(x)) return 0.0;
+    if (clamp_mode == 1) return x < 0.0 ? 0.0 : x;            // zero
+    if (clamp_mode == 2) return std::max(0.0, std::min(1.0, x)); // zero_one
+    return x;                                                   // none
+  };
+
+  arma::mat ev_block_inc(K, B, arma::fill::zeros);
+  arma::mat ev_block_cum(K, B, arma::fill::zeros);
+  arma::vec ev_comp_inc(K, arma::fill::zeros);
+  arma::vec ev_comp_cum(K, arma::fill::zeros);
+  arma::vec mac_comp(K, arma::fill::zeros);
+  arma::umat valid_block(K, B, arma::fill::zeros);
+  arma::mat T_mat(n_test, K * B, arma::fill::zeros);
+
+  arma::vec ss_exp_cum_block(B, arma::fill::zeros);
+  double ss_exp_cum_total = 0.0;
+
+  for (int k = 0; k < K; ++k) {
+    Rcpp::List Wk = Rcpp::as<Rcpp::List>(W_all[k]);
+    Rcpp::List Pk;
+    if (use_train_loadings && P_all.size() > k) {
+      Pk = Rcpp::as<Rcpp::List>(P_all[k]);
+    }
+
+    arma::mat Tk(n_test, B, arma::fill::zeros);
+
+    for (int b = 0; b < B; ++b) {
+      const arma::mat& Xb = deflate ? X_work[b] : X_base[b];
+      const int p = static_cast<int>(Xb.n_cols);
+
+      arma::vec wv = Rcpp::as<arma::vec>(Wk[b]);
+      if (static_cast<int>(wv.n_elem) < p) {
+        arma::vec tmp(p, arma::fill::zeros);
+        if (wv.n_elem > 0) tmp.subvec(0, wv.n_elem - 1) = wv;
+        wv = std::move(tmp);
+      } else if (static_cast<int>(wv.n_elem) > p) {
+        wv = wv.head(p);
+      }
+
+      arma::vec tb = Xb * wv;
+      const double v = arma::var(tb);
+      if (std::isfinite(v) && v > eps_var) {
+        Tk.col(b) = tb;
+        valid_block(k, b) = 1;
+      }
+    }
+
+    T_mat.cols(k * B, (k + 1) * B - 1) = Tk;
+
+    double acc = 0.0;
+    int n_pairs = 0;
+    if (B >= 2) {
+      for (int i = 0; i < B - 1; ++i) {
+        for (int j = i + 1; j < B; ++j) {
+          if (!(valid_block(k, i) && valid_block(k, j))) continue;
+          const double r = compute_correlation_core(Tk.col(i), Tk.col(j), spearman);
+          if (std::isfinite(r)) {
+            acc += frobenius ? (r * r) : std::abs(r);
+            ++n_pairs;
+          }
+        }
+      }
+    }
+    mac_comp(k) = (n_pairs > 0) ? (frobenius ? std::sqrt(acc) : acc / n_pairs) : 0.0;
+
+    double ss_exp_total_k = 0.0;
+    for (int b = 0; b < B; ++b) {
+      const arma::mat& Xb_cur = deflate ? X_work[b] : X_base[b];
+      const int p = static_cast<int>(Xb_cur.n_cols);
+      arma::vec tb = Tk.col(b);
+
+      arma::vec pb(p, arma::fill::zeros);
+      if (use_train_loadings && P_all.size() > k) {
+        arma::vec p_in = Rcpp::as<arma::vec>(Pk[b]);
+        if (static_cast<int>(p_in.n_elem) < p) {
+          if (p_in.n_elem > 0) pb.subvec(0, p_in.n_elem - 1) = p_in;
+        } else {
+          pb = p_in.head(p);
+        }
+      } else {
+        const double denom = arma::dot(tb, tb);
+        if (std::isfinite(denom) && denom > 1e-12) {
+          pb = (Xb_cur.t() * tb) / denom;
+        }
+      }
+
+      const double ss_before = arma::accu(Xb_cur % Xb_cur);
+      arma::mat X_new = Xb_cur - tb * pb.t();
+      const double ss_after = arma::accu(X_new % X_new);
+
+      const double ss_exp_block_raw = ss_before - ss_after;
+      ss_exp_total_k += ss_exp_block_raw;
+
+      const double inc_ratio = (ss_tot_test(b) > 1e-12) ? (ss_exp_block_raw / ss_tot_test(b)) : 0.0;
+      ev_block_inc(k, b) = clamp_ratio(inc_ratio);
+
+      ss_exp_cum_block(b) += ss_exp_block_raw;
+      const double cum_ratio = (ss_tot_test(b) > 1e-12) ? (ss_exp_cum_block(b) / ss_tot_test(b)) : 0.0;
+      ev_block_cum(k, b) = clamp_ratio(cum_ratio);
+
+      if (deflate) {
+        X_work[b] = std::move(X_new);
+      }
+    }
+
+    const double inc_comp = (ss_tot_all > 1e-12) ? (ss_exp_total_k / ss_tot_all) : 0.0;
+    ev_comp_inc(k) = clamp_ratio(inc_comp);
+
+    ss_exp_cum_total += ss_exp_total_k;
+    const double cum_comp = (ss_tot_all > 1e-12) ? (ss_exp_cum_total / ss_tot_all) : 0.0;
+    ev_comp_cum(k) = clamp_ratio(cum_comp);
+  }
+
+  Rcpp::LogicalMatrix valid_out(K, B);
+  for (int k = 0; k < K; ++k) {
+    for (int b = 0; b < B; ++b) {
+      valid_out(k, b) = static_cast<bool>(valid_block(k, b));
+    }
+  }
+
+  return Rcpp::List::create(
+    Rcpp::_["ev_block"] = ev_block_inc,
+    Rcpp::_["ev_comp"] = ev_comp_inc,
+    Rcpp::_["ev_block_cum"] = ev_block_cum,
+    Rcpp::_["ev_comp_cum"] = ev_comp_cum,
+    Rcpp::_["mac_comp"] = mac_comp,
+    Rcpp::_["valid_block"] = valid_out,
+    Rcpp::_["T_mat"] = T_mat
+  );
+}
+
 // Bootstrap stability selection
 // [[Rcpp::export]]
 Rcpp::List cpp_mbspls_bootstrap(const Rcpp::List&  X_blocks,
@@ -1391,5 +1667,188 @@ Rcpp::List cpp_perm_test_oos(
     Rcpp::_["stat_obs"] = stat_obs,
     Rcpp::_["p_value"]  = pval,
     Rcpp::_["n_perm"]   = n_perm
+  );
+}
+
+
+// [[Rcpp::export]]
+Rcpp::List cpp_bootstrap_test_oos(
+    const Rcpp::List& X_test,
+    const Rcpp::List& W_trained,
+    int               n_boot    = 1000,
+    bool              spearman  = false,
+    bool              frobenius = false,
+    double            alpha     = 0.05)
+{
+  const int B = X_test.size();
+  if (B < 2) Rcpp::stop("Need at least 2 blocks");
+
+  std::vector<arma::mat> X(B);
+  std::vector<arma::vec> W(B);
+
+  int n = -1;
+  for (int b = 0; b < B; ++b) {
+    X[b] = Rcpp::as<arma::mat>(X_test[b]);
+    W[b] = Rcpp::as<arma::vec>(W_trained[b]);
+
+    if (!is_valid_matrix(X[b]) || !is_valid_vector(W[b])) {
+      continue;
+    }
+    if (n == -1) n = static_cast<int>(X[b].n_rows);
+  }
+
+  if (n < 3) {
+    return Rcpp::List::create(
+      Rcpp::_["stat_obs"]  = 0.0,
+      Rcpp::_["boot_mean"] = 0.0,
+      Rcpp::_["boot_se"]   = 0.0,
+      Rcpp::_["p_value"]   = NA_REAL,
+      Rcpp::_["ci_lower"]  = NA_REAL,
+      Rcpp::_["ci_upper"]  = NA_REAL,
+      Rcpp::_["n_boot"]    = 0
+    );
+  }
+
+  auto pr_obs = align_and_filter(X, W);
+  const auto& Xv_obs = pr_obs.first;
+  const auto& Wv_obs = pr_obs.second;
+
+  if (Xv_obs.size() < 2) {
+    return Rcpp::List::create(
+      Rcpp::_["stat_obs"]  = 0.0,
+      Rcpp::_["boot_mean"] = 0.0,
+      Rcpp::_["boot_se"]   = 0.0,
+      Rcpp::_["p_value"]   = NA_REAL,
+      Rcpp::_["ci_lower"]  = NA_REAL,
+      Rcpp::_["ci_upper"]  = NA_REAL,
+      Rcpp::_["n_boot"]    = 0
+    );
+  }
+
+  const int Bv = static_cast<int>(Xv_obs.size());
+  const int n_aligned = static_cast<int>(Xv_obs[0].n_rows);
+  if (n_aligned < 3) {
+    return Rcpp::List::create(
+      Rcpp::_["stat_obs"]  = 0.0,
+      Rcpp::_["boot_mean"] = 0.0,
+      Rcpp::_["boot_se"]   = 0.0,
+      Rcpp::_["p_value"]   = NA_REAL,
+      Rcpp::_["ci_lower"]  = NA_REAL,
+      Rcpp::_["ci_upper"]  = NA_REAL,
+      Rcpp::_["n_boot"]    = 0
+    );
+  }
+
+  std::vector<arma::vec> T_full;
+  T_full.reserve(Bv);
+  for (int b = 0; b < Bv; ++b) {
+    arma::vec tb = Xv_obs[b] * Wv_obs[b];
+    T_full.push_back(std::move(tb));
+  }
+
+  std::vector<int> valid_blocks;
+  valid_blocks.reserve(Bv);
+  for (int b = 0; b < Bv; ++b) {
+    if (is_valid_vector(T_full[b])) {
+      double v = arma::var(T_full[b]);
+      if (std::isfinite(v) && v > 1e-12) {
+        valid_blocks.push_back(b);
+      }
+    }
+  }
+
+  if (static_cast<int>(valid_blocks.size()) < 2) {
+    return Rcpp::List::create(
+      Rcpp::_["stat_obs"]  = 0.0,
+      Rcpp::_["boot_mean"] = 0.0,
+      Rcpp::_["boot_se"]   = 0.0,
+      Rcpp::_["p_value"]   = NA_REAL,
+      Rcpp::_["ci_lower"]  = NA_REAL,
+      Rcpp::_["ci_upper"]  = NA_REAL,
+      Rcpp::_["n_boot"]    = 0
+    );
+  }
+
+  auto stat_from_scores = [&](const std::vector<arma::vec>& Tset, const arma::uvec* idx) {
+    double acc = 0.0;
+    int pairs = 0;
+    for (size_t ii = 0; ii < valid_blocks.size() - 1; ++ii) {
+      for (size_t jj = ii + 1; jj < valid_blocks.size(); ++jj) {
+        const int bi = valid_blocks[ii];
+        const int bj = valid_blocks[jj];
+        arma::vec xi = (idx == nullptr) ? Tset[bi] : Tset[bi].elem(*idx);
+        arma::vec xj = (idx == nullptr) ? Tset[bj] : Tset[bj].elem(*idx);
+        double r = compute_correlation_core(xi, xj, spearman);
+        if (std::isfinite(r)) {
+          acc += frobenius ? (r * r) : std::abs(r);
+          ++pairs;
+        }
+      }
+    }
+    if (pairs == 0) return 0.0;
+    return frobenius ? std::sqrt(acc) : (acc / pairs);
+  };
+
+  const double stat_obs = stat_from_scores(T_full, nullptr);
+
+  if (n_boot <= 0) {
+    return Rcpp::List::create(
+      Rcpp::_["stat_obs"]  = stat_obs,
+      Rcpp::_["boot_mean"] = NA_REAL,
+      Rcpp::_["boot_se"]   = NA_REAL,
+      Rcpp::_["p_value"]   = NA_REAL,
+      Rcpp::_["ci_lower"]  = NA_REAL,
+      Rcpp::_["ci_upper"]  = NA_REAL,
+      Rcpp::_["n_boot"]    = 0
+    );
+  }
+
+  arma::vec boot_vals(n_boot, arma::fill::zeros);
+  int valid_reps = 0;
+
+  for (int r = 0; r < n_boot; ++r) {
+    arma::uvec idx = arma::randi<arma::uvec>(n_aligned, arma::distr_param(0, n_aligned - 1));
+    double stat_boot = stat_from_scores(T_full, &idx);
+    if (std::isfinite(stat_boot)) {
+      boot_vals(valid_reps) = stat_boot;
+      ++valid_reps;
+    }
+  }
+
+  if (valid_reps == 0) {
+    return Rcpp::List::create(
+      Rcpp::_["stat_obs"]  = stat_obs,
+      Rcpp::_["boot_mean"] = NA_REAL,
+      Rcpp::_["boot_se"]   = NA_REAL,
+      Rcpp::_["p_value"]   = NA_REAL,
+      Rcpp::_["ci_lower"]  = NA_REAL,
+      Rcpp::_["ci_upper"]  = NA_REAL,
+      Rcpp::_["n_boot"]    = 0
+    );
+  }
+
+  arma::vec vals = boot_vals.head(valid_reps);
+  const double boot_mean = arma::mean(vals);
+  const double boot_se = (valid_reps > 1) ? arma::stddev(vals) : 0.0;
+
+  int le_count = 0;
+  for (int i = 0; i < valid_reps; ++i) {
+    if (vals(i) <= stat_obs) ++le_count;
+  }
+  const double p_value = static_cast<double>(le_count) / static_cast<double>(valid_reps);
+
+  const double conf = 1.0 - alpha;
+  const double zval = R::qnorm5(1.0 - (1.0 - conf) / 2.0, 0.0, 1.0, 1, 0);
+  const double ci_lower = boot_mean - zval * boot_se;
+  const double ci_upper = boot_mean + zval * boot_se;
+
+  return Rcpp::List::create(
+    Rcpp::_["stat_obs"]  = stat_obs,
+    Rcpp::_["boot_mean"] = boot_mean,
+    Rcpp::_["boot_se"]   = boot_se,
+    Rcpp::_["p_value"]   = p_value,
+    Rcpp::_["ci_lower"]  = ci_lower,
+    Rcpp::_["ci_upper"]  = ci_upper,
+    Rcpp::_["n_boot"]    = valid_reps
   );
 }

@@ -30,7 +30,17 @@ NULL
 # Internal helpers (no export) -------------------------------------------------
 
 .mbspls_payload = function(learner) {
-  po = learner$pipeops$mbspls
+  if (!inherits(learner, "GraphLearner") || is.null(learner$graph)) {
+    return(NULL)
+  }
+  mbspls_id = tryCatch(
+    .mbspls_pipeop_id(learner$graph, where = "learner$graph"),
+    error = function(e) NULL
+  )
+  if (is.null(mbspls_id)) {
+    return(NULL)
+  }
+  po = learner$graph$pipeops[[mbspls_id]]
   env = if (!is.null(po)) po$param_set$values$log_env else NULL
   if (!inherits(env, "environment") || is.null(env$last)) {
     return(NULL)
@@ -49,8 +59,6 @@ NULL
   }
   values
 }
-
-`%||%` = function(a, b) if (is.null(a)) b else a
 
 # 1) EV-weighted latent correlation (primary) ----------------------------------
 
