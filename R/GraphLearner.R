@@ -34,10 +34,13 @@ autoplot.GraphLearner = function(object,
   }
 
   # --- locate MB-sPLS fit and (optional) selection nodes + their log_env
+  resolved_mbspls_id = dots$mbspls_id %||% dots$mbspls_pipeop_id %||% NULL
+  resolved_select_id = dots$select_id %||% dots$select_pipeop_id %||% NULL
+
   nodes = .mbspls_locate_nodes_general(
     object,
-    mbspls_id = dots$mbspls_id %||% NULL,
-    select_id = dots$select_id %||% NULL
+    mbspls_id = resolved_mbspls_id,
+    select_id = resolved_select_id
   )
   use_env = nodes$fit_env %||% nodes$sel_env
 
@@ -50,6 +53,7 @@ autoplot.GraphLearner = function(object,
       source             = (dots$source %||% "bootstrap"),
       top_n              = dots$top_n %||% NULL,
       patch_ncol         = as.integer(dots$patch_ncol %||% 3L),
+      branch_label       = dots$branch_label %||% NULL,
       font               = dots$font %||% "sans",
       alpha_by_stability = isTRUE(dots$alpha_by_stability %||% FALSE),
       alpha_nonstable    = as.numeric(dots$alpha_nonstable %||% 0.4),
@@ -176,10 +180,13 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
     c(explicit, dots[keep])
   }
 
+  resolved_mbspls_id = dots$mbspls_id %||% dots$mbspls_pipeop_id %||% NULL
+  resolved_select_id = dots$select_id %||% dots$select_pipeop_id %||% NULL
+
   nodes = .mbspls_locate_nodes_graph_general(
     object,
-    mbspls_id = dots$mbspls_id %||% NULL,
-    select_id = dots$select_id %||% NULL
+    mbspls_id = resolved_mbspls_id,
+    select_id = resolved_select_id
   )
 
   if (type == "mbspls_weights") {
@@ -190,6 +197,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
       source             = (dots$source %||% "bootstrap"),
       top_n              = dots$top_n %||% NULL,
       patch_ncol         = as.integer(dots$patch_ncol %||% 3L),
+      branch_label       = dots$branch_label %||% NULL,
       font               = dots$font %||% "sans",
       alpha_by_stability = isTRUE(dots$alpha_by_stability %||% FALSE),
       alpha_nonstable    = as.numeric(dots$alpha_nonstable %||% 0.4),
@@ -210,12 +218,37 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   mod = gl$model
   if (is.null(mod)) stop("GraphLearner appears to be untrained (model is NULL).", call. = FALSE)
 
-  # Fit node
-  if (is.null(mbspls_id)) {
-    cand = names(gl$graph$pipeops)[vapply(gl$graph$pipeops, inherits, logical(1), "PipeOpMBsPLS")]
-    if (!length(cand)) stop("No PipeOpMBsPLS node found in the graph.")
-    mbspls_id = cand[1]
+  .pick_id = function(ids, explicit, label, expected_class = NULL) {
+    if (!is.null(explicit)) {
+      if (!(explicit %in% ids)) {
+        stop(sprintf("Unknown %s '%s'. Available: %s", label, explicit, paste(ids, collapse = ", ")), call. = FALSE)
+      }
+      if (!is.null(expected_class) && !inherits(gl$graph$pipeops[[explicit]], expected_class)) {
+        stop(sprintf("Node '%s' is not a %s.", explicit, expected_class), call. = FALSE)
+      }
+      return(explicit)
+    }
+    if (!length(ids)) {
+      return(NULL)
+    }
+    if (length(ids) == 1L) {
+      return(ids[1L])
+    }
+    stop(
+      sprintf(
+        "Multiple candidate %s nodes found: %s. Please pass '%s' explicitly.",
+        label,
+        paste(ids, collapse = ", "),
+        if (identical(label, "MB-sPLS")) "mbspls_id" else "select_id"
+      ),
+      call. = FALSE
+    )
   }
+
+  # Fit node
+  cand = names(gl$graph$pipeops)[vapply(gl$graph$pipeops, inherits, logical(1), "PipeOpMBsPLS")]
+  if (!length(cand)) stop("No PipeOpMBsPLS node found in the graph.")
+  mbspls_id = .pick_id(cand, mbspls_id, label = "MB-sPLS", expected_class = "PipeOpMBsPLS")
   fit_po = gl$graph$pipeops[[mbspls_id]]
   fit = mod[[mbspls_id]] %||% fit_po
   if (is.null(fit)) stop("Cannot locate MB-sPLS node '", mbspls_id, "'.")
@@ -228,31 +261,21 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   # Selection node
   sel_state = NULL
   sel_env = NULL
-  if (!is.null(select_id)) {
-    sel_po = gl$graph$pipeops[[select_id]]
-    sel = mod[[select_id]] %||% sel_po
-    if (is.null(sel)) stop("Cannot locate selection node '", select_id, "'.")
+  sel_hits = names(gl$graph$pipeops)[vapply(gl$graph$pipeops, inherits, logical(1), "PipeOpMBsPLSBootstrapSelect")]
+  chosen_select_id = .pick_id(sel_hits, select_id, label = "bootstrap-select", expected_class = "PipeOpMBsPLSBootstrapSelect")
+
+  if (!is.null(chosen_select_id)) {
+    sel_po = gl$graph$pipeops[[chosen_select_id]]
+    sel = mod[[chosen_select_id]] %||% sel_po
+    if (is.null(sel)) stop("Cannot locate selection node '", chosen_select_id, "'.")
     sel_state = if (!is.null(sel$state)) sel$state else sel
     sel_env = tryCatch({
       ve = sel_po$param_set$values$log_env
       if (inherits(ve, "environment")) ve else NULL
     }, error = function(e) NULL)
   } else {
-    sel = NULL
-    sel_po = NULL
-    hits = names(gl$graph$pipeops)[vapply(gl$graph$pipeops, inherits, logical(1), "PipeOpMBsPLSBootstrapSelect")]
-    if (length(hits)) {
-      sid = hits[1]
-      sel = mod[[sid]] %||% gl$graph$pipeops[[sid]]
-      sel_po = gl$graph$pipeops[[sid]]
-    }
-    if (!is.null(sel)) {
-      sel_state = if (!is.null(sel$state)) sel$state else sel
-      sel_env = tryCatch({
-        ve = sel_po$param_set$values$log_env
-        if (inherits(ve, "environment")) ve else NULL
-      }, error = function(e) NULL)
-    }
+    sel_state = NULL
+    sel_env = NULL
   }
 
   list(fit_state = fit_state, sel_state = sel_state, fit_env = fit_env, sel_env = sel_env)
@@ -261,27 +284,48 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
 .mbspls_locate_nodes_graph_general = function(gr, mbspls_id = NULL, select_id = NULL) {
   if (!inherits(gr, "Graph")) stop("Expected a Graph.", call. = FALSE)
 
-  # Fit node
-  if (is.null(mbspls_id)) {
-    cand = names(gr$pipeops)[vapply(gr$pipeops, inherits, logical(1), "PipeOpMBsPLS")]
-    if (!length(cand)) stop("No PipeOpMBsPLS node found in the graph.")
-    mbspls_id = cand[1]
+  .pick_id = function(ids, explicit, label, expected_class = NULL) {
+    if (!is.null(explicit)) {
+      if (!(explicit %in% ids)) {
+        stop(sprintf("Unknown %s '%s'. Available: %s", label, explicit, paste(ids, collapse = ", ")), call. = FALSE)
+      }
+      if (!is.null(expected_class) && !inherits(gr$pipeops[[explicit]], expected_class)) {
+        stop(sprintf("Node '%s' is not a %s.", explicit, expected_class), call. = FALSE)
+      }
+      return(explicit)
+    }
+    if (!length(ids)) {
+      return(NULL)
+    }
+    if (length(ids) == 1L) {
+      return(ids[1L])
+    }
+    stop(
+      sprintf(
+        "Multiple candidate %s nodes found: %s. Please pass '%s' explicitly.",
+        label,
+        paste(ids, collapse = ", "),
+        if (identical(label, "MB-sPLS")) "mbspls_id" else "select_id"
+      ),
+      call. = FALSE
+    )
   }
+
+  # Fit node
+  cand = names(gr$pipeops)[vapply(gr$pipeops, inherits, logical(1), "PipeOpMBsPLS")]
+  if (!length(cand)) stop("No PipeOpMBsPLS node found in the graph.")
+  mbspls_id = .pick_id(cand, mbspls_id, label = "MB-sPLS", expected_class = "PipeOpMBsPLS")
   fit_po = gr$pipeops[[mbspls_id]]
   fit_state = gr$state[[mbspls_id]] %||% fit_po$state
   if (is.null(fit_state)) stop("Cannot locate trained state for MB-sPLS node '", mbspls_id, "'.")
 
   # Selection node (optional / auto)
   sel_state = NULL
-  if (!is.null(select_id)) {
-    sel_po = gr$pipeops[[select_id]]
-    sel_state = gr$state[[select_id]] %||% sel_po$state
-  } else {
-    hits = names(gr$pipeops)[vapply(gr$pipeops, inherits, logical(1), "PipeOpMBsPLSBootstrapSelect")]
-    if (length(hits)) {
-      sel_po = gr$pipeops[[hits[1]]]
-      sel_state = gr$state[[hits[1]]] %||% sel_po$state
-    }
+  hits = names(gr$pipeops)[vapply(gr$pipeops, inherits, logical(1), "PipeOpMBsPLSBootstrapSelect")]
+  chosen_select_id = .pick_id(hits, select_id, label = "bootstrap-select", expected_class = "PipeOpMBsPLSBootstrapSelect")
+  if (!is.null(chosen_select_id)) {
+    sel_po = gr$pipeops[[chosen_select_id]]
+    sel_state = gr$state[[chosen_select_id]] %||% sel_po$state
   }
 
   list(fit_state = fit_state, sel_state = sel_state)
@@ -1161,7 +1205,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   unique(keys)
 }
 
-.mbspls_plot_weights_single_component = function(df_sub, block_levels, title = "", font = "sans", alpha_by_stability = FALSE) {
+.mbspls_plot_weights_single_component = function(df_sub, block_levels, title = "", font = "sans", alpha_by_stability = FALSE, alpha_nonstable = 0.4, branch_label = NULL) {
   requireNamespace("ggplot2")
   requireNamespace("grid")
 
@@ -1170,7 +1214,12 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   }
 
   block_pretty = gsub("_", " ", block_levels, fixed = TRUE)
-  df_sub$block_lab = factor(gsub("_", " ", df_sub$block, fixed = TRUE), levels = block_pretty)
+  branch_suffix = if (!is.null(branch_label) && nzchar(branch_label)) paste0(" (", branch_label, ")") else ""
+  block_pretty_branch = paste0(block_pretty, branch_suffix)
+  df_sub$block_lab = factor(
+    paste0(gsub("_", " ", df_sub$block, fixed = TRUE), branch_suffix),
+    levels = block_pretty_branch
+  )
 
   wrap_fun = if (requireNamespace("stringr", quietly = TRUE)) {
     function(x) stringr::str_wrap(x, width = 28)
@@ -1194,11 +1243,15 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   has_ci = all(c("ci_lower", "ci_upper") %in% names(df_sub)) &&
     any(is.finite(df_sub$ci_lower) | is.finite(df_sub$ci_upper))
 
-  # ---- UPDATED: use alpha_plot if provided
-  if (isTRUE(alpha_by_stability) && "alpha_plot" %in% names(df_sub)) {
-    g = ggplot2::ggplot(df_sub, ggplot2::aes(x = axis_id, y = mean, fill = signpos)) +
-      ggplot2::geom_col(ggplot2::aes(alpha = alpha_plot), width = 0.85, show.legend = FALSE) +
-      ggplot2::scale_alpha_identity()
+  has_stable = isTRUE(alpha_by_stability) && "stable" %in% names(df_sub) && any(!is.na(df_sub$stable))
+  if (has_stable) {
+    df_sub$stable = as.logical(df_sub$stable)
+    g = ggplot2::ggplot(df_sub, ggplot2::aes(x = axis_id, y = mean, fill = signpos, alpha = .data$stable)) +
+      ggplot2::geom_col(width = 0.85, show.legend = TRUE) +
+      ggplot2::scale_alpha_manual(
+        values = c(`TRUE` = 1.0, `FALSE` = as.numeric(alpha_nonstable)),
+        name = "Bootstrap-stable"
+      )
   } else {
     g = ggplot2::ggplot(df_sub, ggplot2::aes(x = axis_id, y = mean, fill = signpos)) +
       ggplot2::geom_col(width = 0.85, show.legend = FALSE)
@@ -1237,6 +1290,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   source = c("weights", "bootstrap"),
   top_n = NULL,
   patch_ncol = 1L,
+  branch_label = NULL,
   font = "sans",
   alpha_by_stability = FALSE,
   alpha_nonstable = 0.4,
@@ -1268,7 +1322,6 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
 
       df = merge(df, keys, by = c("component", "block", "feature"), all.x = TRUE)
       df$stable[is.na(df$stable)] = FALSE
-      df$alpha_plot = ifelse(df$stable, 1, as.numeric(alpha_nonstable))
     }
 
   } else {
@@ -1315,7 +1368,9 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
     .mbspls_plot_weights_single_component(
       df_sub, block_levels,
       title = ttl, font = font,
-      alpha_by_stability = alpha_by_stability
+      alpha_by_stability = alpha_by_stability,
+      alpha_nonstable = alpha_nonstable,
+      branch_label = branch_label
     )
   })
 
