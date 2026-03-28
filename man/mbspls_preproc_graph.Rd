@@ -5,20 +5,27 @@
 \title{Default MB-sPLS Preprocessing Graph}
 \usage{
 mbspls_preproc_graph(
-  blocks,
-  site_correction,
-  site_correction_methods,
+  blocks = NULL,
+  task = NULL,
+  site_correction = list(),
+  site_correction_methods = list(),
   keep_site_col = FALSE,
   k = 5,
   id_suffix = NULL
 )
 }
 \arguments{
-\item{blocks}{Named list of character vectors per block.}
+\item{blocks}{Named list of character vectors per block. If \code{NULL}, the
+mapping is taken from \code{task$blocks}.}
 
-\item{site_correction}{Named list of features used for site correction.}
+\item{task}{Optional \link[mlr3:Task]{mlr3::Task} carrying multi-block metadata via
+\code{\link[=TaskMultiBlock]{TaskMultiBlock()}}. Used when \code{blocks = NULL}.}
 
-\item{site_correction_methods}{Named list of methods for site correction.}
+\item{site_correction}{Named list of features used for site correction.
+Defaults to \code{list()} (no correction).}
+
+\item{site_correction_methods}{Named list of methods for site correction.
+Defaults to \code{list()}.}
 
 \item{keep_site_col}{Keep site column after correction?}
 

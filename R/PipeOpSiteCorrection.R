@@ -224,22 +224,14 @@ PipeOpSiteCorrection = R6::R6Class(
     .validate_blocks = function(task, blocks) {
       dt = task$data(cols = task$feature_names)
       if (is.null(blocks)) {
+        blocks = mb_task_blocks(task, context = "PipeOpSiteCorrection", allow_null = TRUE)
+      }
+      if (is.null(blocks)) {
         num = task$feature_names[
           vapply(task$feature_names, function(x) is.numeric(dt[[x]]), logical(1))]
         return(list(.all = num))
       }
-      dt_names = names(dt)
-      esc = function(s) gsub("([][{}()|^$.*+?\\\\-])", "\\\\\\1", s)
-      expand_cols = function(cols) {
-        unique(unlist(lapply(cols, function(cn) {
-          if (cn %in% dt_names) cn else grep(paste0("^", esc(cn), "(\\.|$)"), dt_names, value = TRUE)
-        })))
-      }
-      out = lapply(blocks, function(cols) {
-        cols = expand_cols(cols)
-        cols[vapply(cols, function(x) is.numeric(dt[[x]]), logical(1))]
-      })
-      Filter(length, out)
+      mb_resolve_blocks(dt, blocks, numeric_only = TRUE, non_constant = FALSE)
     },
 
     .method_for_block = function(method_map, bn) {
