@@ -47,3 +47,52 @@ test_that("aggregate_mbspls_payloads aggregates minimal payload lists", {
   expect_equal(dim(s$ev_block_mean), c(2L, 2L))
   expect_setequal(colnames(s$ev_block_mean), c("b1", "b2"))
 })
+
+
+test_that("aggregate_mbspls_payloads combines p-values once per fold/component", {
+  payloads = list(
+    list(
+      mac_comp = c(0.50),
+      ev_comp = c(0.30),
+      ev_block = matrix(c(0.15, 0.10), nrow = 1, dimnames = list(NULL, c("b1", "b2"))),
+      val_test_p = c(0.10),
+      T_mat = matrix(0, nrow = 10, ncol = 2),
+      blocks = c("b1", "b2"),
+      perf_metric = "mac"
+    ),
+    list(
+      mac_comp = c(0.60),
+      ev_comp = c(0.32),
+      ev_block = matrix(c(0.16, 0.11), nrow = 1, dimnames = list(NULL, c("b1", "b2"))),
+      val_test_p = c(0.20),
+      T_mat = matrix(0, nrow = 12, ncol = 2),
+      blocks = c("b1", "b2"),
+      perf_metric = "mac"
+    )
+  )
+
+  agg = aggregate_mbspls_payloads(payloads, p_method = "stouffer")
+  expected = 1 - stats::pnorm((sqrt(10) * stats::qnorm(0.90) + sqrt(12) * stats::qnorm(0.80)) /
+    sqrt(10 + 12))
+
+  expect_equal(unname(agg$summary$p_combined[[1L]]), expected, tolerance = 1e-12)
+})
+
+
+test_that("aggregate_mbspls_payloads handles monotone enforcement with one component", {
+  payloads = list(
+    list(
+      mac_comp = c(0.50),
+      ev_comp = c(0.30),
+      ev_block = matrix(c(0.15, 0.10), nrow = 1, dimnames = list(NULL, c("b1", "b2"))),
+      val_test_p = c(0.10),
+      T_mat = matrix(0, nrow = 10, ncol = 2),
+      blocks = c("b1", "b2"),
+      perf_metric = "mac"
+    )
+  )
+
+  expect_no_error(
+    aggregate_mbspls_payloads(payloads, p_method = "stouffer", enforce_monotone = TRUE)
+  )
+})

@@ -31,6 +31,8 @@
 #' * `ev_comp`: numeric vector of total variance explained by each PC.
 #' * `T_mat`: numeric matrix of appended latent scores (column names match the
 #'   appended features).
+#' * `run_id`: optional identifier used to match prediction-side payloads to the
+#'   trained fit when a shared `log_env` is used.
 #'
 #' @section Parameters (ParamSet):
 #' * `blocks` (`uty`, **required**; tag `"train"`): named list mapping block IDs
@@ -44,6 +46,9 @@
 #'   default `sqrt(#features)`; tags `c("train","tune")`): sqrt(L1-budget) for that block.
 #' * `c_matrix` (`uty`, default `NULL`; tags `c("train","tune")`): optional
 #'   matrix (`blocks x components`) overriding single-value `c_<block>` parameters.
+#' * `log_env` (`uty`, default `NULL`; tags `c("train","predict")`): optional
+#'   environment that stores a training snapshot and prediction-side explained-
+#'   variance payloads for measures and diagnostics.
 #'
 #' @section Methods:
 #' * `$plot_variance()`: stacked bar chart of `ev_block`.
@@ -71,7 +76,8 @@
 #'
 #' @return
 #' * **Training**: appends latent score columns and sets `$state` as described.
-#' * **Prediction**: appends latent score columns computed from stored weights.
+#' * **Prediction**: appends latent score columns computed from stored weights and,
+#'   if `log_env` is supplied, writes prediction-side EV payloads.
 #' * **Plot methods**: return a `ggplot` object.
 #'
 #' @examples
@@ -88,7 +94,6 @@
 #' }
 #'
 #' @seealso [mlr3pipelines::PipeOp], [mlr3tuning], `TunerSeqMBsPCA`
-#' @importFrom rlang "%||%"
 #' @export
 PipeOpMBsPCA = R6::R6Class(
   "PipeOpMBsPCA",
@@ -118,7 +123,8 @@ PipeOpMBsPCA = R6::R6Class(
         perm_alpha = paradox::p_dbl(lower = 0, upper = 1,
           default = 0.05, tags = "train"),
         c_matrix = paradox::p_uty(tags = c("train", "tune"),
-          default = NULL)
+          default = NULL),
+        log_env = paradox::p_uty(tags = c("train", "predict"), default = NULL)
       )
 
       ## one sparsity hyper-parameter per block (sqrtL1 budget)
@@ -374,7 +380,6 @@ PipeOpMBsPCA = R6::R6Class(
       )
 
       blocks = pv$blocks
-      n_block = length(blocks)
 
       ## 0) sanity-filter columns: numeric, non-constant ---------------
       blocks = lapply(blocks, function(cols) {
@@ -390,6 +395,7 @@ PipeOpMBsPCA = R6::R6Class(
       if (!length(blocks)) {
         stop("No block contains at least one usable numeric column.")
       }
+      n_block = length(blocks)
 
       ## 1) materialise block matrices ---------------------------------
       X = lapply(blocks, \(cols) {
@@ -401,8 +407,23 @@ PipeOpMBsPCA = R6::R6Class(
       ## 2) handle c-matrix vs single-value per block ------------------
       if (!is.null(pv$c_matrix)) {
         cm = pv$c_matrix
+        if (!is.matrix(cm) || !is.numeric(cm)) {
+          stop("`c_matrix` must be a numeric matrix.", call. = FALSE)
+        }
         if (!is.null(rownames(cm))) {
+          missing_rows = setdiff(names(blocks), rownames(cm))
+          if (length(missing_rows)) {
+            stop(
+              sprintf(
+                "`c_matrix` rows must cover all retained blocks. Missing: %s",
+                paste(missing_rows, collapse = ", ")
+              ),
+              call. = FALSE
+            )
+          }
           cm = cm[names(blocks), , drop = FALSE]
+        } else if (nrow(cm) != n_block) {
+          stop(sprintf("`c_matrix` must have %d rows (retained blocks); got %d.", n_block, nrow(cm)), call. = FALSE)
         }
         pv$ncomp = ncol(cm) # override
       } else {
@@ -488,10 +509,27 @@ PipeOpMBsPCA = R6::R6Class(
       ## -- build output latent score table ---------------------------
       coln = unlist(lapply(seq_len(ncomp),
         \(k) paste0("PC", k, "_", names(blocks))))
-      T_mat = do.call(cbind, lapply(seq_len(ncomp), \(k) {
-        do.call(cbind, lapply(seq_along(blocks), \(b)
-        X[[b]] %*% W_all[[k]][[b]]))
-      }))
+      X_scores = lapply(X, function(M) {
+        M = as.matrix(M)
+        storage.mode(M) = "double"
+        M
+      })
+      T_seq = vector("list", ncomp)
+      for (k in seq_len(ncomp)) {
+        Tk = do.call(cbind, lapply(seq_along(blocks), \(b) X_scores[[b]] %*% W_all[[k]][[b]]))
+        colnames(Tk) = paste0("PC", k, "_", names(blocks))
+        T_seq[[k]] = Tk
+        if (k < ncomp) {
+          for (b in seq_along(blocks)) {
+            tb = Tk[, b]
+            denom = drop(crossprod(tb))
+            if (denom > 1e-12) {
+              X_scores[[b]] = X_scores[[b]] - tcrossprod(tb, P_all[[k]][[b]])
+            }
+          }
+        }
+      }
+      T_mat = do.call(cbind, T_seq)
       colnames(T_mat) = coln
       dt_lat = data.table::as.data.table(T_mat)
 
@@ -526,8 +564,28 @@ PipeOpMBsPCA = R6::R6Class(
         loadings = P_all,
         ev_block = ev_blk,
         ev_comp  = ev_cmp,
-        T_mat    = T_mat
+        T_mat    = T_mat,
+        run_id   = NULL
       )
+
+      log_env = pv$log_env
+      if (!is.null(log_env) && inherits(log_env, "environment")) {
+        run_id = make_run_id("mbspca", log_env)
+        self$state$run_id = run_id
+        log_env$mbspca_state = list(
+          run_id = run_id,
+          blocks = blocks,
+          ncomp = ncomp,
+          weights = W_all,
+          loadings = P_all,
+          ev_block = ev_blk,
+          ev_comp = ev_cmp,
+          T_mat_train = T_mat,
+          time = Sys.time()
+        )
+        log_env$mbspca_state_last_id = run_id
+      }
+
       dt_lat
     },
 
@@ -545,6 +603,11 @@ PipeOpMBsPCA = R6::R6Class(
         storage.mode(M) = "double"
         M
       })
+      X_for_ev = lapply(X_cur, function(M) {
+        storage.mode(M) = "double"
+        M
+      })
+      names(X_for_ev) = names(blocks)
 
       lat_list = vector("list", st$ncomp)
 
@@ -568,7 +631,35 @@ PipeOpMBsPCA = R6::R6Class(
           }
         }
       }
-      data.table::as.data.table(do.call(cbind, lat_list))
+
+      dt_lat = data.table::as.data.table(do.call(cbind, lat_list))
+
+      log_env = self$param_set$values$log_env
+      if (!is.null(log_env) && inherits(log_env, "environment")) {
+        test_ev = compute_test_ev(
+          X_blocks_test = X_for_ev,
+          W_all = st$weights,
+          P_all = st$loadings,
+          deflate = TRUE,
+          performance_metric = "mac",
+          correlation_method = "pearson",
+          loading_source = "train",
+          clamp_ev = "none"
+        )
+        payload = list(
+          ev_block = as.matrix(test_ev$ev_block),
+          ev_comp = as.numeric(test_ev$ev_comp),
+          ev_block_cum = as.matrix(test_ev$ev_block_cum),
+          ev_comp_cum = as.numeric(test_ev$ev_comp_cum),
+          T_mat = as.matrix(test_ev$T_mat),
+          blocks = names(blocks),
+          time = Sys.time(),
+          run_id = st$run_id %||% NULL
+        )
+        log_env_store_last(log_env, payload, run_id = payload$run_id)
+      }
+
+      dt_lat
     }
   )
 )

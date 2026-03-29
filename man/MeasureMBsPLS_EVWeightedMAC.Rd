@@ -2,13 +2,12 @@
 % Please edit documentation in R/measure_mbspls.R
 \name{MeasureMBsPLS_EVWeightedMAC}
 \alias{MeasureMBsPLS_EVWeightedMAC}
-\title{MB-sPLS EV-weighted latent correlation (test)}
+\title{MB-sPLS EV-weighted latent correlation (prediction-side)}
 \description{
-Aggregates per-component test latent correlations (MAC or Frobenius) using
-explained-variance weights from the same test split:
-\deqn{\sum_k \left(\frac{EV_k}{\sum_j EV_j}\right) \cdot \text{score}_k.}
-If Frobenius was used during training, scores are normalised by
-\eqn{\sqrt{\binom{B}{2}}} to keep the range within \eqn{[0,1]}.
+Aggregates per-component latent correlations (MAC or Frobenius) using the
+positive part of the prediction-side explained-variance weights from the same
+split. If all component EVs are non-positive, the measure falls back to equal
+component weights.
 }
 \examples{
 \dontrun{

@@ -43,7 +43,7 @@
     learner     = gl_tune,
     resampling  = mlr3::rsmp("holdout"), # ignored by our tuner except for naming
     measure     = mlr3::msr("mbspls.mac_evwt"),
-    terminator  = mlr3tuning::trm("evals", n_evals = 1)
+    terminator  = bbotk::trm("evals", n_evals = 1)
   )
   tuner$optimize(inst)
 
@@ -61,10 +61,10 @@
   gl_eval = graphlearner$clone(deep = TRUE)
   mbspls_id_eval = .mbspls_pipeop_id(gl_eval$graph, where = "gl_eval$graph")
   po_eval = gl_eval$graph$pipeops[[mbspls_id_eval]]
-  po_eval$param_set$values$ncomp = ncol(c_star)
+  po_eval$param_set$values$ncomp = if (is.null(c_star)) as.integer(ncomp) else ncol(c_star)
   po_eval$param_set$values$performance_metric = performance_metric
   po_eval$param_set$values$c_matrix = c_star
-  po_eval$param_set$values$permutation_test = TRUE
+  po_eval$param_set$values$permutation_test = FALSE
   po_eval$param_set$values$val_test = val_test
   po_eval$param_set$values$val_test_n = as.integer(val_test_n)
   po_eval$param_set$values$val_test_alpha = val_test_alpha
@@ -91,8 +91,6 @@
     )
   } else {
     mac = as.numeric(or_null(payload$mac_comp, NA_real_))
-    ev = as.numeric(or_null(payload$ev_comp, NA_real_))
-    w = ev / (sum(ev) + 1e-12)
     vp = or_null(payload$val_test_p, payload$val_perm_p) # backward compat
     vs = or_null(payload$val_test_stat, NULL)
 
@@ -100,7 +98,7 @@
       split          = split_id,
       inner_score    = inner_score,
       mac_lv1_test   = mac[1],
-      mac_evwt_test  = sum(w * mac),
+      mac_evwt_test  = mbspls_measure_score_from_payload(payload, "mbspls.mac_evwt"),
       ncomp_kept     = length(mac),
       perf_metric    = or_null(payload$perf_metric, performance_metric),
       val_p_last     = if (!is.null(vp)) as.numeric(utils::tail(vp, 1L)) else NA_real_,

@@ -69,20 +69,16 @@ PipeOpBlockScaling = R6::R6Class(
 
   private = list(
 
-    .collect_blocks = function(dt, blocks, verbose = FALSE) {
+    .collect_blocks = function(dt, blocks, task = NULL, verbose = FALSE) {
+      if (is.null(blocks) && !is.null(task)) {
+        blocks = mb_task_blocks(task, context = "PipeOpBlockScaling", allow_null = TRUE)
+      }
       if (is.null(blocks)) {
         num_cols = names(dt)[vapply(dt, is.numeric, logical(1))]
         if (verbose) lgr::lgr$info("Auto-detected %d numeric features for .all block", length(num_cols))
         return(list(.all = num_cols))
       }
-      out = lapply(blocks, function(cols) {
-        cols = intersect(cols, names(dt))
-        cols = cols[vapply(cols, function(cl) is.numeric(dt[[cl]]), logical(1))]
-        cols = cols[vapply(cols, function(cl) stats::var(dt[[cl]], na.rm = TRUE) > 0, logical(1))]
-        cols
-      })
-      out = Filter(length, out)
-      out
+      mb_resolve_blocks(dt, blocks, numeric_only = TRUE, non_constant = TRUE)
     },
 
     .train_task = function(task) {
@@ -92,7 +88,7 @@ PipeOpBlockScaling = R6::R6Class(
       task_copy = task$clone()
       dt = task_copy$data(rows = task_copy$row_ids, cols = task_copy$feature_names)
 
-      blocks = private$.collect_blocks(dt, pv$blocks, verbose)
+      blocks = private$.collect_blocks(dt, pv$blocks, task = task, verbose = verbose)
       if (!length(blocks)) stop("PipeOpBlockScaling: no numeric, non-constant features found in any block.")
 
       method = pv$method %||% "unit_ssq"
@@ -142,12 +138,32 @@ PipeOpBlockScaling = R6::R6Class(
         scalers  = scalers
       )
 
-      # Rebuild task backend preserving roles
+      # Rebuild task backend preserving targets and other non-feature roles
       row_ids = task$row_ids
-      if (!".row_id" %in% names(dt)) dt[, ".row_id" := row_ids]
+      pk_col = mb_make_backend_key_name(names(dt), "..row_id_blockscale")
+      dt[, (pk_col) := row_ids]
+
+      roles_orig = task$col_roles
+      nonfeat_roles = setdiff(names(roles_orig), "feature")
+      extra_cols = unique(unlist(roles_orig[nonfeat_roles], use.names = FALSE))
+      extra_cols = setdiff(extra_cols, names(dt))
+
+      if (length(extra_cols)) {
+        extra_dt = task$data(rows = task$row_ids, cols = extra_cols)
+        dt_out = cbind(dt, extra_dt)
+      } else {
+        dt_out = dt
+      }
+
       new_task = task_copy$clone()
-      new_task$backend = mlr3::as_data_backend(dt, primary_key = ".row_id")
-      new_task$col_roles$feature = setdiff(new_task$feature_names, ".row_id")
+      new_task$backend = mlr3::as_data_backend(dt_out, primary_key = pk_col)
+
+      present = names(dt_out)
+      new_roles = roles_orig
+      new_roles$feature = intersect(task$feature_names, setdiff(present, pk_col))
+      for (rn in names(new_roles)) new_roles[[rn]] = intersect(new_roles[[rn]], present)
+      new_task$col_roles = new_roles
+
       new_task
     },
 
@@ -194,12 +210,32 @@ PipeOpBlockScaling = R6::R6Class(
         }
       }
 
-      # Rebuild task
+      # Rebuild task preserving targets and other non-feature roles
       row_ids = task$row_ids
-      if (!".row_id" %in% names(dt)) dt[, ".row_id" := row_ids]
+      pk_col = mb_make_backend_key_name(names(dt), "..row_id_blockscale")
+      dt[, (pk_col) := row_ids]
+
+      roles_orig = task$col_roles
+      nonfeat_roles = setdiff(names(roles_orig), "feature")
+      extra_cols = unique(unlist(roles_orig[nonfeat_roles], use.names = FALSE))
+      extra_cols = setdiff(extra_cols, names(dt))
+
+      if (length(extra_cols)) {
+        extra_dt = task$data(rows = task$row_ids, cols = extra_cols)
+        dt_out = cbind(dt, extra_dt)
+      } else {
+        dt_out = dt
+      }
+
       new_task = task_copy$clone()
-      new_task$backend = mlr3::as_data_backend(dt, primary_key = ".row_id")
-      new_task$col_roles$feature = setdiff(new_task$feature_names, ".row_id")
+      new_task$backend = mlr3::as_data_backend(dt_out, primary_key = pk_col)
+
+      present = names(dt_out)
+      new_roles = roles_orig
+      new_roles$feature = intersect(task$feature_names, setdiff(present, pk_col))
+      for (rn in names(new_roles)) new_roles[[rn]] = intersect(new_roles[[rn]], present)
+      new_task$col_roles = new_roles
+
       new_task
     }
   )

@@ -139,17 +139,12 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       task
     },
 
-    .get_env_state = function(pv) {
+    .get_env_state = function(pv, run_id = NULL) {
       env = pv$log_env
       if (!inherits(env, "environment")) {
         stop("Provide a shared 'log_env' with po('mbspls').", call. = FALSE)
       }
-      st = env$mbspls_state
-      if (is.null(st)) {
-        stop("mbspls_state not found in log_env; place this PipeOp directly after po('mbspls').", call. = FALSE)
-      }
-      assert_mbspls_state(st, require_train_blocks = FALSE, where = "log_env$mbspls_state")
-      st
+      .mbspls_state_from_env(env, run_id = run_id, require_train_blocks = FALSE, where = "log_env")
     },
 
     # helper to construct stable weights & kept blocks from summaries
@@ -631,7 +626,8 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         self$param_set$get_values(tags = "train"),
         keep.null = TRUE)
 
-      st_env = private$.get_env_state(pv)
+      st_env = private$.get_env_state(pv, run_id = self$state$run_id %||% NULL)
+      self$state$run_id = st_env$run_id %||% self$state$run_id %||% NULL
       blocks_map = st_env$blocks
 
       # Always record this flag for predict()
@@ -650,7 +646,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         return(private$.finalize_scores_only(task, blocks_map))
       }
 
-      st_env = private$.get_env_state(pv)
+      st_env = private$.get_env_state(pv, run_id = self$state$run_id %||% NULL)
 
       dt_all = task$data()
       lm = private$.lv_column_map(names(dt_all))
@@ -917,7 +913,8 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         dt_all = task$data()
         lm = private$.lv_column_map(names(dt_all))
         env = self$param_set$values$log_env
-        blocks_map = env$mbspls_state$blocks
+        st_env = .mbspls_state_from_env(env, run_id = st$run_id %||% NULL, require_train_blocks = FALSE, where = "log_env")
+        blocks_map = st_env$blocks
         old_lv = if (lm$K) unlist(lm$map, use.names = FALSE) else character(0)
         orig_feats = intersect(unlist(blocks_map, use.names = FALSE), task$feature_names)
         keep_features = setdiff(task$feature_names, c(old_lv, orig_feats))
@@ -927,7 +924,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
 
       dt = task$data()
       env = self$param_set$values$log_env
-      st_env = env$mbspls_state
+      st_env = .mbspls_state_from_env(env, run_id = st$run_id %||% NULL, require_train_blocks = FALSE, where = "log_env")
       blocks_map = st_env$blocks
       all_blocks = names(blocks_map)
 

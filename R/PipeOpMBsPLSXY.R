@@ -185,8 +185,20 @@ PipeOpMBsPLSXY = R6::R6Class(
         }
       }
 
-      if (isTRUE(center)) y_mat <- scale(y_mat, center = TRUE, scale = FALSE)
-      if (isTRUE(scale)) y_mat <- scale(y_mat, center = FALSE, scale = TRUE)
+      y_mat = as.matrix(y_mat)
+      storage.mode(y_mat) = "double"
+
+      if (isTRUE(center) || isTRUE(scale)) {
+        center_vec = if (isTRUE(center)) colMeans(y_mat, na.rm = TRUE) else rep(0, ncol(y_mat))
+        y_mat = sweep(y_mat, 2L, center_vec, FUN = "-")
+
+        if (isTRUE(scale)) {
+          scale_vec = apply(y_mat, 2L, stats::sd, na.rm = TRUE)
+          scale_vec[!is.finite(scale_vec) | scale_vec < 1e-12] = 1
+          y_mat = sweep(y_mat, 2L, scale_vec, FUN = "/")
+        }
+      }
+
       as.matrix(y_mat)
     },
 
@@ -287,16 +299,17 @@ PipeOpMBsPLSXY = R6::R6Class(
       K = length(fit$W)
       if (K < 1L) stop("PipeOpMBsPLSXY: no components extracted.")
 
+      y_cols = colnames(y_mat) %||% paste0(".Y_", seq_len(ncol(y_mat)))
       W_X = P_X = vector("list", K)
       W_Y = P_Y = vector("list", K)
       for (k in seq_len(K)) {
         W_X[[k]] = fit$W[[k]][seq_len(Bx)]
         P_X[[k]] = fit$P[[k]][seq_len(Bx)]
-        W_Y[[k]] = fit$W[[k]][[Bx + 1L]]
-        P_Y[[k]] = fit$P[[k]][[Bx + 1L]]
+        W_Y[[k]] = stats::setNames(as.numeric(fit$W[[k]][[Bx + 1L]]), y_cols)
+        P_Y[[k]] = stats::setNames(as.numeric(fit$P[[k]][[Bx + 1L]]), y_cols)
         names(W_X[[k]]) = names(P_X[[k]]) = names(blocks)
       }
-      names(W_X) = names(P_X) = sprintf("LC_%02d", seq_len(K))
+      names(W_X) = names(P_X) = names(W_Y) = names(P_Y) = sprintf("LC_%02d", seq_len(K))
 
       X_cur = X_list
       score_tables = vector("list", K)
@@ -332,10 +345,15 @@ PipeOpMBsPLSXY = R6::R6Class(
       }
 
       self$state$blocks_x = blocks
+      self$state$target_columns = y_cols
       self$state$ncomp = K
       self$state$weights_x = W_X
       self$state$loadings_x = P_X
+      self$state$weights_y = W_Y
+      self$state$loadings_y = P_Y
       self$state$performance_metric = pv$performance_metric
+      self$state$correlation_method = pv$correlation_method
+      self$state$emit_y_scores = isTRUE(pv$emit_y_scores)
 
       dt_lat
     },

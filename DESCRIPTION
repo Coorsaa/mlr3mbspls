@@ -1,19 +1,19 @@
 Package: mlr3mbspls
 Title: Multi-Block Sparse Partial Least Squares for mlr3
-Version: 0.2.14
-Authors@R: 
-    c(
-      person("Stefan", "Coors", email = "mail@stefancoors.de", role = c("aut", "cre"),
-             comment = c(ORCID = "0000-0002-7465-2146")),
-      person("Clara Sophie", "Vetter", email = "clara.vetter@med.uni-muenchen.de", role = "aut",
-             comment = c(ORCID = "0000-0003-4268-2890"))
-    )
+Version: 0.3.1
+Authors@R: c(
+        person("Stefan", "Coors", email = "mail@stefancoors.de", role = c("aut", "cre"),
+            comment = c(ORCID = "0000-0002-7465-2146")),
+        person("Clara Sophie", "Vetter", email = "clara.vetter@med.uni-muenchen.de", role = "aut",
+            comment = c(ORCID = "0000-0003-4268-2890"))
+        )
 Description: Integration of multi-block sparse partial least squares (MB-sPLS) 
     with the mlr3 machine learning framework. This package provides custom PipeOp 
     components for MB-sPLS projection and dimensionality reduction in multi-block
     data analysis workflows, with support for supervised and unsupervised pipelines.
     It contains a complete native implementation of the MB-sPLS algorithm, fully
-    integrated with the mlr3 ecosystem.
+    integrated with the mlr3 ecosystem. It also includes multiblock task
+    quality-control and model-summary helpers for reporting and interpretation.
 License: LGPL-3 + file LICENSE
 URL: https://mlr3.mlr-org.com, https://github.com/coorsaa/mlr3mbspls
 BugReports: https://github.com/coorsaa/mlr3mbspls/issues
@@ -37,7 +37,8 @@ Imports:
     Rcpp (>= 1.1.0),
     ggplot2 (>= 3.5.2),
     lgr (>= 0.4.4),
-    rlang (>= 1.0.0)
+    parallel,
+    stats
 Suggests:
     batchtools,
     clue,
@@ -50,8 +51,10 @@ Suggests:
     igraph,
     knitr,
     mlr3learners (>= 0.12.0),
+    mixOmics,
     BiocManager,
     neuroCombat,
+    multiblock,
     patchwork,
     RColorBrewer,
     rmarkdown,

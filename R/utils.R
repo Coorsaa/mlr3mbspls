@@ -167,6 +167,43 @@ assert_mbspls_state = function(st, require_train_blocks = FALSE, where = "log_en
   invisible(TRUE)
 }
 
+#' Resolve an MB-sPLS state from a shared log_env, preferring a specific run_id.
+#' @keywords internal
+.mbspls_state_from_env = function(log_env, run_id = NULL, require_train_blocks = FALSE, where = "log_env") {
+  if (is.null(log_env) || !inherits(log_env, "environment")) {
+    stop(sprintf("%s must be an environment.", where), call. = FALSE)
+  }
+
+  requested = if (is.null(run_id) || !nzchar(as.character(run_id))) NULL else as.character(run_id)
+  hist = log_env$mbspls_states %||% NULL
+  st = NULL
+
+  if (!is.null(requested) && is.list(hist) && length(hist)) {
+    st = hist[[requested]] %||% NULL
+
+    if (is.null(st)) {
+      latest = log_env$mbspls_state %||% NULL
+      latest_id = if (is.list(latest)) latest$run_id %||% NULL else NULL
+      if (!is.null(latest) && identical(as.character(latest_id), requested)) {
+        st = latest
+      } else {
+        stop(sprintf("mbspls_state for run_id='%s' not found in %s$mbspls_states.", requested, where), call. = FALSE)
+      }
+    }
+  }
+
+  if (is.null(st)) {
+    st = log_env$mbspls_state %||% NULL
+  }
+
+  if (is.null(st)) {
+    stop(sprintf("mbspls_state not found in %s.", where), call. = FALSE)
+  }
+
+  assert_mbspls_state(st, require_train_blocks = require_train_blocks, where = paste0(where, "$mbspls_state"))
+  st
+}
+
 #' Assert that all block features are present in a data.table/data.frame.
 #' @keywords internal
 assert_blocks_present = function(colnames_dt, blocks_map, context = "task") {
@@ -180,6 +217,219 @@ assert_blocks_present = function(colnames_dt, blocks_map, context = "task") {
       paste0(" - ", names(missing), ": ", vapply(missing, function(x) paste(x, collapse = ", "), character(1)), collapse = "\n")
     )
     stop(msg, call. = FALSE)
+  }
+
+  invisible(TRUE)
+}
+
+#' Create a backend primary-key column name that does not collide.
+#' @keywords internal
+mb_make_backend_key_name = function(existing, key_name = "..row_id") {
+  key_name = key_name %||% "..row_id"
+  if (!(key_name %in% existing)) {
+    return(key_name)
+  }
+  make.unique(c(existing, key_name))[length(existing) + 1L]
+}
+
+# ------------------------------------------------------------------------------
+# Multi-block task helpers
+# ------------------------------------------------------------------------------
+
+#' Normalize a multi-block mapping.
+#' @keywords internal
+mb_normalize_blocks = function(blocks, .var.name = "blocks") {
+  checkmate::assert_list(
+    blocks,
+    types = "character",
+    min.len = 1L,
+    names = "unique",
+    .var.name = .var.name
+  )
+  lapply(blocks, function(cols) unique(as.character(cols)))
+}
+
+
+#' Expand stable base names to concrete task/backend column names.
+#' @keywords internal
+mb_expand_block_cols = function(dt_names, cols) {
+  checkmate::assert_character(dt_names, any.missing = FALSE, .var.name = "dt_names")
+  checkmate::assert_character(cols, any.missing = FALSE, min.len = 1L, .var.name = "cols")
+
+  esc = function(s) gsub("([][{}()|^$.*+?\\\\-])", "\\\\\\\\1", s)
+
+  unique(unlist(lapply(cols, function(co) {
+    if (co %in% dt_names) {
+      co
+    } else {
+      grep(paste0("^", esc(co), "(\\\\.|$)"), dt_names, value = TRUE)
+    }
+  }), use.names = FALSE))
+}
+
+
+#' Resolve blocks against a concrete data table.
+#' @keywords internal
+mb_resolve_blocks = function(
+  dt,
+  blocks,
+  numeric_only = TRUE,
+  non_constant = TRUE) {
+
+  if (is.null(blocks)) {
+    return(NULL)
+  }
+
+  blocks = mb_normalize_blocks(blocks)
+  dt = data.table::as.data.table(dt)
+  dt_names = names(dt)
+
+  out = lapply(blocks, function(cols) {
+    cand = mb_expand_block_cols(dt_names, cols)
+
+    if (isTRUE(numeric_only)) {
+      cand = cand[vapply(cand, function(cl) is.numeric(dt[[cl]]), logical(1))]
+    }
+    if (!length(cand)) {
+      return(character(0))
+    }
+
+    if (isTRUE(non_constant)) {
+      cand = cand[vapply(cand, function(cl) stats::var(dt[[cl]], na.rm = TRUE) > 0, logical(1))]
+    }
+    cand
+  })
+
+  Filter(length, out)
+}
+
+
+#' Extract block metadata from a multiblock task if available.
+#' @keywords internal
+mb_task_blocks = function(task, context = "task", allow_null = FALSE) {
+  checkmate::assert_class(task, "Task", .var.name = paste0(context, "$task"))
+
+  blocks = tryCatch(task$blocks, error = function(e) NULL)
+  if (is.null(blocks)) {
+    if (isTRUE(allow_null)) {
+      return(NULL)
+    }
+    stop(
+      sprintf(
+        "%s: no 'blocks' supplied and the task does not carry multi-block metadata.",
+        context
+      ),
+      call. = FALSE
+    )
+  }
+
+  mb_normalize_blocks(blocks, .var.name = paste0(context, "$blocks"))
+}
+
+
+#' Resolve a blocks argument for high-level graph constructors.
+#' @keywords internal
+mb_graph_blocks = function(blocks = NULL, task = NULL, context = "mbspls_graph") {
+  if (!is.null(blocks)) {
+    return(mb_normalize_blocks(blocks, .var.name = paste0(context, "$blocks")))
+  }
+  if (is.null(task)) {
+    stop(
+      sprintf("%s: supply either 'blocks' or a TaskMultiBlock via 'task'.", context),
+      call. = FALSE
+    )
+  }
+  mb_task_blocks(task, context = context)
+}
+
+
+#' Validate that referenced site-correction columns exist on a task.
+#' @keywords internal
+mb_validate_site_correction = function(task, site_correction = list(), context = "mbspls_graph") {
+  if (is.null(task) || !length(site_correction)) {
+    return(invisible(TRUE))
+  }
+  checkmate::assert_class(task, "Task", .var.name = paste0(context, "$task"))
+  cols = unique(unlist(site_correction, recursive = TRUE, use.names = FALSE))
+  cols = cols[nzchar(cols)]
+  if (!length(cols)) {
+    return(invisible(TRUE))
+  }
+
+  available = unique(c(
+    task$feature_names,
+    tryCatch(task$target_names, error = function(e) character(0))
+  ))
+  missing = setdiff(cols, available)
+  if (length(missing)) {
+    stop(
+      sprintf(
+        "%s: site-correction columns not found on the task: %s.",
+        context,
+        paste(missing, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
+  invisible(TRUE)
+}
+
+
+#' Validate supervised TaskMultiBlock usage.
+#' @keywords internal
+mb_validate_supervised_task = function(task, context = "mbsplsxy_graph") {
+  if (is.null(task)) {
+    return(invisible(NULL))
+  }
+  checkmate::assert_class(task, "Task", .var.name = paste0(context, "$task"))
+  task_type = tryCatch(task$task_type, error = function(e) NA_character_)
+  if (!task_type %in% c("classif", "regr")) {
+    stop(
+      sprintf(
+        "%s: supervised MB-sPLS-XY requires a classification or regression task, not '%s'.",
+        context,
+        as.character(task_type)
+      ),
+      call. = FALSE
+    )
+  }
+  invisible(task_type)
+}
+
+
+#' Validate that a learner matches the expected supervised task type.
+#' @keywords internal
+mb_validate_supervised_learner = function(learner, expected_type, context = "mbsplsxy_graph_learner") {
+  checkmate::assert_class(learner, "Learner", .var.name = paste0(context, "$learner"))
+  checkmate::assert_choice(expected_type, c("classif", "regr"), .var.name = paste0(context, "$expected_type"))
+
+  learner_type = tryCatch(learner$task_type, error = function(e) NA_character_)
+  if (is.na(learner_type) || !nzchar(learner_type)) {
+    return(invisible(TRUE))
+  }
+  if (!learner_type %in% c("classif", "regr")) {
+    stop(
+      sprintf(
+        "%s: learner '%s' has task type '%s', but MB-sPLS-XY requires a classification or regression learner.",
+        context,
+        learner$id %||% "<unknown>",
+        as.character(learner_type)
+      ),
+      call. = FALSE
+    )
+  }
+  if (!identical(learner_type, expected_type)) {
+    stop(
+      sprintf(
+        "%s: learner '%s' has task type '%s', which does not match the expected task type '%s'.",
+        context,
+        learner$id %||% "<unknown>",
+        as.character(learner_type),
+        expected_type
+      ),
+      call. = FALSE
+    )
   }
 
   invisible(TRUE)

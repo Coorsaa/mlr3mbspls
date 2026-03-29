@@ -253,10 +253,14 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   fit = mod[[mbspls_id]] %||% fit_po
   if (is.null(fit)) stop("Cannot locate MB-sPLS node '", mbspls_id, "'.")
   fit_state = if (!is.null(fit$state)) fit$state else fit
-  fit_env = tryCatch({
-    ve = fit_po$param_set$values$log_env
-    if (inherits(ve, "environment")) ve else NULL
-  }, error = function(e) NULL)
+  fit_env = {
+    envs = list(
+      tryCatch(fit$param_set$values$log_env, error = function(e) NULL),
+      tryCatch(fit_po$param_set$values$log_env, error = function(e) NULL)
+    )
+    envs = Filter(function(x) inherits(x, "environment"), envs)
+    if (length(envs)) envs[[1L]] else NULL
+  }
 
   # Selection node
   sel_state = NULL
@@ -269,10 +273,14 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
     sel = mod[[chosen_select_id]] %||% sel_po
     if (is.null(sel)) stop("Cannot locate selection node '", chosen_select_id, "'.")
     sel_state = if (!is.null(sel$state)) sel$state else sel
-    sel_env = tryCatch({
-      ve = sel_po$param_set$values$log_env
-      if (inherits(ve, "environment")) ve else NULL
-    }, error = function(e) NULL)
+    sel_env = {
+      envs = list(
+        tryCatch(sel$param_set$values$log_env, error = function(e) NULL),
+        tryCatch(sel_po$param_set$values$log_env, error = function(e) NULL)
+      )
+      envs = Filter(function(x) inherits(x, "environment"), envs)
+      if (length(envs)) envs[[1L]] else NULL
+    }
   } else {
     sel_state = NULL
     sel_env = NULL
@@ -469,18 +477,31 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
 # Scores + EV + objective recomputation (deflation)
 # ------------------------------------------------------------------------------
 # Returns list(T_mat, ev_block, ev_comp, obj_vec)
-.mbspls_recompute_from_weights = function(fit_state, W_use, log_env = NULL) {
+.mbspls_recompute_from_weights = function(fit_state, W_use, log_env = NULL, run_id = NULL) {
+
+  st_env = NULL
+  if (inherits(log_env, "environment")) {
+    st_env = tryCatch(
+      .mbspls_state_from_env(
+        log_env,
+        run_id = run_id %||% fit_state$run_id %||% NULL,
+        require_train_blocks = FALSE,
+        where = "log_env"
+      ),
+      error = function(e) NULL
+    )
+  }
 
   # --- find X by blocks (robust paths)
   X_list = fit_state$X_train_blocks %||%
     fit_state$X_blocks_train %||%
-    (if (inherits(log_env, "environment")) log_env$mbspls_state$X_train_blocks else NULL) %||%
-    (if (inherits(log_env, "environment")) log_env$mbspls_state$X_blocks_train else NULL) %||%
+    (if (is.list(st_env)) st_env$X_train_blocks else NULL) %||%
+    (if (is.list(st_env)) st_env$X_blocks_train else NULL) %||%
     (if (inherits(log_env, "environment")) log_env$X_train_blocks else NULL)
 
   # also resolve blocks order from env if needed
   blocks_map = fit_state$blocks %||%
-    (if (inherits(log_env, "environment")) log_env$mbspls_state$blocks else NULL)
+    (if (is.list(st_env)) st_env$blocks else NULL)
 
   if (is.null(X_list) || is.null(blocks_map)) {
     stop("Cannot recompute from weights: X_train_blocks missing. Train with store_train_blocks=TRUE and pass the matching mbspls_id/select_id.")
@@ -1522,10 +1543,35 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
       }
       mbspls_id = cand[1]
     }
-    po = model$graph$pipeops[[mbspls_id]]
-    env = po$param_set$values$log_env
-    if (inherits(env, "environment") && !is.null(env$last)) {
-      return(env$last)
+
+    po_tpl = model$graph$pipeops[[mbspls_id]]
+    po_fit = tryCatch(model$model[[mbspls_id]], error = function(e) NULL)
+
+    envs = Filter(
+      function(x) inherits(x, "environment"),
+      list(
+        tryCatch(po_fit$param_set$values$log_env, error = function(e) NULL),
+        tryCatch(po_tpl$param_set$values$log_env, error = function(e) NULL)
+      )
+    )
+    run_ids = unique(Filter(
+      function(x) !is.null(x) && nzchar(as.character(x)),
+      list(
+        tryCatch(po_fit$state$run_id %||% NULL, error = function(e) NULL),
+        tryCatch(po_tpl$state$run_id %||% NULL, error = function(e) NULL)
+      )
+    ))
+
+    for (env in envs) {
+      for (run_id in run_ids) {
+        by_id = env$mbspls_last[[as.character(run_id)]] %||% NULL
+        if (is.list(by_id)) {
+          return(by_id)
+        }
+      }
+      if (is.list(env$last)) {
+        return(env$last)
+      }
     }
   }
 

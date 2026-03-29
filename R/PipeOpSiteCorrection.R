@@ -224,22 +224,14 @@ PipeOpSiteCorrection = R6::R6Class(
     .validate_blocks = function(task, blocks) {
       dt = task$data(cols = task$feature_names)
       if (is.null(blocks)) {
+        blocks = mb_task_blocks(task, context = "PipeOpSiteCorrection", allow_null = TRUE)
+      }
+      if (is.null(blocks)) {
         num = task$feature_names[
           vapply(task$feature_names, function(x) is.numeric(dt[[x]]), logical(1))]
         return(list(.all = num))
       }
-      dt_names = names(dt)
-      esc = function(s) gsub("([][{}()|^$.*+?\\\\-])", "\\\\\\1", s)
-      expand_cols = function(cols) {
-        unique(unlist(lapply(cols, function(cn) {
-          if (cn %in% dt_names) cn else grep(paste0("^", esc(cn), "(\\.|$)"), dt_names, value = TRUE)
-        })))
-      }
-      out = lapply(blocks, function(cols) {
-        cols = expand_cols(cols)
-        cols[vapply(cols, function(x) is.numeric(dt[[x]]), logical(1))]
-      })
-      Filter(length, out)
+      mb_resolve_blocks(dt, blocks, numeric_only = TRUE, non_constant = FALSE)
     },
 
     .method_for_block = function(method_map, bn) {
@@ -501,7 +493,8 @@ PipeOpSiteCorrection = R6::R6Class(
 
       out_dt = dt
       row_ids = task$row_ids
-      if (!"..row_id" %in% names(out_dt)) out_dt[, "..row_id" := row_ids]
+      pk_col = mb_make_backend_key_name(names(out_dt), "..row_id_sitecorr")
+      out_dt[, (pk_col) := row_ids]
 
       # --- bring back all non-feature-role columns from the original task
       roles_orig = task$col_roles
@@ -517,7 +510,7 @@ PipeOpSiteCorrection = R6::R6Class(
       }
 
       new_task = task$clone()
-      new_task$backend = mlr3::as_data_backend(dt_out, primary_key = "..row_id")
+      new_task$backend = mlr3::as_data_backend(dt_out, primary_key = pk_col)
 
       # --- features (drop referenced columns from features if keep_site_col = FALSE)
       keep_site = pv$keep_site_col %||% FALSE
@@ -527,7 +520,7 @@ PipeOpSiteCorrection = R6::R6Class(
 
       present = names(dt_out)
       new_roles = roles_orig
-      new_roles$feature = setdiff(feat_cols, "..row_id")
+      new_roles$feature = setdiff(feat_cols, pk_col)
       for (rn in names(new_roles)) new_roles[[rn]] = intersect(new_roles[[rn]], present)
       new_task$col_roles = new_roles
 
@@ -605,7 +598,7 @@ PipeOpSiteCorrection = R6::R6Class(
             drop = setdiff(colnames(G), info$design_cols)
             if (length(drop)) G <- G[, setdiff(colnames(G), drop), drop = FALSE]
             G = G[, info$design_cols, drop = FALSE]
-            if (any(unseen_mask)) G[unseen_mask, ] <- 0
+            if (any(unseen_mask) && !identical(unknown_strategy, "baseline")) G[unseen_mask, ] <- 0
           } else {
             Z_new = dt[, .SD, .SDcols = info$site_cols]
             for (cc in names(Z_new)) if (is.character(Z_new[[cc]])) Z_new[, (cc) := factor(get(cc))]
@@ -704,7 +697,8 @@ PipeOpSiteCorrection = R6::R6Class(
 
       out_dt = dt
       row_ids = task$row_ids
-      if (!"..row_id" %in% names(out_dt)) out_dt[, "..row_id" := row_ids]
+      pk_col = mb_make_backend_key_name(names(out_dt), "..row_id_sitecorr")
+      out_dt[, (pk_col) := row_ids]
 
       # --- bring back all non-feature-role columns from the original task
       roles_orig = task$col_roles
@@ -720,7 +714,7 @@ PipeOpSiteCorrection = R6::R6Class(
       }
 
       new_task = task_copy$clone()
-      new_task$backend = mlr3::as_data_backend(dt_out, primary_key = "..row_id")
+      new_task$backend = mlr3::as_data_backend(dt_out, primary_key = pk_col)
 
       # --- features (drop referenced columns from features if keep_site_col = FALSE)
       keep_site = pv$keep_site_col %||% FALSE
@@ -730,7 +724,7 @@ PipeOpSiteCorrection = R6::R6Class(
 
       present = names(dt_out)
       new_roles = roles_orig
-      new_roles$feature = setdiff(feat_cols, "..row_id")
+      new_roles$feature = setdiff(feat_cols, pk_col)
       for (rn in names(new_roles)) new_roles[[rn]] = intersect(new_roles[[rn]], present)
       new_task$col_roles = new_roles
 

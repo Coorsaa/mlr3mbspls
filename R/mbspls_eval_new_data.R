@@ -99,14 +99,25 @@ mbspls_eval_new_data = function(gl, task, mbspls_id = NULL) {
   node_id = find_mbspls_id(gl, mbspls_id)
 
   # --- attach temporary log_env, run predict() -------------------------------
-  po = gl$graph$pipeops[[node_id]]
-  old_env = po$param_set$values$log_env
+  po_tpl = gl$graph$pipeops[[node_id]]
+  po_fit = tryCatch(gl$model[[node_id]], error = function(e) NULL)
+
+  old_env_tpl = tryCatch(po_tpl$param_set$values$log_env, error = function(e) NULL)
+  old_env_fit = tryCatch(po_fit$param_set$values$log_env, error = function(e) NULL)
   on.exit({
-    po$param_set$values$log_env = old_env
+    if (!is.null(po_tpl)) {
+      po_tpl$param_set$values$log_env = old_env_tpl
+    }
+    if (!is.null(po_fit)) {
+      po_fit$param_set$values$log_env = old_env_fit
+    }
   }, add = TRUE)
 
   log_env = new.env(parent = emptyenv())
-  po$param_set$values$log_env = log_env
+  po_tpl$param_set$values$log_env = log_env
+  if (!is.null(po_fit)) {
+    po_fit$param_set$values$log_env = log_env
+  }
 
   invisible(gl$predict(task)) # triggers MB-sPLS to compute EVs/MAC on new data
 
@@ -117,7 +128,7 @@ mbspls_eval_new_data = function(gl, task, mbspls_id = NULL) {
   }
 
   # --- augment with trained state (weights/loadings/blocks) ------------------
-  state = .locate_mbspls_model(gl) # your existing helper
+  state = .locate_mbspls_model(gl, mbspls_id = node_id)
   payload$weights = state$weights
   payload$loadings = state$loadings
   payload$blocks_map = state$blocks

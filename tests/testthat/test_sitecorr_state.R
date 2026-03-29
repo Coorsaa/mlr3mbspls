@@ -155,3 +155,69 @@ test_that("PipeOpSiteCorrection - dir method (if installed)", {
   expect_s3_class(out_train, "Task")
   expect_equal(po$state$per_block$b1$method, "dir")
 })
+
+
+test_that("PipeOpSiteCorrection preserves features that collide with the internal row-id name", {
+  set.seed(3)
+  n = 30L
+  df = data.frame(
+    x1 = rnorm(n),
+    x2 = rnorm(n),
+    `..row_id_sitecorr` = rnorm(n),
+    site = factor(sample(c("A", "B"), n, replace = TRUE)),
+    y = rnorm(n)
+  )
+  task = mlr3::TaskRegr$new(id = "sitecorr_collision", backend = df, target = "y")
+
+  po = PipeOpSiteCorrection$new(
+    param_vals = list(
+      blocks = list(b1 = c("x1", "x2", "..row_id_sitecorr")),
+      site_correction = list(b1 = "site"),
+      method = list(b1 = "partial_corr"),
+      keep_site_col = FALSE
+    )
+  )
+
+  out = po$train(list(task))[[1L]]
+  expect_true("..row_id_sitecorr" %in% out$feature_names)
+})
+
+
+test_that("PipeOpSiteCorrection maps unseen sites to the baseline when requested", {
+  set.seed(11)
+
+  train_df = data.frame(
+    x = c(rnorm(20, mean = 0), rnorm(20, mean = 5)),
+    site = factor(rep(c("A", "B"), each = 20), levels = c("A", "B")),
+    y = rnorm(40)
+  )
+  train_task = mlr3::TaskRegr$new(id = "sitecorr_baseline_train", backend = train_df, target = "y")
+
+  po = PipeOpSiteCorrection$new(
+    param_vals = list(
+      blocks = list(b1 = "x"),
+      site_correction = list(b1 = "site"),
+      method = list(b1 = "partial_corr"),
+      unknown_site = "baseline",
+      keep_site_col = TRUE
+    )
+  )
+
+  po$train(list(train_task))
+
+  ref_task = mlr3::TaskRegr$new(
+    id = "sitecorr_baseline_ref",
+    backend = data.frame(x = 2.5, site = factor("A", levels = c("A", "B", "C")), y = 0),
+    target = "y"
+  )
+  unseen_task = mlr3::TaskRegr$new(
+    id = "sitecorr_baseline_unseen",
+    backend = data.frame(x = 2.5, site = factor("C", levels = c("A", "B", "C")), y = 0),
+    target = "y"
+  )
+
+  ref_out = po$predict(list(ref_task))[[1L]]
+  unseen_out = po$predict(list(unseen_task))[[1L]]
+
+  expect_equal(ref_out$data(cols = "x")[[1L]], unseen_out$data(cols = "x")[[1L]], tolerance = 1e-8)
+})

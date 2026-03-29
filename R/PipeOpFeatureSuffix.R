@@ -108,8 +108,9 @@ PipeOpFeatureSuffix = R6::R6Class(
         unchanged = setdiff(all_cols, todo)
 
         # 1) New names must be unique together with unchanged names
-        if (anyDuplicated(c(unchanged, new_names))) {
-          dup = unique(new_names[duplicated(c(unchanged, new_names))])
+        combined = c(unchanged, new_names)
+        if (anyDuplicated(combined)) {
+          dup = unique(combined[duplicated(combined)])
           stop(sprintf("[%s] Duplicate column name(s) after renaming: %s", self$id, paste(dup, collapse = ", ")))
         }
         # 2) New names must not collide with non-feature columns

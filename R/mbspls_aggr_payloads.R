@@ -106,8 +106,26 @@ aggregate_mbspls_payloads = function(
   }
 
   # --- discover dimensions/labels -------------------------------------------
-  K_max = max(vapply(payloads, function(pl) length(pl$mac_comp %||% NA), 1L), na.rm = TRUE)
-  block_union = unique(unlist(lapply(payloads, function(pl) pl$blocks %||% character())))
+  component_length = function(pl) {
+    if (is.null(pl)) {
+      return(0L)
+    }
+    max(c(
+      if (is.null(pl$mac_comp)) 0L else length(pl$mac_comp),
+      if (is.null(pl$ev_comp)) 0L else length(pl$ev_comp),
+      if (is.null(pl$val_test_p)) 0L else length(pl$val_test_p),
+      if (is.null(pl$ev_block)) 0L else nrow(as.matrix(pl$ev_block))
+    ))
+  }
+
+  K_max = max(vapply(payloads, component_length, integer(1)), 0L)
+  block_union = unique(unlist(lapply(payloads, function(pl) {
+    if (is.null(pl) || is.null(pl$blocks)) {
+      character()
+    } else {
+      as.character(pl$blocks)
+    }
+  }), use.names = FALSE))
   B_all = length(block_union)
   comp_names = sprintf("LC_%02d", seq_len(K_max))
 
@@ -121,9 +139,10 @@ aggregate_mbspls_payloads = function(
     perf = pl$perf_metric %||% "mac"
 
     # pad component-wise vectors
-    mac_i = pad_len(as.numeric(pl$mac_comp %||% numeric()), K_max)
-    evc_i = pad_len(as.numeric(pl$ev_comp %||% numeric()), K_max)
-    pv_i = pad_len(as.numeric(pl$val_test_p %||% rep(NA_real_, length(pl$mac_comp %||% 0))), K_max)
+    comp_len_i = component_length(pl)
+    mac_i = pad_len(as.numeric(if (is.null(pl$mac_comp)) numeric() else pl$mac_comp), K_max)
+    evc_i = pad_len(as.numeric(if (is.null(pl$ev_comp)) numeric() else pl$ev_comp), K_max)
+    pv_i = pad_len(as.numeric(if (is.null(pl$val_test_p)) rep(NA_real_, comp_len_i) else pl$val_test_p), K_max)
 
     # map ev_block to full block union
     evb_i = matrix(NA_real_, K_max, B_all,
@@ -133,10 +152,12 @@ aggregate_mbspls_payloads = function(
       # try assign by column name; fallback to order if unnamed
       if (!is.null(colnames(Eb))) {
         inter = intersect(colnames(Eb), block_union)
-        evb_i[seq_len(nrow(Eb)), inter] = Eb[, inter, drop = FALSE]
+        takeK = min(nrow(Eb), K_max)
+        evb_i[seq_len(takeK), inter] = Eb[seq_len(takeK), inter, drop = FALSE]
       } else {
         takeB = min(ncol(Eb), B_all)
-        evb_i[seq_len(nrow(Eb)), seq_len(takeB)] = Eb[, seq_len(takeB), drop = FALSE]
+        takeK = min(nrow(Eb), K_max)
+        evb_i[seq_len(takeK), seq_len(takeB)] = Eb[seq_len(takeK), seq_len(takeB), drop = FALSE]
       }
     }
 
@@ -176,9 +197,11 @@ aggregate_mbspls_payloads = function(
   # infer performance metric (assume constant)
   perf_metric = fold_table$perf_metric[which(!is.na(fold_table$perf_metric))[1]] %||% "mac"
 
+  summary_rows = fold_table[is.na(block)]
+
   # --- aggregate (weighted) --------------------------------------------------
   # component-wise MAC
-  mac_dt = fold_table[!is.na(mac),
+  mac_dt = summary_rows[!is.na(mac),
     .(w = weight, mac = mac),
     by = .(component, fold)]
   mac_mean = mac_dt[, .(
@@ -190,7 +213,7 @@ aggregate_mbspls_payloads = function(
   mac_sd_vec = setNames(mac_mean$sd, comp_names)
 
   # component-wise total EV
-  evc_dt = fold_table[!is.na(ev_total),
+  evc_dt = summary_rows[!is.na(ev_total),
     .(w = weight, ev = ev_total),
     by = .(component, fold)]
   evc_mean = evc_dt[, .(
@@ -220,7 +243,7 @@ aggregate_mbspls_payloads = function(
   names(p_combined) = comp_names
   if (p_method != "none" && "p_val" %in% names(fold_table)) {
     for (k in seq_len(K_max)) {
-      rows_k = fold_table[component == comp_names[k] & is.finite(p_val)]
+      rows_k = summary_rows[component == comp_names[k] & is.finite(p_val)]
       if (nrow(rows_k)) {
         if (p_method == "stouffer") {
           ww = rows_k$weight
@@ -231,7 +254,7 @@ aggregate_mbspls_payloads = function(
         }
       }
     }
-    if (isTRUE(enforce_monotone)) {
+    if (isTRUE(enforce_monotone) && K_max > 1L) {
       # make p-values nondecreasing across components (sequential testing)
       for (k in 2:K_max) {
         if (is.finite(p_combined[k - 1]) && is.finite(p_combined[k])) {

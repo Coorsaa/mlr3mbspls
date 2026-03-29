@@ -23,9 +23,14 @@ impute_knn_graph = function(k = 5) {
 #' Default MB-sPLS Preprocessing Graph
 #' @description
 #' Site correction -> encoding/imputation -> scaling. No MB-sPLS here.
-#' @param blocks Named list of character vectors per block.
+#' @param blocks Named list of character vectors per block. If `NULL`, the
+#'   mapping is taken from `task$blocks`.
+#' @param task Optional [mlr3::Task] carrying multi-block metadata via
+#'   [TaskMultiBlock()]. Used when `blocks = NULL`.
 #' @param site_correction Named list of features used for site correction.
+#'   Defaults to `list()` (no correction).
 #' @param site_correction_methods Named list of methods for site correction.
+#'   Defaults to `list()`.
 #' @param keep_site_col Keep site column after correction?
 #' @param k k for kNN imputation (default 5).
 #' @param id_suffix Optional suffix for PipeOp ids.
@@ -33,16 +38,30 @@ impute_knn_graph = function(k = 5) {
 #' @import mlr3 mlr3pipelines checkmate
 #' @export
 mbspls_preproc_graph = function(
-  blocks,
-  site_correction,
-  site_correction_methods,
+  blocks = NULL,
+  task = NULL,
+  site_correction = list(),
+  site_correction_methods = list(),
   keep_site_col = FALSE,
   k = 5,
   id_suffix = NULL
 ) {
+  blocks = mb_graph_blocks(blocks = blocks, task = task, context = "mbspls_preproc_graph")
   assert_list(blocks, types = "character", names = "unique")
   assert_list(site_correction, types = c("character", "list"), names = "unique")
   assert_list(site_correction_methods, types = "character", names = "unique")
+  mb_validate_site_correction(task = task, site_correction = site_correction, context = "mbspls_preproc_graph")
+
+  id_with_suffix = function(base) {
+    if (is.null(id_suffix)) base else paste0(base, "_", id_suffix)
+  }
+
+  site_cols = unique(unlist(site_correction, recursive = TRUE, use.names = FALSE))
+  affect_columns = if (length(site_cols)) {
+    selector_invert(selector_name(site_cols))
+  } else {
+    selector_all()
+  }
 
   ppl_convert_types = ppl("convert_types", "character", "factor")
   ppl_impute = ppl("imputeknn", k = k)
@@ -54,20 +73,20 @@ mbspls_preproc_graph = function(
 
   graph = ppl_convert_types %>>%
     po("encode",
-      id = paste0("encode_", id_suffix),
+      id = id_with_suffix("encode"),
       method = "treatment",
-      affect_columns = selector_invert(selector_name(unlist(site_correction, use.names = FALSE)))
+      affect_columns = affect_columns
     ) %>>%
     ppl_impute %>>%
     po("sitecorr",
-      id = paste0("sitecorr_", id_suffix),
+      id = id_with_suffix("sitecorr"),
       blocks = blocks,
       site_correction = site_correction,
       method = site_correction_methods,
       keep_site_col = keep_site_col
     ) %>>%
     po("scale",
-      id = paste0("scale_", id_suffix)
+      id = id_with_suffix("scale")
     )
   graph
 }
@@ -75,7 +94,7 @@ mbspls_preproc_graph = function(
 
 #' MB-sPLS Graph: preproc -> MB-sPLS -> bootstrap-select (two selection methods)
 #'
-#' @param blocks,site_correction,site_correction_methods,keep_site_col Preproc settings.
+#' @param blocks,task,site_correction,site_correction_methods,keep_site_col Preproc settings.
 #' @param ncomp Number of MB-sPLS components.
 #' @param k k-NN for imputation (preproc).
 #' @param performance_metric "mac" or "frobenius".
@@ -108,9 +127,10 @@ mbspls_preproc_graph = function(
 #' @import mlr3 mlr3pipelines checkmate
 #' @export
 mbspls_graph = function(
-  blocks,
-  site_correction,
-  site_correction_methods,
+  blocks = NULL,
+  task = NULL,
+  site_correction = list(),
+  site_correction_methods = list(),
   keep_site_col = FALSE,
   ncomp,
   k = 5,
@@ -143,6 +163,7 @@ mbspls_graph = function(
   id_suffix = NULL,
   log_env = NULL
 ) {
+  blocks = mb_graph_blocks(blocks = blocks, task = task, context = "mbspls_graph")
   checkmate::assert_list(blocks, types = "character", names = "unique")
   checkmate::assert_list(site_correction, types = c("character", "list"), names = "unique")
   checkmate::assert_list(site_correction_methods, types = "character", names = "unique")
@@ -180,6 +201,7 @@ mbspls_graph = function(
 
   graph = ppl("mbspls_preproc",
     blocks = blocks,
+    task = task,
     site_correction = site_correction,
     site_correction_methods = site_correction_methods,
     keep_site_col = keep_site_col,
@@ -233,9 +255,10 @@ mbspls_graph = function(
 #' @export
 mbspls_graph_learner = function(
   learner = lrn("clust.kmeans", centers = 1L),
-  blocks,
-  site_correction,
-  site_correction_methods,
+  blocks = NULL,
+  task = NULL,
+  site_correction = list(),
+  site_correction_methods = list(),
   keep_site_col = FALSE,
   ncomp,
   k = 5,
@@ -272,6 +295,7 @@ mbspls_graph_learner = function(
 
   graph = mbspls_graph(
     blocks = blocks,
+    task = task,
     site_correction = site_correction,
     site_correction_methods = site_correction_methods,
     keep_site_col = keep_site_col,
@@ -306,4 +330,161 @@ mbspls_graph_learner = function(
   )
   as_learner(graph %>>%
     po("learner", learner))
+}
+
+
+#' Supervised MB-sPLS-XY graph: preproc -> MB-sPLS-XY
+#'
+#' @param blocks,task,site_correction,site_correction_methods,keep_site_col Preproc settings.
+#' @param ncomp Number of MB-sPLS-XY components.
+#' @param k k-NN for imputation (preproc).
+#' @param performance_metric "mac" or "frobenius".
+#' @param correlation_method "pearson" or "spearman".
+#' @param c_matrix Optional L1 constraint matrix for MB-sPLS-XY.
+#' @param permutation_test,n_perm,perm_alpha Train-time permutation test for MB-sPLS-XY.
+#' @param y_rep Integer replication count for the target block.
+#' @param emit_y_scores Logical; append Y-side scores to the transformed task.
+#' @param center_y,scale_y Logical target centering/scaling flags.
+#' @param id_suffix Optional suffix for PipeOp ids.
+#' @param log_env Shared environment (created if NULL).
+#'
+#' @return [mlr3pipelines::Graph]
+#' @import mlr3 mlr3pipelines checkmate
+#' @export
+mbsplsxy_graph = function(
+  blocks = NULL,
+  task = NULL,
+  site_correction = list(),
+  site_correction_methods = list(),
+  keep_site_col = FALSE,
+  ncomp,
+  k = 5,
+  performance_metric = c("mac", "frobenius"),
+  correlation_method = c("pearson", "spearman"),
+  c_matrix = NULL,
+  permutation_test = FALSE,
+  n_perm = 500L,
+  perm_alpha = 0.05,
+  y_rep = 1L,
+  emit_y_scores = FALSE,
+  center_y = TRUE,
+  scale_y = TRUE,
+  id_suffix = NULL,
+  log_env = NULL
+) {
+  blocks = mb_graph_blocks(blocks = blocks, task = task, context = "mbsplsxy_graph")
+  checkmate::assert_list(blocks, types = "character", names = "unique")
+  checkmate::assert_list(site_correction, types = c("character", "list"), names = "unique")
+  checkmate::assert_list(site_correction_methods, types = "character", names = "unique")
+  mb_validate_site_correction(task = task, site_correction = site_correction, context = "mbsplsxy_graph")
+  mb_validate_supervised_task(task = task, context = "mbsplsxy_graph")
+  checkmate::assert_int(ncomp, lower = 1)
+  performance_metric = match.arg(performance_metric)
+  correlation_method = match.arg(correlation_method)
+
+  log_env = if (is.null(log_env)) new.env(parent = emptyenv()) else log_env
+  mbsplsxy_id = if (is.null(id_suffix)) "mbsplsxy" else paste0("mbsplsxy_", id_suffix)
+
+  ppl("mbspls_preproc",
+    blocks = blocks,
+    task = task,
+    site_correction = site_correction,
+    site_correction_methods = site_correction_methods,
+    keep_site_col = keep_site_col,
+    k = k,
+    id_suffix = id_suffix
+  ) %>>%
+    po("mbsplsxy",
+      id = mbsplsxy_id,
+      blocks = blocks,
+      ncomp = ncomp,
+      performance_metric = performance_metric,
+      correlation_method = correlation_method,
+      c_matrix = c_matrix,
+      permutation_test = permutation_test,
+      n_perm = n_perm,
+      perm_alpha = perm_alpha,
+      y_rep = y_rep,
+      emit_y_scores = emit_y_scores,
+      center_y = center_y,
+      scale_y = scale_y,
+      log_env = log_env
+    )
+}
+
+
+#' MB-sPLS-XY GraphLearner: preproc -> MB-sPLS-XY -> learner
+#'
+#' @param learner Downstream learner. If `NULL`, a featureless learner matching
+#'   the inferred supervised task type is used.
+#' @param task_type One of `"classif"` or `"regr"`. Only used if `learner` and
+#'   `task` do not jointly determine the target mode.
+#' @inheritParams mbsplsxy_graph
+#'
+#' @return [mlr3pipelines::GraphLearner]
+#' @import mlr3 mlr3pipelines checkmate
+#' @export
+mbsplsxy_graph_learner = function(
+  learner = NULL,
+  blocks = NULL,
+  task = NULL,
+  task_type = c("classif", "regr"),
+  site_correction = list(),
+  site_correction_methods = list(),
+  keep_site_col = FALSE,
+  ncomp,
+  k = 5,
+  performance_metric = c("mac", "frobenius"),
+  correlation_method = c("pearson", "spearman"),
+  c_matrix = NULL,
+  permutation_test = FALSE,
+  n_perm = 500L,
+  perm_alpha = 0.05,
+  y_rep = 1L,
+  emit_y_scores = FALSE,
+  center_y = TRUE,
+  scale_y = TRUE,
+  id_suffix = NULL,
+  log_env = NULL
+) {
+  inferred_type = if (!is.null(task)) {
+    mb_validate_supervised_task(task = task, context = "mbsplsxy_graph_learner")
+  } else {
+    match.arg(task_type)
+  }
+
+  if (is.null(learner)) {
+    learner = if (identical(inferred_type, "classif")) {
+      lrn("classif.featureless")
+    } else {
+      lrn("regr.featureless")
+    }
+  }
+
+  checkmate::assert_class(learner, "Learner")
+  mb_validate_supervised_learner(learner = learner, expected_type = inferred_type, context = "mbsplsxy_graph_learner")
+
+  graph = mbsplsxy_graph(
+    blocks = blocks,
+    task = task,
+    site_correction = site_correction,
+    site_correction_methods = site_correction_methods,
+    keep_site_col = keep_site_col,
+    ncomp = ncomp,
+    k = k,
+    performance_metric = performance_metric,
+    correlation_method = correlation_method,
+    c_matrix = c_matrix,
+    permutation_test = permutation_test,
+    n_perm = n_perm,
+    perm_alpha = perm_alpha,
+    y_rep = y_rep,
+    emit_y_scores = emit_y_scores,
+    center_y = center_y,
+    scale_y = scale_y,
+    id_suffix = id_suffix,
+    log_env = log_env
+  )
+
+  as_learner(graph %>>% po("learner", learner))
 }

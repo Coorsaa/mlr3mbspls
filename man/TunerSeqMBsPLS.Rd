@@ -4,37 +4,33 @@
 \alias{TunerSeqMBsPLS}
 \title{Sequential Component-wise Tuner for MB-sPLS}
 \description{
-\code{TunerSeqMBsPLS} performs \emph{sequential} hyper-parameter optimisation of a
+\code{TunerSeqMBsPLS} performs sequential hyper-parameter optimisation of a
 multi-block sparse PLS (MB-sPLS) model in the \strong{mlr3} ecosystem. For each
-latent component it (i) samples block-wise sparsity vectors \code{c}, (ii) scores
-them via inner resampling using a correlation objective (MAC / Frobenius),
-(iii) refits the best candidate on the current residuals with optional
-permutation testing, and (iv) deflates before moving to the next component.
+latent component it samples block-wise sparsity vectors \code{c}, scores them via
+inner resampling using one of the package's MB-sPLS measures, optionally
+applies a permutation-based early-stop test, and then deflates before moving
+to the next component.
+
+The tuner supports the package-native MB-sPLS measures:
+\code{mbspls.mac_evwt}, \code{mbspls.mac}, \code{mbspls.ev}, and \code{mbspls.block_ev}.
+Passing any other measure now errors explicitly instead of being silently
+ignored.
 }
 \section{Construction}{
 
 
 \if{html}{\out{<div class="sourceCode">}}\preformatted{tuner <- TunerSeqMBsPLS$new(
   tuner              = "random_search",
-  budget             = 1500L,                # iterations per component
+  budget             = 1500L,
   resampling         = rsmp("cv", folds = 3),
   parallel           = "none",
-  early_stopping     = TRUE,                 # stop on non-sig. component
+  early_stopping     = TRUE,
   n_perm             = 1000L,
   perm_alpha         = 0.05,
-  performance_metric = "mac",                # or "frobenius"
-  additional_task    = NULL                  # optional unlabeled task
+  performance_metric = "mac",
+  additional_task    = NULL
 )
 }\if{html}{\out{</div>}}
-}
-
-\section{Methods}{
-
-\describe{
-\item{\code{$optimize(instance)}}{Run the sequential loop and populate the
-\code{TuningInstanceSingleCrit}. The optimal block-by-component sparsity
-matrix is returned via \code{instance$result$learner_param_vals$c_matrix}.}
-}
 }
 
 \section{Super class}{
@@ -80,38 +76,29 @@ Construct a new \code{TunerSeqMBsPLS}.
 \subsection{Arguments}{
 \if{html}{\out{<div class="arguments">}}
 \describe{
-\item{\code{tuner}}{(\code{character(1)})
-ID of a \emph{synchronous} mlr3 tuner for the per-component search
-(e.g. \code{"random_search"}, \code{"grid_search"}).}
+\item{\code{tuner}}{(\code{character(1)}) ID of a synchronous mlr3 tuner used for the
+per-component search.}
 
-\item{\code{budget}}{(\code{integer(1)})
-Maximum number of candidate evaluations \strong{per component}.}
+\item{\code{budget}}{(\code{integer(1)}) Maximum number of candidate evaluations per
+component.}
 
-\item{\code{resampling}}{(\code{mlr3::Resampling})
-Inner resampling strategy (default \code{rsmp("cv", folds = 3)}).}
+\item{\code{resampling}}{(\code{mlr3::Resampling}) Inner resampling strategy.}
 
-\item{\code{parallel}}{(\code{character(1)})
-\code{"none"} (default) or \code{"inner"} to parallelise CV folds via \strong{future}.}
+\item{\code{parallel}}{(\code{character(1)}) \code{"none"} (default) or \code{"inner"}.}
 
-\item{\code{early_stopping}}{(\code{logical(1)})
-If \code{TRUE} (default) run a permutation test after each LC and stop
-when \code{p > perm_alpha}. LC1 is always kept.}
+\item{\code{early_stopping}}{(\code{logical(1)}) If \code{TRUE}, run a permutation test after
+each latent component and stop when \code{p > perm_alpha}. LC1 is always kept.}
 
-\item{\code{n_perm}}{(\code{integer(1)})
-Number of permutations for the test (default 1000).}
+\item{\code{n_perm}}{(\code{integer(1)}) Number of permutations for early stopping.}
 
-\item{\code{perm_alpha}}{(\code{numeric(1)})
-Significance level for early stopping (default 0.05).}
+\item{\code{perm_alpha}}{(\code{numeric(1)}) Significance level for early stopping.}
 
-\item{\code{performance_metric}}{(\code{character(1)})
-Objective used \emph{inside} the inner CV: \code{"mac"} (mean absolute correlation,
-default) or \code{"frobenius"} (Frobenius norm of the block-score
-correlation matrix).}
+\item{\code{performance_metric}}{(\code{character(1)}) Correlation objective used inside
+\code{PipeOpMBsPLS}: \code{"mac"} or \code{"frobenius"}.}
 
-\item{\code{additional_task}}{\link[mlr3:Task]{mlr3::Task} or \code{NULL}. Optional \strong{unlabelled} task
-whose rows are appended to the inner-CV training features when extracting
-MB-sPLS weights. Only features are used; labels (if present) are ignored.
-At prediction time and for evaluation, \strong{only} the original task is used.}
+\item{\code{additional_task}}{\link[mlr3:Task]{mlr3::Task} or \code{NULL}. Optional unlabeled task whose
+rows are appended to the inner-CV training features when extracting
+MB-sPLS weights. Only features belonging to the supplied blocks are used.}
 }
 \if{html}{\out{</div>}}
 }
@@ -120,8 +107,7 @@ At prediction time and for evaluation, \strong{only} the original task is used.}
 \if{html}{\out{<a id="method-TunerSeqMBsPLS-set_additional_task"></a>}}
 \if{latex}{\out{\hypertarget{method-TunerSeqMBsPLS-set_additional_task}{}}}
 \subsection{Method \code{set_additional_task()}}{
-(optional) setter if you want to supply it later
-than at construction time.
+Set the optional additional task after construction.
 \subsection{Usage}{
 \if{html}{\out{<div class="r">}}\preformatted{TunerSeqMBsPLS$set_additional_task(task)}\if{html}{\out{</div>}}
 }
@@ -129,8 +115,8 @@ than at construction time.
 \subsection{Arguments}{
 \if{html}{\out{<div class="arguments">}}
 \describe{
-\item{\code{task}}{(\code{mlr3::Task})
-The additional task to be used for tuning.}
+\item{\code{task}}{(\code{mlr3::Task}) Additional task to be appended during
+component fitting.}
 }
 \if{html}{\out{</div>}}
 }
@@ -139,10 +125,7 @@ The additional task to be used for tuning.}
 \if{html}{\out{<a id="method-TunerSeqMBsPLS-optimize"></a>}}
 \if{latex}{\out{\hypertarget{method-TunerSeqMBsPLS-optimize}{}}}
 \subsection{Method \code{optimize()}}{
-Run the sequential loop and populate the supplied
-\code{TuningInstanceSingleCrit}. The optimal block-by-component
-sparsity matrix is available afterwards as
-\code{$result$learner_param_vals$c_matrix}.
+Run the sequential tuning loop.
 \subsection{Usage}{
 \if{html}{\out{<div class="r">}}\preformatted{TunerSeqMBsPLS$optimize(instance)}\if{html}{\out{</div>}}
 }
@@ -150,7 +133,7 @@ sparsity matrix is available afterwards as
 \subsection{Arguments}{
 \if{html}{\out{<div class="arguments">}}
 \describe{
-\item{\code{instance}}{(\code{mlr3tuning::TuningInstanceBatchSingleCrit})}
+\item{\code{instance}}{(\code{mlr3tuning::TuningInstanceBatchSingleCrit}) Tuning instance.}
 }
 \if{html}{\out{</div>}}
 }

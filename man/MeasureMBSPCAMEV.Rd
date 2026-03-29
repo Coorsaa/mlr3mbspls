@@ -2,9 +2,16 @@
 % Please edit documentation in R/measure_mbspca.R
 \name{MeasureMBSPCAMEV}
 \alias{MeasureMBSPCAMEV}
-\title{MB-SPCA Mean Explained Variance}
+\title{MB-sPCA Mean Explained Variance}
 \description{
-A custom \link[mlr3:Measure]{mlr3::Measure} that computes the mean explained variance of the latent variables in MB-SPCA.
+A custom \link[mlr3:Measure]{mlr3::Measure} that computes the mean prediction-side explained
+variance of the retained MB-sPCA components from the payload written by
+\code{PipeOpMBsPCA} into \code{log_env$last} during \verb{$predict()}.
+
+The measure is task-type agnostic and can therefore be used with clustering,
+classification, or regression pipelines that contain a \code{PipeOpMBsPCA} node.
+For \code{resample()} / \code{benchmark()}, set \code{store_models = TRUE} so the trained
+learner is available during scoring.
 }
 \section{Construction}{
 
@@ -16,7 +23,8 @@ A custom \link[mlr3:Measure]{mlr3::Measure} that computes the mean explained var
 \section{Methods}{
 
 \itemize{
-\item \verb{$score(prediction, task, learner, ...)}: Computes the measure based on the prediction and task.
+\item \verb{$score(prediction, task, learner, ...)}: Computes the measure from the
+MB-sPCA prediction payload.
 }
 }
 
@@ -54,13 +62,13 @@ measure = MeasureMBSPCAMEV$new()
 \subsection{Method \code{new()}}{
 Construct the measure.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{MeasureMBSPCAMEV$new()}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{MeasureMBSPCAMEV$new(id = "mbspca.mean_ev")}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
 \if{html}{\out{<div class="arguments">}}
 \describe{
-\item{\code{id}}{character(1). Measure ID (default shown).}
+\item{\code{id}}{character(1). Measure ID.}
 }
 \if{html}{\out{</div>}}
 }

@@ -110,3 +110,46 @@ test_that("PipeOpMBsPLSBootstrapSelect - errors if blocks cannot be rebuilt and 
     "Cannot rebuild training blocks"
   )
 })
+
+
+test_that("PipeOpMBsPLSBootstrapSelect stores the upstream run_id", {
+  set.seed(12)
+
+  n = 24
+  b1 = matrix(rnorm(n * 4), nrow = n, ncol = 4)
+  colnames(b1) = paste0("x", seq_len(ncol(b1)))
+  b2 = matrix(rnorm(n * 5), nrow = n, ncol = 5)
+  colnames(b2) = paste0("z", seq_len(ncol(b2)))
+  y = rnorm(n)
+
+  task = mlr3::TaskRegr$new(id = "bootsel_runid", backend = data.frame(b1, b2, y = y), target = "y")
+  blocks = list(b1 = colnames(b1), b2 = colnames(b2))
+  log_env = new.env(parent = emptyenv())
+
+  po_mbspls = mlr3mbspls::PipeOpMBsPLS$new(
+    blocks = blocks,
+    param_vals = list(
+      ncomp = 1L,
+      c_b1 = 2L,
+      c_b2 = 2L,
+      log_env = log_env,
+      store_train_blocks = TRUE,
+      append = FALSE
+    )
+  )
+
+  task_lv = po_mbspls$train(list(task))[[1L]]
+
+  po_sel = mlr3mbspls::PipeOpMBsPLSBootstrapSelect$new(
+    param_vals = list(
+      log_env = log_env,
+      bootstrap = TRUE,
+      stability_only = TRUE,
+      B = 3L,
+      workers = 1L
+    )
+  )
+
+  po_sel$train(list(task_lv))
+  expect_identical(po_sel$state$run_id, log_env$mbspls_state$run_id)
+})

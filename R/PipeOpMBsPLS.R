@@ -171,10 +171,18 @@ PipeOpMBsPLS = R6::R6Class(
       if (!is.null(param_vals$c_matrix)) {
         cm = param_vals$c_matrix
         checkmate::assert_matrix(cm, mode = "numeric", any.missing = FALSE)
-        if (nrow(cm) != length(blocks)) {
-          stop(sprintf("c_matrix must have %d rows (blocks); got %d", length(blocks), nrow(cm)))
+        if (!is.null(rownames(cm))) {
+          missing_rows = setdiff(names(blocks), rownames(cm))
+          if (length(missing_rows)) {
+            stop(sprintf(
+              "c_matrix rows must cover all blocks. Missing: %s",
+              paste(missing_rows, collapse = ", ")
+            ), call. = FALSE)
+          }
+          cm = cm[names(blocks), , drop = FALSE]
+        } else if (nrow(cm) != length(blocks)) {
+          stop(sprintf("c_matrix must have %d rows (blocks); got %d", length(blocks), nrow(cm)), call. = FALSE)
         }
-        if (!is.null(rownames(cm))) cm <- cm[names(blocks), , drop = FALSE]
         param_vals$c_matrix = cm
         param_vals$ncomp = ncol(cm)
       }
@@ -225,8 +233,18 @@ PipeOpMBsPLS = R6::R6Class(
       if (!is.null(pv$c_matrix)) {
         cm = pv$c_matrix
         checkmate::assert_matrix(cm, mode = "numeric", any.missing = FALSE)
-        if (nrow(cm) != n_block) stop(sprintf("c_matrix must have %d rows (blocks); got %d", n_block, nrow(cm)))
-        if (!is.null(rownames(cm))) cm <- cm[names(blocks), , drop = FALSE]
+        if (!is.null(rownames(cm))) {
+          missing_rows = setdiff(names(blocks), rownames(cm))
+          if (length(missing_rows)) {
+            stop(sprintf(
+              "c_matrix rows must cover all retained blocks. Missing: %s",
+              paste(missing_rows, collapse = ", ")
+            ), call. = FALSE)
+          }
+          cm = cm[names(blocks), , drop = FALSE]
+        } else if (nrow(cm) != n_block) {
+          stop(sprintf("c_matrix must have %d rows (blocks); got %d", n_block, nrow(cm)), call. = FALSE)
+        }
         pv$ncomp = ncol(cm)
         c_matrix = cm
         c_vec = NULL
@@ -428,10 +446,15 @@ PipeOpMBsPLS = R6::R6Class(
 
       st_env = NULL
       if (!is.null(pv$log_env) && inherits(pv$log_env, "environment")) {
-        st_env = pv$log_env$mbspls_state
-        if (!is.null(st_env)) {
-          assert_mbspls_state(st_env, require_train_blocks = FALSE, where = "log_env$mbspls_state")
-        }
+        st_env = tryCatch(
+          .mbspls_state_from_env(
+            pv$log_env,
+            run_id = self$state$run_id %||% NULL,
+            require_train_blocks = FALSE,
+            where = "log_env"
+          ),
+          error = function(e) NULL
+        )
       }
 
       use_env_weights = function(ci = FALSE, freq = FALSE) {

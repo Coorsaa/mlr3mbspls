@@ -224,3 +224,46 @@ test_that("mbspls_plot_block_weight_ci bootstrap path works with custom node ids
 
   expect_s3_class(p, "ggplot")
 })
+
+
+test_that("mbspls_eval_new_data restores the original log_env on template and fitted nodes", {
+  testthat::skip_if_not("regr.featureless" %in% mlr3::mlr_learners$keys())
+
+  set.seed(206)
+  n = 30
+  X1 = matrix(rnorm(n * 3), nrow = n, ncol = 3)
+  colnames(X1) = paste0("x1_", seq_len(ncol(X1)))
+  X2 = matrix(rnorm(n * 4), nrow = n, ncol = 4)
+  colnames(X2) = paste0("x2_", seq_len(ncol(X2)))
+  y = rnorm(n)
+
+  df = data.frame(X1, X2, y = y)
+  task = mlr3::TaskRegr$new(id = "mb_eval_restore_env", backend = df, target = "y")
+  blocks = list(b1 = colnames(X1), b2 = colnames(X2))
+  orig_env = new.env(parent = emptyenv())
+
+  graph = po(
+    "mbspls",
+    blocks = blocks,
+    ncomp = 2L,
+    c_b1 = 1L,
+    c_b2 = 2L,
+    permutation_test = FALSE,
+    val_test = "none",
+    log_env = orig_env
+  ) %>>% mlr3pipelines::po("learner", mlr3::lrn("regr.featureless"))
+
+  gl = mlr3::as_learner(graph)
+  gl$train(task)
+
+  expect_identical(gl$graph$pipeops$mbspls$param_set$values$log_env, orig_env)
+  fitted_env_before = tryCatch(gl$model$mbspls$param_set$values$log_env, error = function(e) NULL)
+
+  invisible(mbspls_eval_new_data(gl = gl, task = task))
+
+  expect_identical(gl$graph$pipeops$mbspls$param_set$values$log_env, orig_env)
+  fitted_env_after = tryCatch(gl$model$mbspls$param_set$values$log_env, error = function(e) NULL)
+  if (inherits(fitted_env_before, "environment")) {
+    expect_identical(fitted_env_after, fitted_env_before)
+  }
+})
