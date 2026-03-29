@@ -56,6 +56,7 @@
 #'   training subset because the packaged test subset omits the protein block.
 #' @param response Which sensory response to use for the potato regression task.
 #'   Either a column index or column name.
+#' @param ... Forwarded to [as_task_multiblock()].
 #' @return A multiblock task that inherits from the corresponding mlr3 task
 #'   type and carries a named `blocks` mapping.
 #'

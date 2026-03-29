@@ -488,8 +488,8 @@ mbspls_plot_block_weight_ci(gl_sel, source = "bootstrap", alpha_by_stability = T
 | Measure Class | Purpose |
 | ------------- | ------- |
 | `MeasureMBsPLS_MAC` | Mean absolute correlation of block scores |
-| `MeasureMBsPLS_EV` | Total explained variance (summed blocks) |
-| `MeasureMBsPLS_BlockEV` | Per‑block EV matrix access |
+| `MeasureMBsPLS_EV` | Mean prediction-side explained variance across components |
+| `MeasureMBsPLS_BlockEV` | Mean prediction-side block EV across components and blocks |
 | `MeasureMBsPLS_EVWeightedMAC` | MAC weighted by EV contribution |
 | `MeasureMBSPCAMEV` | EV (multi‑block sparse PCA) |
 
@@ -497,8 +497,9 @@ Use like any mlr3 measure:
 
 ```r
 ms = list(msr("mbspls.mac"), msr("mbspls.ev"))
-rr = resample(task, gl, rsmp("cv", folds = 3), store_models = TRUE, measures = ms)
-rr$aggregate()
+rr = resample(task, gl, rsmp("cv", folds = 3), store_models = TRUE)
+rr$score(ms)
+rr$aggregate(ms)
 ```
 
 
@@ -529,7 +530,7 @@ instance = ti(
   task = task,
   learner = gl_full,
   resampling = rsmp("cv", folds = 2),
-  measures = msr("mbspls.mac"),
+  measure = msr("mbspls.mac"),
   terminator = trm("evals", n_evals = 20)
 )
 # tuner$optimize(instance)

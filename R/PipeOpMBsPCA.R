@@ -118,7 +118,8 @@ PipeOpMBsPCA = R6::R6Class(
         perm_alpha = paradox::p_dbl(lower = 0, upper = 1,
           default = 0.05, tags = "train"),
         c_matrix = paradox::p_uty(tags = c("train", "tune"),
-          default = NULL)
+          default = NULL),
+        log_env = paradox::p_uty(tags = c("train", "predict"), default = NULL)
       )
 
       ## one sparsity hyper-parameter per block (sqrtL1 budget)
@@ -526,8 +527,28 @@ PipeOpMBsPCA = R6::R6Class(
         loadings = P_all,
         ev_block = ev_blk,
         ev_comp  = ev_cmp,
-        T_mat    = T_mat
+        T_mat    = T_mat,
+        run_id   = NULL
       )
+
+      log_env = pv$log_env
+      if (!is.null(log_env) && inherits(log_env, "environment")) {
+        run_id = make_run_id("mbspca", log_env)
+        self$state$run_id = run_id
+        log_env$mbspca_state = list(
+          run_id = run_id,
+          blocks = blocks,
+          ncomp = ncomp,
+          weights = W_all,
+          loadings = P_all,
+          ev_block = ev_blk,
+          ev_comp = ev_cmp,
+          T_mat_train = T_mat,
+          time = Sys.time()
+        )
+        log_env$mbspca_state_last_id = run_id
+      }
+
       dt_lat
     },
 
@@ -535,6 +556,16 @@ PipeOpMBsPCA = R6::R6Class(
     .predict_dt = function(dt, levels, target = NULL) {
 
       st = self$state
+      if (is.null(st$run_id) || !nzchar(as.character(st$run_id))) {
+        log_env = self$param_set$values$log_env
+        if (inherits(log_env, "environment")) {
+          rid = log_env$mbspca_state_last_id %||% NULL
+          if (!is.null(rid) && nzchar(as.character(rid))) {
+            st$run_id = as.character(rid)
+            self$state$run_id = as.character(rid)
+          }
+        }
+      }
       blocks = st$blocks
       ## add missing columns (zeros) so matrix dimensions match
       miss = setdiff(unlist(blocks), names(dt))
@@ -545,6 +576,11 @@ PipeOpMBsPCA = R6::R6Class(
         storage.mode(M) = "double"
         M
       })
+      X_for_ev = lapply(X_cur, function(M) {
+        storage.mode(M) = "double"
+        M
+      })
+      names(X_for_ev) = names(blocks)
 
       lat_list = vector("list", st$ncomp)
 
@@ -568,7 +604,35 @@ PipeOpMBsPCA = R6::R6Class(
           }
         }
       }
-      data.table::as.data.table(do.call(cbind, lat_list))
+
+      dt_lat = data.table::as.data.table(do.call(cbind, lat_list))
+
+      log_env = self$param_set$values$log_env
+      if (!is.null(log_env) && inherits(log_env, "environment")) {
+        test_ev = compute_test_ev(
+          X_blocks_test = X_for_ev,
+          W_all = st$weights,
+          P_all = st$loadings,
+          deflate = TRUE,
+          performance_metric = "mac",
+          correlation_method = "pearson",
+          loading_source = "train",
+          clamp_ev = "none"
+        )
+        payload = list(
+          ev_block = as.matrix(test_ev$ev_block),
+          ev_comp = as.numeric(test_ev$ev_comp),
+          ev_block_cum = as.matrix(test_ev$ev_block_cum),
+          ev_comp_cum = as.numeric(test_ev$ev_comp_cum),
+          T_mat = as.matrix(test_ev$T_mat),
+          blocks = names(blocks),
+          time = Sys.time(),
+          run_id = st$run_id %||% NULL
+        )
+        log_env_store_last(log_env, payload, run_id = payload$run_id)
+      }
+
+      dt_lat
     }
   )
 )

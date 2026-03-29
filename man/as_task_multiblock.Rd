@@ -73,6 +73,8 @@ tasks.}
 
 \item{sep}{Separator used when flattening list-of-block input.}
 
+\item{...}{Forwarded to \code{\link[=as_task_multiblock]{as_task_multiblock()}}.}
+
 \item{n}{Number of rows for the synthetic task.}
 
 \item{seed}{RNG seed for the synthetic task.}

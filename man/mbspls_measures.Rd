@@ -2,11 +2,16 @@
 % Please edit documentation in R/measure_mbspls.R
 \name{mbspls_measures}
 \alias{mbspls_measures}
-\title{Measures for MB-sPLS (test-time)}
+\title{Measures for MB-sPLS (prediction-side)}
 \description{
-These measures use the compact payload written by \code{PipeOpMBsPLS} into
-\code{log_env$last} during \verb{$predict()}. They therefore evaluate performance on
-the \strong{test split} seen by the downstream learner in resampling/tuning.
+These measures score the compact prediction-side payload written by
+\code{PipeOpMBsPLS} into \code{log_env$last} during \verb{$predict()}. They therefore operate
+on the test split seen by the downstream learner inside resampling / tuning,
+rather than on training-state diagnostics.
+
+The measures are task-type agnostic and can be used with clustering,
+classification, or regression pipelines as long as the graph contains a
+\code{PipeOpMBsPLS} configured with a shared \code{log_env}.
 
 Required payload fields (written by the PipeOp):
 \itemize{
@@ -14,15 +19,18 @@ Required payload fields (written by the PipeOp):
 data (either MAC or Frobenius, depending on training)
 \item \code{ev_comp}   - numeric vector of per-component explained variance (test)
 \item \code{ev_block}  - matrix (K x B) of block-wise EVs on test data
-\item \code{perf_metric} - \code{"mac"} or \code{"frobenius"} (to normalise Frobenius)
-\item \code{blocks}    - character vector of block names (to count block pairs)
+\item \code{perf_metric} - \code{"mac"} or \code{"frobenius"} (used to normalise Frobenius)
+\item \code{blocks}    - character vector of block names (used for normalisation)
 }
 
 Make sure the same \code{log_env} is passed into your PipeOp inside the Graph:
 \preformatted{
   metrics_env <- new.env(parent = emptyenv())
   po_mb <- po("mbspls", blocks = blocks, ncomp = 3L, log_env = metrics_env)
-  gl    <- as_learner(po_std %>>% po_bs %>>% po_mb %>>% po("learner", lrn("clust.kmeans", centers = 1)))
+  gl <- as_learner(po_std %>>% po_bs %>>% po_mb %>>% po("learner", lrn("clust.kmeans", centers = 1)))
 }
+
+For \code{resample()} / \code{benchmark()}, set \code{store_models = TRUE} so the trained
+learner is available when the measure is scored.
 }
 \concept{Measures}
