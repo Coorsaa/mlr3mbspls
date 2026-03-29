@@ -50,7 +50,6 @@ Suggests:
     igraph,
     knitr,
     mlr3learners (>= 0.12.0),
-    BiocManager,
     mixOmics,
     multiblock,
     neuroCombat,

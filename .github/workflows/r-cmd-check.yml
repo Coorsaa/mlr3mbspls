@@ -55,6 +55,8 @@ jobs:
           needs: check
           extra-packages: |
             any::rcmdcheck
+            mixOmics=?ignore
+            multiblock=?ignore
             neuroCombat=?ignore
         
       # Install Bioconductor deps + neuroCombat after pak is done
@@ -76,6 +78,57 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
         with:
           limit-access-to-actor: true
+
+      - uses: r-lib/actions/check-r-package@v2
+        with:
+          args: 'c("--no-manual", "--as-cran")'
+          error-on: '"warning"'
+
+  r-cmd-check-optional:
+    runs-on: ubuntu-latest
+    name: ubuntu-latest (devel, optional deps)
+
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: r-lib/actions/setup-pandoc@v2
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: devel
+
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          needs: check
+          extra-packages: |
+            any::rcmdcheck
+            mixOmics=?ignore
+            multiblock=?ignore
+            neuroCombat=?ignore
+
+      - name: Install optional task adapter dependencies
+        run: |
+          install.packages("BiocManager")
+          install.packages("pak")
+          pak::pkg_install(c("mixOmics", "multiblock"), upgrade = FALSE)
+        shell: Rscript {0}
+
+      - name: Install neuroCombat and Bioconductor deps
+        run: |
+          install.packages("BiocManager")
+          BiocManager::install("BiocParallel", ask = FALSE, update = FALSE)
+
+          install.packages("remotes")
+          remotes::install_github(
+            "Jfortin1/neuroCombat_Rpackage",
+            upgrade = "never",
+            dependencies = TRUE
+          )
+        shell: Rscript {0}
 
       - uses: r-lib/actions/check-r-package@v2
         with:

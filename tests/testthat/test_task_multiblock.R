@@ -52,3 +52,29 @@ test_that("TaskMultiBlock factory flattens list-of-block input", {
   expect_true(all(grepl("^omics__", task$block_features("omics"))))
   expect_true(all(grepl("^prot__", task$block_features("prot"))))
 })
+
+
+test_that("task_multiblock_breast_tcga works when mixOmics is installed", {
+  testthat::skip_if_not_installed("mixOmics")
+
+  task_classif = task_multiblock_breast_tcga(task_type = "classif")
+  expect_true(inherits(task_classif, "TaskClassif"))
+  expect_setequal(task_classif$block_names, c("mRNA", "miRNA", "protein"))
+
+  task_clust = task_multiblock_breast_tcga(task_type = "clust")
+  expect_true(inherits(task_clust, "TaskClust"))
+  expect_setequal(task_clust$block_names, c("mRNA", "miRNA", "protein"))
+})
+
+
+test_that("task_multiblock_potato works when multiblock is installed", {
+  testthat::skip_if_not_installed("multiblock")
+
+  task_regr = task_multiblock_potato(task_type = "regr", response = 1L)
+  expect_true(inherits(task_regr, "TaskRegr"))
+  expect_setequal(task_regr$block_names, c("Chemical", "Compression", "NIRraw"))
+
+  task_clust = task_multiblock_potato(task_type = "clust")
+  expect_true(inherits(task_clust, "TaskClust"))
+  expect_setequal(task_clust$block_names, c("Chemical", "Compression", "NIRraw"))
+})
