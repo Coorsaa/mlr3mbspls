@@ -100,7 +100,7 @@ PipeOpMBsPLSXY = R6::R6Class(
       blocks,
       param_vals = list()) {
 
-      checkmate::assert_list(blocks, types = "character", min.len = 1L, names = "unique")
+      blocks = mb_normalize_blocks(blocks, .var.name = "blocks")
 
       base_params = list(
         blocks               = paradox::p_uty(tags = "train", default = blocks),
@@ -128,6 +128,54 @@ PipeOpMBsPLSXY = R6::R6Class(
         )
       }
       base_params[["c_target"]] = paradox::p_dbl(lower = 1, upper = 20, default = 5, tags = c("train", "tune"))
+
+      if (!is.null(param_vals$c_matrix)) {
+        cm = param_vals$c_matrix
+        checkmate::assert_matrix(cm, mode = "numeric", any.missing = FALSE)
+        target_c = as.numeric(param_vals$c_target %||% 5)
+
+        if (!is.null(rownames(cm))) {
+          missing_rows = setdiff(names(blocks), rownames(cm))
+          if (length(missing_rows)) {
+            stop(
+              sprintf(
+                "c_matrix rows must cover all X blocks. Missing: %s",
+                paste(missing_rows, collapse = ", ")
+              ),
+              call. = FALSE
+            )
+          }
+
+          cm = cm[names(blocks), , drop = FALSE]
+          target_row = matrix(
+            target_c,
+            nrow = 1L,
+            ncol = ncol(cm),
+            dimnames = list(".target", colnames(cm))
+          )
+
+          if (".target" %in% rownames(param_vals$c_matrix)) {
+            cm = rbind(cm, param_vals$c_matrix[".target", , drop = FALSE])
+          } else {
+            cm = rbind(cm, target_row)
+          }
+        } else if (nrow(cm) == length(blocks)) {
+          cm = rbind(cm, rep(target_c, ncol(cm)))
+        } else if (nrow(cm) != length(blocks) + 1L) {
+          stop(
+            sprintf(
+              "c_matrix must have %d rows (X blocks) or %d rows (X blocks + '.target'); got %d",
+              length(blocks),
+              length(blocks) + 1L,
+              nrow(cm)
+            ),
+            call. = FALSE
+          )
+        }
+
+        param_vals$c_matrix = cm
+        param_vals$ncomp = ncol(cm)
+      }
 
       super$initialize(
         id         = id,
@@ -219,7 +267,7 @@ PipeOpMBsPLSXY = R6::R6Class(
         if (!length(resolved)) {
           return(character(0))
         }
-        keep = vapply(resolved, function(cl) stats::var(dt[[cl]], na.rm = TRUE) > 0, logical(1))
+        keep = vapply(resolved, function(cl) mb_has_finite_variance(dt[[cl]]), logical(1))
         resolved[keep]
       })
       Filter(length, out)
@@ -241,7 +289,7 @@ PipeOpMBsPLSXY = R6::R6Class(
         keep.null = TRUE)
 
       task = private$.get_task_safe()
-      y_mat = private$.build_y_matrix(task, target_vec = target, levs = levels(target),
+      y_mat = private$.build_y_matrix(task, target_vec = target, levs = base::levels(target),
         center = pv$center_y, scale = pv$scale_y)
 
       if (pv$y_rep > 1L) {
@@ -261,15 +309,34 @@ PipeOpMBsPLSXY = R6::R6Class(
       if (!is.null(pv$c_matrix)) {
         cm = pv$c_matrix
         checkmate::assert_matrix(cm, mode = "numeric", any.missing = FALSE)
-        if (nrow(cm) == length(X_list)) cm <- rbind(cm, rep(pv$c_target, ncol(cm)))
+
         if (!is.null(rownames(cm))) {
-          want = c(names(blocks), ".target")
-          missing_rows = setdiff(want, rownames(cm))
+          missing_rows = setdiff(names(blocks), rownames(cm))
           if (length(missing_rows)) {
-            stop("c_matrix rows must cover all blocks and '.target'. Missing: ", paste(missing_rows, collapse = ", "))
+            stop("c_matrix rows must cover all retained X blocks. Missing: ", paste(missing_rows, collapse = ", "))
           }
-          cm = cm[want, , drop = FALSE]
+
+          cm = cm[names(blocks), , drop = FALSE]
+          if (".target" %in% rownames(pv$c_matrix)) {
+            cm = rbind(cm, pv$c_matrix[".target", , drop = FALSE])
+          } else {
+            cm = rbind(cm, rep(pv$c_target, ncol(cm)))
+            rownames(cm)[nrow(cm)] = ".target"
+          }
+        } else if (nrow(cm) == length(X_list)) {
+          cm = rbind(cm, rep(pv$c_target, ncol(cm)))
+        } else if (nrow(cm) != length(X_list) + 1L) {
+          stop(
+            sprintf(
+              "c_matrix must have %d rows (X blocks) or %d rows (X blocks + '.target'); got %d",
+              length(X_list),
+              length(X_list) + 1L,
+              nrow(cm)
+            ),
+            call. = FALSE
+          )
         }
+
         fit = cpp_mbspls_multi_lv_cmatrix(
           X_blocks = X_list_all,
           c_matrix = cm,

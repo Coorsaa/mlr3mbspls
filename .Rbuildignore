@@ -3,7 +3,8 @@
 ^\.git$
 ^\.gitignore$
 ^__MACOSX$
-^\.DS_Store$
+(^|/)\.DS_Store$
+^src/.*\.(o|so|dll|dylib|a|la|obj)$
 ^build\.R$
 ^paper$
 ^docs$

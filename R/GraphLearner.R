@@ -996,15 +996,22 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   }))
 
   ccc_fun = function(x, y) {
+    if (length(x) < 2L || length(y) < 2L) {
+      return(NA_real_)
+    }
+
     mx = mean(x)
     my = mean(y)
     vx = stats::var(x)
     vy = stats::var(y)
     sxy = stats::cov(x, y)
-    if (vx <= 0 || vy <= 0) {
+    denom = vx + vy + (mx - my)^2
+
+    if (!is.finite(vx) || !is.finite(vy) || !is.finite(sxy) || !is.finite(denom) || vx <= 0 || vy <= 0 || denom <= 0) {
       return(NA_real_)
     }
-    (2 * sxy) / (vx + vy + (mx - my)^2)
+
+    (2 * sxy) / denom
   }
   panel_stats = do.call(rbind, lapply(pairs, function(pr) {
     xx = S[[pr[1]]]

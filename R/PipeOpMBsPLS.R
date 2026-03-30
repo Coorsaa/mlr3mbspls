@@ -135,7 +135,7 @@ PipeOpMBsPLS = R6::R6Class(
     #' @param param_vals named list. List of hyperparameter settings.
     initialize = function(id = "mbspls", blocks, param_vals = list()) {
 
-      checkmate::assert_list(blocks, types = "character", min.len = 1L, names = "unique")
+      blocks = mb_normalize_blocks(blocks, .var.name = "blocks")
 
       base_params = list(
         blocks = p_uty(tags = "train", default = blocks),
@@ -217,7 +217,7 @@ PipeOpMBsPLS = R6::R6Class(
         if (!length(cand)) {
           return(character(0))
         }
-        keep = vapply(cand, function(cl) stats::var(dt[[cl]], na.rm = TRUE) > 0, logical(1))
+        keep = vapply(cand, function(cl) mb_has_finite_variance(dt[[cl]]), logical(1))
         cand[keep]
       })
       blocks = Filter(length, blocks)

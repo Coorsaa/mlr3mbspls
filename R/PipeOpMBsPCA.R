@@ -112,7 +112,7 @@ PipeOpMBsPCA = R6::R6Class(
       blocks,
       param_vals = list()) {
 
-      checkmate::assert_list(blocks, min.len = 1L, names = "unique")
+      blocks = mb_normalize_blocks(blocks, .var.name = "blocks")
 
       ## -- build ParamSet ---------------------------------------------
       ps_base = list(
@@ -387,7 +387,7 @@ PipeOpMBsPCA = R6::R6Class(
         cols = cols[vapply(cols, \(cl) is.numeric(dt[[cl]]),
           logical(1))] # numeric only
         cols = cols[vapply(cols,
-          \(cl) stats::var(dt[[cl]], na.rm = TRUE) > 0,
+          \(cl) mb_has_finite_variance(dt[[cl]]),
           logical(1))] # non-constant
         cols
       })

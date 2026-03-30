@@ -246,7 +246,34 @@ mb_normalize_blocks = function(blocks, .var.name = "blocks") {
     names = "unique",
     .var.name = .var.name
   )
-  lapply(blocks, function(cols) unique(as.character(cols)))
+
+  blocks = lapply(blocks, function(cols) unique(as.character(cols)))
+  flat = unlist(blocks, use.names = FALSE)
+  dup = unique(flat[duplicated(flat)])
+  if (length(dup)) {
+    stop(
+      sprintf(
+        "%s must be disjoint across blocks. Duplicated feature(s): %s",
+        .var.name,
+        paste(dup, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
+  blocks
+}
+
+
+#' Return TRUE only for numeric vectors with finite, positive variance.
+#' @keywords internal
+mb_has_finite_variance = function(x, tol = 1e-12) {
+  if (!is.numeric(x)) {
+    return(FALSE)
+  }
+
+  v = suppressWarnings(stats::var(x, na.rm = TRUE))
+  is.finite(v) && !is.na(v) && v > tol
 }
 
 
@@ -295,7 +322,7 @@ mb_resolve_blocks = function(
     }
 
     if (isTRUE(non_constant)) {
-      cand = cand[vapply(cand, function(cl) stats::var(dt[[cl]], na.rm = TRUE) > 0, logical(1))]
+      cand = cand[vapply(cand, function(cl) mb_has_finite_variance(dt[[cl]]), logical(1))]
     }
     cand
   })

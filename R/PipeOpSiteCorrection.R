@@ -653,7 +653,7 @@ PipeOpSiteCorrection = R6::R6Class(
           dt[, (Xcols) := as.data.table(Xcorr)]
 
         } else if (identical(info$method, "combat")) {
-          if (!("neuroCombat" %in% loadedNamespaces())) stop("ComBat predict requires 'neuroCombat'.")
+          if (!requireNamespace("neuroCombat", quietly = TRUE)) stop("ComBat predict requires 'neuroCombat'.")
           valid = private$.combat_valid_batches(info$estimates)
           if (!length(valid)) next
 
@@ -682,7 +682,7 @@ PipeOpSiteCorrection = R6::R6Class(
           }
 
         } else if (identical(info$method, "dir")) {
-          if (!("fairmodels" %in% loadedNamespaces())) stop("DIR predict requires 'fairmodels'.")
+          if (!requireNamespace("fairmodels", quietly = TRUE)) stop("DIR predict requires 'fairmodels'.")
           prot_vec = factor(dt[[info$site_cols]], levels = info$site_lvls)
           dat = data.frame(dt[, .SD, .SDcols = Xcols], protected = prot_vec)
           repaired = fairmodels::disparate_impact_remover(
