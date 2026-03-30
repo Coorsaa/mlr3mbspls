@@ -1,3 +1,9 @@
+# mlr3mbspls 0.3.2
+
+- Minor release with stricter validation and guardrails across task handling, pipeops, tuners, evaluation helpers, and native numerical routines.
+- Improved multiblock task metadata persistence and overview/reporting ergonomics.
+- Improved predict-time consistency checks and explicit erroring instead of silent fallback behavior.
+
 # mlr3mbspls 0.3.1
 
 - Fixed `aggregate_mbspls_payloads()` so component-level MAC, EV, and p-values are aggregated exactly once per fold/component rather than being implicitly duplicated across blocks.
