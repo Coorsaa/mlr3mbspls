@@ -593,6 +593,16 @@ PipeOpMBsPCA = R6::R6Class(
     .predict_dt = function(dt, levels, target = NULL) {
 
       st = self$state
+      if (is.null(st$run_id) || !nzchar(as.character(st$run_id))) {
+        log_env = self$param_set$values$log_env
+        if (inherits(log_env, "environment")) {
+          rid = log_env$mbspca_state_last_id %||% NULL
+          if (!is.null(rid) && nzchar(as.character(rid))) {
+            st$run_id = as.character(rid)
+            self$state$run_id = as.character(rid)
+          }
+        }
+      }
       blocks = st$blocks
       ## add missing columns (zeros) so matrix dimensions match
       miss = setdiff(unlist(blocks), names(dt))

@@ -1,7 +1,10 @@
 # R/measure_mbspls.R
 # Compact mlr3 measures for MB-sPLS that read prediction-side diagnostics
 # written by PipeOpMBsPLS into `log_env$last`.
+# Compact mlr3 measures for MB-sPLS that read prediction-side diagnostics
+# written by PipeOpMBsPLS into `log_env$last`.
 
+#' @title Measures for MB-sPLS (prediction-side)
 #' @title Measures for MB-sPLS (prediction-side)
 #' @description
 #' These measures score the compact prediction-side payload written by

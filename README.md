@@ -52,6 +52,7 @@
 * `mbspls_preproc_graph()` – canonical preprocessing (type conversion → encoding → kNN impute → site correction → scaling)
 * `mbspls_graph_learner()` – end‑to‑end GraphLearner constructor (preproc → MB‑sPLS → optional bootstrap selection → downstream learner)
 * `mbsplsxy_graph()` / `mbsplsxy_graph_learner()` – supervised MB‑sPLS‑XY graph constructors for classification and regression
+* `mbsplsxy_graph()` / `mbsplsxy_graph_learner()` – supervised MB‑sPLS‑XY graph constructors for classification and regression
 
 ### Resampling & Batch Infrastructure
 * `mbspls_nested_cv()` – nested CV (inner tuning budget + outer evaluation)

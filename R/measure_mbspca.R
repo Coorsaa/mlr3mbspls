@@ -113,7 +113,6 @@ mbspca_measure_score_from_payload = function(payload, measure = "mbspca.mean_ev"
 #' \dontrun{
 #' measure = MeasureMBSPCAMEV$new()
 #' }
-#'
 #' @export
 MeasureMBSPCAMEV = R6::R6Class(
   "MeasureMBSPCAMEV",

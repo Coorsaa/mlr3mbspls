@@ -417,6 +417,16 @@ PipeOpMBsPLS = R6::R6Class(
         keep.null = TRUE)
 
       st = self$state
+      if (is.null(st$run_id) || !nzchar(as.character(st$run_id))) {
+        log_env = pv$log_env
+        if (inherits(log_env, "environment")) {
+          rid = log_env$mbspls_state_last_id %||% NULL
+          if (!is.null(rid) && nzchar(as.character(rid))) {
+            st$run_id = as.character(rid)
+            self$state$run_id = as.character(rid)
+          }
+        }
+      }
       block_names = names(st$blocks)
       B = length(block_names)
 
@@ -724,7 +734,7 @@ PipeOpMBsPLS = R6::R6Class(
             )
           }
         }
-        payload$run_id = self$state$run_id %||% NULL
+        payload$run_id = st$run_id %||% self$state$run_id %||% NULL
         log_env_store_last(log_env, payload, run_id = payload$run_id)
       }
 

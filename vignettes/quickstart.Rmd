@@ -38,6 +38,27 @@ The sequence mirrors a typical analysis run:
 7. Save outputs.
 
 # Setup
+# Goal
+
+This vignette shows a straightforward, script-style MB-sPLS workflow:
+
+- Uses the packaged synthetic `TaskMultiBlock` `mbspls_synthetic_blocks`.
+- Notes the matching supervised toy tasks `mbspls_synthetic_classif` and `mbspls_synthetic_regr`.
+- Generic naming only.
+- No helper function definitions.
+- Sequential objects that are easy to inspect in an interactive R session.
+
+The sequence mirrors a typical analysis run:
+
+1. Load the packaged synthetic multi-block task.
+2. Reuse its block mapping and define site correction.
+3. Clone the analysis task.
+4. Run nested CV.
+5. Retune `c_matrix` on all rows.
+6. Fit final raw/stability modes.
+7. Save outputs.
+
+# Setup
 
 ```{r setup, message=FALSE}
 library(mlr3)
