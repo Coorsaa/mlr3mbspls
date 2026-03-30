@@ -19,9 +19,8 @@
 #' @param task (`Task`)\cr An \pkg{mlr3} task with **new** data to evaluate on.
 #'   The graph's preprocessing will be applied automatically.
 #' @param mbspls_id (`character(1)` | `NULL`)\cr Optional id of the MB-sPLS node
-#'   in the graph. If `NULL` (default), the first node inheriting from
-#'   `PipeOpMBsPLS` is used. If multiple nodes are present, the first is chosen
-#'   with a warning unless `mbspls_id` is supplied.
+#'   in the graph. If `NULL` (default), exactly one node inheriting from
+#'   `PipeOpMBsPLS` must be present; otherwise an explicit id is required.
 #'
 #' @return `list` with the following elements (all computed on the **new** data):
 #' \itemize{
@@ -80,23 +79,7 @@ mbspls_eval_new_data = function(gl, task, mbspls_id = NULL) {
   }
 
   # --- locate MB-sPLS node ---------------------------------------------------
-  find_mbspls_id = function(gl, id = NULL) {
-    if (!is.null(id)) {
-      return(id)
-    }
-    ids = names(gl$graph$pipeops)
-    cand = ids[vapply(gl$graph$pipeops, inherits, logical(1), "PipeOpMBsPLS")]
-    if (length(cand) == 0L) {
-      stop("No PipeOpMBsPLS node found in the graph.", call. = FALSE)
-    }
-    if (length(cand) > 1L) {
-      warning("Multiple MB-sPLS nodes detected: ",
-        paste(cand, collapse = ", "),
-        ". Using the first: ", cand[1])
-    }
-    cand[1]
-  }
-  node_id = find_mbspls_id(gl, mbspls_id)
+  node_id = .mbspls_pipeop_id(gl$graph, mbspls_id = mbspls_id, where = "GraphLearner$graph")
 
   # --- attach temporary log_env, run predict() -------------------------------
   po_tpl = gl$graph$pipeops[[node_id]]

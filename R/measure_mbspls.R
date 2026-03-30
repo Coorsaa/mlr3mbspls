@@ -141,9 +141,10 @@ NULL
   pos = pmax(ev, 0)
   s = sum(pos, na.rm = TRUE)
   if (!is.finite(s) || s <= 1e-12) {
-    w = rep(0, length(ev))
-    w[keep] = 1 / sum(keep)
-    return(w)
+    stop(
+      "EV-weighted MAC is undefined because no component has positive finite prediction-side explained variance. Use 'mbspls.mac' or inspect the fitted model instead of relying on an arbitrary fallback weighting.",
+      call. = FALSE
+    )
   }
 
   pos / s
@@ -204,8 +205,8 @@ mbspls_measure_score_from_payload = function(payload, measure) {
 #' @description
 #' Aggregates per-component latent correlations (MAC or Frobenius) using the
 #' positive part of the prediction-side explained-variance weights from the same
-#' split. If all component EVs are non-positive, the measure falls back to equal
-#' component weights.
+#' split. If all component EVs are non-positive, the measure errors explicitly
+#' instead of substituting an arbitrary weighting scheme.
 #' @examples
 #' \dontrun{
 #' msr_evwt = MeasureMBsPLS_EVWeightedMAC$new()

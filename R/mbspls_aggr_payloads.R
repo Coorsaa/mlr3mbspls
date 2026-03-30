@@ -65,7 +65,9 @@ aggregate_mbspls_payloads = function(
   p_method = c("stouffer", "fisher", "none"),
   enforce_monotone = FALSE
 ) {
-  stopifnot(is.list(payloads), length(payloads) > 0L)
+  if (!is.list(payloads) || !length(payloads)) {
+    stop("'payloads' must be a non-empty list of MB-sPLS prediction payloads.", call. = FALSE)
+  }
   weight_by = match.arg(weight_by)
   p_method = match.arg(p_method)
 
@@ -149,16 +151,12 @@ aggregate_mbspls_payloads = function(
       dimnames = list(comp_names, block_union))
     if (!is.null(pl$ev_block)) {
       Eb = as.matrix(pl$ev_block)
-      # try assign by column name; fallback to order if unnamed
-      if (!is.null(colnames(Eb))) {
-        inter = intersect(colnames(Eb), block_union)
-        takeK = min(nrow(Eb), K_max)
-        evb_i[seq_len(takeK), inter] = Eb[seq_len(takeK), inter, drop = FALSE]
-      } else {
-        takeB = min(ncol(Eb), B_all)
-        takeK = min(nrow(Eb), K_max)
-        evb_i[seq_len(takeK), seq_len(takeB)] = Eb[seq_len(takeK), seq_len(takeB), drop = FALSE]
+      if (is.null(colnames(Eb)) || any(!nzchar(colnames(Eb)))) {
+        stop("All payload 'ev_block' matrices must carry non-empty block column names for unambiguous aggregation.", call. = FALSE)
       }
+      inter = intersect(colnames(Eb), block_union)
+      takeK = min(nrow(Eb), K_max)
+      evb_i[seq_len(takeK), inter] = Eb[seq_len(takeK), inter, drop = FALSE]
     }
 
     # build long rows

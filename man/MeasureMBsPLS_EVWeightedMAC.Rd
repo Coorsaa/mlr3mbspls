@@ -6,8 +6,8 @@
 \description{
 Aggregates per-component latent correlations (MAC or Frobenius) using the
 positive part of the prediction-side explained-variance weights from the same
-split. If all component EVs are non-positive, the measure falls back to equal
-component weights.
+split. If all component EVs are non-positive, the measure errors explicitly
+instead of substituting an arbitrary weighting scheme.
 }
 \examples{
 \dontrun{

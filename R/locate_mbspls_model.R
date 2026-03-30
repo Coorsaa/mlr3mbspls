@@ -25,8 +25,13 @@
     stop(sprintf("No %s node found in %s.", class_name, where), call. = FALSE)
   }
   if (length(cand) > 1L) {
-    warning(
-      sprintf("Multiple %s nodes found in %s (%s). Using '%s'.", class_name, where, paste(cand, collapse = ", "), cand[[1L]]),
+    stop(
+      sprintf(
+        "Multiple %s nodes found in %s (%s). Supply an explicit id to disambiguate.",
+        class_name,
+        where,
+        paste(cand, collapse = ", ")
+      ),
       call. = FALSE
     )
   }

@@ -23,12 +23,14 @@ number of rows (samples). Column names are used to align named weights/loadings.
 
 \item{W_all}{\code{list}. Component-wise weight vectors learned in training.
 Must be a list of length \code{K}; each element is a block-wise list of length
-\code{B} containing weight vectors. If a weight vector is named, it is aligned
-to the corresponding block's column names; missing entries are set to zero.}
+\code{B} containing weight vectors. Named vectors are aligned to the test
+block column names and must cover all trained features; missing entries now
+raise an error instead of being silently zero-filled.}
 
 \item{P_all}{\code{list} or \code{NULL}. Optional component-wise block loadings.
-Same nesting convention as \code{W_all}. If \code{NULL} or empty, loadings are
-computed from test data when \code{loading_source = "test_ls"}.}
+Same nesting convention as \code{W_all}. Required when
+\code{loading_source = "train"}; otherwise callers must opt into
+\code{loading_source = "test_ls"} explicitly.}
 
 \item{deflate}{\code{logical(1)}. If \code{TRUE} (default), apply sequential
 deflation on test blocks between components. If \code{FALSE}, evaluate each
@@ -47,8 +49,8 @@ objective (and are set to zero).}
 \item{loading_source}{\code{character(1)} Source of loadings for the rank-1
 deflation step used in out-of-sample EV:
 \itemize{
-\item \code{"auto"} (default): use \code{"train"} if \code{P_all} is available,
-otherwise fall back to \code{"test_ls"};
+\item \code{"auto"} (default): use \code{"train"} if \code{P_all} is available;
+otherwise error and ask the caller to choose \code{"test_ls"} explicitly;
 \item \code{"train"}: use training loadings \code{P_all} (strict application of the
 trained model; recommended when available);
 \item \code{"test_ls"}: compute least-squares loadings on the current test residual
@@ -132,8 +134,9 @@ least squares,
 yielding a "weights-only" EV diagnostic (note this uses test data to
 estimate \eqn{p}).
 }
-If \code{P_all} is \code{NULL} or empty, the function automatically falls back
-to \code{"test_ls"}.
+If \code{P_all} is \code{NULL} or empty, callers must choose
+\code{loading_source = "test_ls"} explicitly; \code{"auto"} now errors
+instead of silently changing the diagnostic definition.
 
 \strong{Latent correlation (MAC/Frobenius).}
 For each component, the function computes pairwise correlations between block

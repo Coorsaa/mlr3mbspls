@@ -35,8 +35,8 @@ The wrapper always uses \code{deflate = TRUE} to mirror the sequential
 MAC/Frobenius is taken from \code{state$correlation_method} when available;
 otherwise it defaults to \code{"pearson"}.
 
-If the state does not contain loadings (\code{state$loadings} is \code{NULL} or
-empty), \code{\link{compute_test_ev}} will automatically fall back to
-\code{loading_source = "test_ls"} (least-squares loadings on test residuals).
+The wrapper now requires training loadings in \code{state$loadings}; if they are
+absent, it errors instead of silently switching to test-derived least-squares
+loadings.
 }
 \keyword{internal}
