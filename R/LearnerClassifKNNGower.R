@@ -19,8 +19,8 @@
 #' - **Ordered**: integer codes `1..L` scaled to `[0, 1]` as
 #'   `(code - 1)/(L - 1)`; `NA` skipped pairwise.
 #'
-#' If no neighbour has sufficient comparable features, the prediction
-#' falls back to the **training class priors**.
+#' If no neighbour has sufficient comparable features, prediction now errors
+#' explicitly instead of silently reverting to training class priors.
 #'
 #' @section Parameters (in `param_set`):
 #' \describe{

@@ -110,8 +110,13 @@ Rcpp::List knn_predict_classif_gower_cpp(
   if (Xnum_test.n_cols != Pn || Xcat_test.n_cols != Pc || Xord_test.n_cols != Po)
     stop("Train/test feature mismatch in one of numeric/categorical/ordered blocks.");
 
+  if (static_cast<arma::uword>(y_train.size()) != N)
+    stop("y_train length must match the number of training rows.");
+
   // number of classes C from y_train (assumed coded 0..C-1)
   int C = 0; for (int i = 0; i < y_train.size(); ++i) C = std::max(C, y_train[i] + 1);
+  if (priors.size() != C)
+    stop("'priors' length must match the number of classes in y_train.");
 
   arma::mat prob(M, C, arma::fill::zeros);
   arma::vec d(N);
@@ -134,9 +139,10 @@ Rcpp::List knn_predict_classif_gower_cpp(
     arma::uvec knn_idx = k_smallest_indices(d, cnt, static_cast<arma::uword>(k), min_cnt);
 
     if (knn_idx.n_elem == 0) {
-      // No eligible neighbor -> back off to priors
-      for (int c = 0; c < C; ++c) prob(i, c) = priors[c];
-      continue;
+      Rcpp::stop(
+        "knn_predict_classif_gower_cpp: no eligible neighbors found for test row " + std::to_string(i + 1) +
+        ". Increase 'k', lower 'min_feature_frac', or inspect missing/unseen feature values."
+      );
     }
 
     arma::vec scores(C, arma::fill::zeros);
@@ -153,10 +159,12 @@ Rcpp::List knn_predict_classif_gower_cpp(
 
     const double ssum = arma::accu(scores);
     if (ssum <= 0 || !std::isfinite(ssum)) {
-      for (int c = 0; c < C; ++c) prob(i, c) = priors[c];
-    } else {
-      for (int c = 0; c < C; ++c) prob(i, c) = scores[c] / ssum;
+      Rcpp::stop(
+        "knn_predict_classif_gower_cpp: invalid vote sum for test row " + std::to_string(i + 1) +
+        ". Check the training labels and distance weighting configuration."
+      );
     }
+    for (int c = 0; c < C; ++c) prob(i, c) = scores[c] / ssum;
   }
 
   return List::create(_["prob"] = prob);
@@ -189,6 +197,9 @@ Rcpp::List knn_predict_regr_gower_cpp(
   if (Xnum_test.n_cols != Pn || Xcat_test.n_cols != Pc || Xord_test.n_cols != Po)
     stop("Train/test feature mismatch in one of numeric/categorical/ordered blocks.");
 
+  if (y_train.n_elem != N)
+    stop("y_train length must match the number of training rows.");
+
   arma::vec mu(M, arma::fill::zeros);
   arma::vec va(M, arma::fill::zeros);
   arma::vec d(N);
@@ -211,9 +222,10 @@ Rcpp::List knn_predict_regr_gower_cpp(
     arma::uvec knn_idx = k_smallest_indices(d, cnt, static_cast<arma::uword>(k), min_cnt);
 
     if (knn_idx.n_elem == 0) {
-      mu[i] = fallback_mean;
-      va[i] = fallback_var;
-      continue;
+      Rcpp::stop(
+        "knn_predict_regr_gower_cpp: no eligible neighbors found for test row " + std::to_string(i + 1) +
+        ". Increase 'k', lower 'min_feature_frac', or inspect missing/unseen feature values."
+      );
     }
 
     arma::vec ys(knn_idx.n_elem);
@@ -229,19 +241,31 @@ Rcpp::List knn_predict_regr_gower_cpp(
     }
 
     const double wsum = arma::accu(ws);
-    const double m = (wsum > 0) ? arma::dot(ws, ys) / wsum : fallback_mean;
+    if (!(wsum > 0) || !std::isfinite(wsum)) {
+      Rcpp::stop(
+        "knn_predict_regr_gower_cpp: invalid neighbor weight sum for test row " + std::to_string(i + 1) +
+        ". Check the distance weighting configuration."
+      );
+    }
+    const double m = arma::dot(ws, ys) / wsum;
+    if (!std::isfinite(m)) {
+      Rcpp::stop(
+        "knn_predict_regr_gower_cpp: non-finite weighted mean for test row " + std::to_string(i + 1) + "."
+      );
+    }
     mu[i] = m;
 
     // weighted (non-unbiased) variance
     double v = 0.0;
-    if (wsum > 0) {
-      for (arma::uword t = 0; t < ws.n_elem; ++t) {
-        const double diff = ys[t] - m;
-        v += ws[t] * diff * diff;
-      }
-      v /= wsum;
-    } else {
-      v = fallback_var;
+    for (arma::uword t = 0; t < ws.n_elem; ++t) {
+      const double diff = ys[t] - m;
+      v += ws[t] * diff * diff;
+    }
+    v /= wsum;
+    if (!std::isfinite(v)) {
+      Rcpp::stop(
+        "knn_predict_regr_gower_cpp: non-finite weighted variance for test row " + std::to_string(i + 1) + "."
+      );
     }
     va[i] = v;
   }

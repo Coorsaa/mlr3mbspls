@@ -10,8 +10,8 @@
 #' ordered factors with the same encodings as the classification learner.
 #' Predictions are (optionally inverse-distance) **weighted means** of the
 #' neighbour responses; the (weighted) variance provides an approximate
-#' `se` when requested. If no eligible neighbours exist, prediction falls
-#' back to the training mean/variance.
+#' `se` when requested. If no eligible neighbours exist, prediction now errors
+#' explicitly instead of silently reverting to the training mean/variance.
 #'
 #' @section Parameters (in `param_set`):
 #' \describe{

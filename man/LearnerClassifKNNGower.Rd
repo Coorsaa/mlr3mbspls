@@ -27,8 +27,8 @@ and \verb{-1 = unseen test level} (forces mismatch).
 \code{(code - 1)/(L - 1)}; \code{NA} skipped pairwise.
 }
 
-If no neighbour has sufficient comparable features, the prediction
-falls back to the \strong{training class priors}.
+If no neighbour has sufficient comparable features, prediction now errors
+explicitly instead of silently reverting to training class priors.
 }
 \section{Parameters (in \code{param_set})}{
 
