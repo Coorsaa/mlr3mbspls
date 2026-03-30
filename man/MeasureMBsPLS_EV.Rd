@@ -2,9 +2,11 @@
 % Please edit documentation in R/measure_mbspls.R
 \name{MeasureMBsPLS_EV}
 \alias{MeasureMBsPLS_EV}
-\title{MB-sPLS mean explained variance across components (test)}
+\title{MB-sPLS mean explained variance across components (prediction-side)}
 \description{
-Mean of per-component explained variance on the test split.
+Mean of per-component explained variance on the prediction split.
+Incremental out-of-sample EV can be negative, so this measure is unbounded
+below and above in principle.
 }
 \section{Super class}{
 \code{\link[mlr3:Measure]{mlr3::Measure}} -> \code{MeasureMBsPLS_EV}

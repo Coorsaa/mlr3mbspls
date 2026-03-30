@@ -69,20 +69,16 @@ PipeOpBlockScaling = R6::R6Class(
 
   private = list(
 
-    .collect_blocks = function(dt, blocks, verbose = FALSE) {
+    .collect_blocks = function(dt, blocks, task = NULL, verbose = FALSE) {
+      if (is.null(blocks) && !is.null(task)) {
+        blocks = mb_task_blocks(task, context = "PipeOpBlockScaling", allow_null = TRUE)
+      }
       if (is.null(blocks)) {
         num_cols = names(dt)[vapply(dt, is.numeric, logical(1))]
         if (verbose) lgr::lgr$info("Auto-detected %d numeric features for .all block", length(num_cols))
         return(list(.all = num_cols))
       }
-      out = lapply(blocks, function(cols) {
-        cols = intersect(cols, names(dt))
-        cols = cols[vapply(cols, function(cl) is.numeric(dt[[cl]]), logical(1))]
-        cols = cols[vapply(cols, function(cl) stats::var(dt[[cl]], na.rm = TRUE) > 0, logical(1))]
-        cols
-      })
-      out = Filter(length, out)
-      out
+      mb_resolve_blocks(dt, blocks, numeric_only = TRUE, non_constant = TRUE)
     },
 
     .train_task = function(task) {
@@ -92,7 +88,7 @@ PipeOpBlockScaling = R6::R6Class(
       task_copy = task$clone()
       dt = task_copy$data(rows = task_copy$row_ids, cols = task_copy$feature_names)
 
-      blocks = private$.collect_blocks(dt, pv$blocks, verbose)
+      blocks = private$.collect_blocks(dt, pv$blocks, task = task, verbose = verbose)
       if (!length(blocks)) stop("PipeOpBlockScaling: no numeric, non-constant features found in any block.")
 
       method = pv$method %||% "unit_ssq"

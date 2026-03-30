@@ -5,9 +5,10 @@
 \title{MB-sPLS Graph: preproc -> MB-sPLS -> bootstrap-select (two selection methods)}
 \usage{
 mbspls_graph(
-  blocks,
-  site_correction,
-  site_correction_methods,
+  blocks = NULL,
+  task = NULL,
+  site_correction = list(),
+  site_correction_methods = list(),
   keep_site_col = FALSE,
   ncomp,
   k = 5,
@@ -40,7 +41,7 @@ mbspls_graph(
 )
 }
 \arguments{
-\item{blocks, site_correction, site_correction_methods, keep_site_col}{Preproc settings.}
+\item{blocks, task, site_correction, site_correction_methods, keep_site_col}{Preproc settings.}
 
 \item{ncomp}{Number of MB-sPLS components.}
 

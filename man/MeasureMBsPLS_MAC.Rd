@@ -2,9 +2,9 @@
 % Please edit documentation in R/measure_mbspls.R
 \name{MeasureMBsPLS_MAC}
 \alias{MeasureMBsPLS_MAC}
-\title{MB-sPLS mean latent correlation across components (test)}
+\title{MB-sPLS mean latent correlation across components (prediction-side)}
 \description{
-Mean of per-component test latent correlations (MAC or normalised Frobenius).
+Mean of per-component latent correlations (MAC or normalised Frobenius).
 }
 \section{Super class}{
 \code{\link[mlr3:Measure]{mlr3::Measure}} -> \code{MeasureMBsPLS_MAC}

@@ -1524,8 +1524,23 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
     }
     po = model$graph$pipeops[[mbspls_id]]
     env = po$param_set$values$log_env
-    if (inherits(env, "environment") && !is.null(env$last)) {
-      return(env$last)
+    if (inherits(env, "environment")) {
+      run_id = NULL
+      if (is.list(model$model) && is.list(model$model[[mbspls_id]])) {
+        run_id = model$model[[mbspls_id]]$run_id %||% NULL
+      }
+      if (is.null(run_id)) {
+        run_id = tryCatch(po$state$run_id %||% NULL, error = function(e) NULL)
+      }
+      if (!is.null(run_id) && nzchar(as.character(run_id))) {
+        by_id = env$mbspls_last[[as.character(run_id)]] %||% NULL
+        if (is.list(by_id)) {
+          return(by_id)
+        }
+      }
+      if (!is.null(env$last)) {
+        return(env$last)
+      }
     }
   }
 

@@ -2,9 +2,11 @@
 % Please edit documentation in R/measure_mbspls.R
 \name{MeasureMBsPLS_BlockEV}
 \alias{MeasureMBsPLS_BlockEV}
-\title{MB-sPLS mean block-wise explained variance (test)}
+\title{MB-sPLS mean block-wise explained variance (prediction-side)}
 \description{
-Mean of the test EV matrix across all components and all blocks.
+Mean of the prediction-side EV matrix across all retained components and all
+blocks. Incremental out-of-sample EV can be negative, so this measure is
+unbounded below and above in principle.
 }
 \section{Super class}{
 \code{\link[mlr3:Measure]{mlr3::Measure}} -> \code{MeasureMBsPLS_BlockEV}

@@ -6,9 +6,10 @@
 \usage{
 mbspls_graph_learner(
   learner = lrn("clust.kmeans", centers = 1L),
-  blocks,
-  site_correction,
-  site_correction_methods,
+  blocks = NULL,
+  task = NULL,
+  site_correction = list(),
+  site_correction_methods = list(),
   keep_site_col = FALSE,
   ncomp,
   k = 5,
@@ -43,7 +44,7 @@ mbspls_graph_learner(
 \arguments{
 \item{learner}{Downstream learner (default k-means with 1 center).}
 
-\item{blocks, site_correction, site_correction_methods, keep_site_col}{Preproc settings.}
+\item{blocks, task, site_correction, site_correction_methods, keep_site_col}{Preproc settings.}
 
 \item{ncomp}{Number of MB-sPLS components.}
 

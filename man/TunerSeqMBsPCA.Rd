@@ -2,27 +2,25 @@
 % Please edit documentation in R/TunerSeqMBsPCA.R
 \name{TunerSeqMBsPCA}
 \alias{TunerSeqMBsPCA}
-\title{Sequential Component-wise Tuner for Group-Sparse MB-sPCA}
+\title{Sequential Component-wise Tuner for MB-sPCA}
 \value{
-A tuned \code{TuningInstance} (invisibly). The result is written to the instance
-via \code{assign_result()} with \verb{learner_param_vals = list(c_matrix = <matrix>)}
-and the best inner objective value under the key \code{"mbspca.mean_ev"}.
+The tuned \code{TuningInstance} invisibly. The result is written via
+\code{assign_result()} with \verb{learner_param_vals = list(c_matrix = <matrix>)} and
+the aggregated value of \code{mbspca.mean_ev} for the selected \code{c_matrix}.
 }
 \description{
 \code{TunerSeqMBsPCA} tunes one component at a time for \code{PipeOpMBsPCA}, choosing
-a block-sparsity vector \strong{c} that maximises \strong{cross-validated total variance
-explained}. After each component it refits on the full residuals, performs
-an optional permutation test for significance, and-if significant-deflates
-all blocks before proceeding to the next component.
+block-wise sparsity budgets by inner resampling and deflation. Candidate
+solutions are now scored with the package's MB-sPCA measure
+\code{mbspca.mean_ev}, i.e. the same prediction-side explained-variance quantity
+exposed to users, rather than a separate hard-coded proxy objective.
 
-The public interface mirrors \code{TunerSeqMBsPLS}; only the objective (variance
-explained rather than latent correlation) and the C++ back-end differ.
+The tuner supports only the package-native MB-sPCA measure
+\code{mbspca.mean_ev}. Passing any other measure now errors explicitly.
 }
 \section{Works with}{
 
-A learner whose pipeline contains a \code{PipeOpMBsPCA} named \code{"mbspca"}. The
-tuner writes the chosen sqrt(L1) budgets into \code{param_vals$c_matrix}
-(\verb{blocks x components}) of that pipeop.
+A learner whose pipeline contains a \code{PipeOpMBsPCA} node.
 }
 
 \section{Construction}{
@@ -32,16 +30,6 @@ tuner writes the chosen sqrt(L1) budgets into \code{param_vals$c_matrix}
 \verb{early_stopping = TRUE, n_perm = 1000L, perm_alpha = 0.05)}
 }
 
-\section{Optimisation procedure}{
-
-For component \emph{k}, a search space over integer proxies \verb{c_b in [1, p_b]} is
-defined per block (\emph{p_b} = #features). The objective evaluates CV mean of
-total variance explained. The optimal integers are mapped to sqrt(L1) budgets
-via \code{sqrt(c_b)} and stored in column \emph{k} of \code{c_matrix}. Residuals are
-deflated and the procedure continues for the next component (up to the
-requested maximum, possibly shortened by early stopping).
-}
-
 \examples{
 \dontrun{
 library(mlr3)
@@ -49,14 +37,14 @@ library(mlr3pipelines)
 library(mlr3tuning)
 blocks = list(eng = c("disp", "hp", "drat"), body = c("wt", "qsec"))
 po = PipeOpMBsPCA$new(blocks = blocks, param_vals = list(ncomp = 3))
-lrn = as_learner(po \%>>\% po("regr.ranger"))
+lrn = as_learner(po \%>>\% po("learner", lrn("clust.kmeans", centers = 2)))
 
 ti = TuningInstanceSingleCrit$new(
-  task = tsk("mtcars"),
+  task = mlr3cluster::TaskClust$new("x", backend = mtcars),
   learner = lrn,
   resampling = rsmp("holdout"),
-  measure = msr("regr.rmse"),
-  search_space = ps(), # outer space unused; tuner overrides mbspca internals
+  measure = msr("mbspca.mean_ev"),
+  search_space = paradox::ps(),
   terminator = trm("none")
 )
 TunerSeqMBsPCA$new(budget = 50)$optimize(ti)
@@ -108,19 +96,22 @@ Create a new TunerSeqMBsPCA.
 \subsection{Arguments}{
 \if{html}{\out{<div class="arguments">}}
 \describe{
-\item{\code{tuner}}{character(1). Inner optimizer ID (e.g., "random_search").}
+\item{\code{tuner}}{(\code{character(1)}) Optimizer ID for the inner single-component
+search.}
 
-\item{\code{budget}}{integer(1). Number of evaluations per component (default 100).}
+\item{\code{budget}}{(\code{integer(1)}) Number of evaluations for each component-wise
+search.}
 
-\item{\code{resampling}}{Resampling. Template for inner CV (default \code{rsmp("cv", folds = 3)}).}
+\item{\code{resampling}}{(\code{Resampling}) Template for inner CV.}
 
-\item{\code{parallel}}{character(1). "none" or "inner" (future-based parallel fold evals).}
+\item{\code{parallel}}{(\code{character(1)}) \code{"none"} or \code{"inner"}.}
 
-\item{\code{early_stopping}}{logical(1). Enable permutation early stopping (default TRUE).}
+\item{\code{early_stopping}}{(\code{logical(1)}) Perform a permutation test after each
+component and stop if not significant (PC-1 is always kept).}
 
-\item{\code{n_perm}}{integer(1). Number of permutations if early stopping is enabled.}
+\item{\code{n_perm}}{(\code{integer(1)}) Number of permutations for the test.}
 
-\item{\code{perm_alpha}}{numeric(1). Significance level for permutation test.}
+\item{\code{perm_alpha}}{(\code{numeric(1)}) Alpha-level for the test.}
 }
 \if{html}{\out{</div>}}
 }
@@ -137,12 +128,9 @@ Run the sequential tuning loop.
 \subsection{Arguments}{
 \if{html}{\out{<div class="arguments">}}
 \describe{
-\item{\code{instance}}{\link[mlr3tuning:TuningInstanceSingleCrit]{mlr3tuning::TuningInstanceSingleCrit} (or compatible). The outer instance to populate.}
+\item{\code{instance}}{\link[mlr3tuning:TuningInstanceSingleCrit]{mlr3tuning::TuningInstanceSingleCrit} (or compatible).}
 }
 \if{html}{\out{</div>}}
-}
-\subsection{Returns}{
-The modified instance (invisibly).
 }
 }
 \if{html}{\out{<hr>}}

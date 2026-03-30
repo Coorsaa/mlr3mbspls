@@ -2,30 +2,41 @@
 #' @importFrom mlr3 mlr_learners
 
 .onLoad = function(libname, pkgname) { # nocov start
-  mlr3pipelines::mlr_pipeops$add("sitecorr", PipeOpSiteCorrection)
-  mlr3pipelines::mlr_pipeops$add("mbspls", PipeOpMBsPLS)
-  mlr3pipelines::mlr_pipeops$add("mbspls_bootstrap_select", PipeOpMBsPLSBootstrapSelect)
-  mlr3pipelines::mlr_pipeops$add("mbsplsxy", PipeOpMBsPLSXY)
-  mlr3pipelines::mlr_pipeops$add("mbspca", PipeOpMBsPCA)
-  mlr3pipelines::mlr_pipeops$add("blockscale", PipeOpBlockScaling)
-  mlr3pipelines::mlr_pipeops$add("target_label_filter", PipeOpTargetLabelFilter)
-  mlr3pipelines::mlr_pipeops$add("feature_suffix", PipeOpFeatureSuffix)
+  add_or_replace = function(dict, key, value) {
+    if (key %in% dict$keys()) {
+      dict$remove(key)
+    }
+    dict$add(key, value)
+  }
 
-  mlr3pipelines::mlr_graphs$add("mbspls_preproc", mbspls_preproc_graph)
-  mlr3pipelines::mlr_graphs$add("mbspls_graph_learner", mbspls_graph_learner)
-  mlr3pipelines::mlr_graphs$add("imputeknn", impute_knn_graph)
+  add_or_replace(mlr3pipelines::mlr_pipeops, "sitecorr", PipeOpSiteCorrection)
+  add_or_replace(mlr3pipelines::mlr_pipeops, "mbspls", PipeOpMBsPLS)
+  add_or_replace(mlr3pipelines::mlr_pipeops, "mbspls_bootstrap_select", PipeOpMBsPLSBootstrapSelect)
+  add_or_replace(mlr3pipelines::mlr_pipeops, "mbsplsxy", PipeOpMBsPLSXY)
+  add_or_replace(mlr3pipelines::mlr_pipeops, "mbspca", PipeOpMBsPCA)
+  add_or_replace(mlr3pipelines::mlr_pipeops, "blockscale", PipeOpBlockScaling)
+  add_or_replace(mlr3pipelines::mlr_pipeops, "target_label_filter", PipeOpTargetLabelFilter)
+  add_or_replace(mlr3pipelines::mlr_pipeops, "feature_suffix", PipeOpFeatureSuffix)
 
-  mlr3::mlr_measures$add("mbspls.ev", MeasureMBsPLS_EV)
-  mlr3::mlr_measures$add("mbspls.block_ev", MeasureMBsPLS_BlockEV)
-  mlr3::mlr_measures$add("mbspls.mac", MeasureMBsPLS_MAC)
-  mlr3::mlr_measures$add("mbspls.mac_evwt", MeasureMBsPLS_EVWeightedMAC)
-  mlr3::mlr_measures$add("mbspca.mean_ev", MeasureMBSPCAMEV)
+  add_or_replace(mlr3pipelines::mlr_graphs, "mbspls_preproc", mbspls_preproc_graph)
+  add_or_replace(mlr3pipelines::mlr_graphs, "mbspls_graph", mbspls_graph)
+  add_or_replace(mlr3pipelines::mlr_graphs, "mbspls_graph_learner", mbspls_graph_learner)
+  add_or_replace(mlr3pipelines::mlr_graphs, "mbsplsxy_graph", mbsplsxy_graph)
+  add_or_replace(mlr3pipelines::mlr_graphs, "mbsplsxy_graph_learner", mbsplsxy_graph_learner)
+  add_or_replace(mlr3pipelines::mlr_graphs, "imputeknn", impute_knn_graph)
 
-  mlr3::mlr_learners$add("regr.knngower", function() LearnerRegrKNNGower$new())
-  mlr3::mlr_learners$add("classif.knngower", function() LearnerClassifKNNGower$new())
+  add_or_replace(mlr3::mlr_measures, "mbspls.ev", MeasureMBsPLS_EV)
+  add_or_replace(mlr3::mlr_measures, "mbspls.block_ev", MeasureMBsPLS_BlockEV)
+  add_or_replace(mlr3::mlr_measures, "mbspls.mac", MeasureMBsPLS_MAC)
+  add_or_replace(mlr3::mlr_measures, "mbspls.mac_evwt", MeasureMBsPLS_EVWeightedMAC)
+  add_or_replace(mlr3::mlr_measures, "mbspca.mean_ev", MeasureMBSPCAMEV)
 
-  # a discoverable default graph: site correction -> MB-sPLS -> dummy learner
-  # mlr3pipelines::mlr_graphs$add("mbspls_default", graph_mbspls)
+  add_or_replace(mlr3::mlr_learners, "regr.knngower", function() LearnerRegrKNNGower$new())
+  add_or_replace(mlr3::mlr_learners, "classif.knngower", function() LearnerClassifKNNGower$new())
+
+  add_or_replace(mlr3::mlr_tasks, "mbspls_synthetic_blocks", task_multiblock_synthetic(task_type = "clust"))
+  add_or_replace(mlr3::mlr_tasks, "mbspls_synthetic_classif", task_multiblock_synthetic(task_type = "classif"))
+  add_or_replace(mlr3::mlr_tasks, "mbspls_synthetic_regr", task_multiblock_synthetic(task_type = "regr"))
 }
 .onUnload = function(libpath) {
   # Remove PipeOps from mlr3pipelines dictionary
@@ -49,7 +60,7 @@
 
   # Remove Graphs from mlr3pipelines dictionary
   g = utils::getFromNamespace("mlr_graphs", ns = "mlr3pipelines")
-  graphs_to_remove = c("mbspls_preproc", "mbspls_graph_learner", "imputeknn")
+  graphs_to_remove = c("mbspls_preproc", "mbspls_graph", "mbspls_graph_learner", "mbsplsxy_graph", "mbsplsxy_graph_learner", "imputeknn")
   for (graph in graphs_to_remove) {
     if (graph %in% g$keys()) {
       g$remove(graph)
@@ -71,6 +82,15 @@
   for (learner in learners_to_remove) {
     if (learner %in% z$keys()) {
       z$remove(learner)
+    }
+  }
+
+  # Remove packaged tasks from mlr3 dictionary
+  t = utils::getFromNamespace("mlr_tasks", ns = "mlr3")
+  tasks_to_remove = c("mbspls_synthetic_blocks", "mbspls_synthetic_classif", "mbspls_synthetic_regr")
+  for (task in tasks_to_remove) {
+    if (task %in% t$keys()) {
+      t$remove(task)
     }
   }
 }

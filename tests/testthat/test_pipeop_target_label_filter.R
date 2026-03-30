@@ -1,5 +1,4 @@
 test_that("target_label_filter keeps >= 2 levels with invert = FALSE", {
-  library(mlr3)
   set.seed(1)
 
   df = data.frame(
@@ -7,7 +6,7 @@ test_that("target_label_filter keeps >= 2 levels with invert = FALSE", {
     y = factor(c(rep("A", 30), rep("B", 30)))
   )
 
-  tsk = TaskClassif$new("toy", backend = df, target = "y")
+  tsk = mlr3::TaskClassif$new("toy", backend = df, target = "y")
   po = PipeOpTargetLabelFilter$new(param_vals = list(
     target = "y",
     labels = c("A", "B"), # keep both labels
@@ -25,14 +24,13 @@ test_that("target_label_filter keeps >= 2 levels with invert = FALSE", {
 })
 
 test_that("target_label_filter keeps >= 2 levels with invert = TRUE", {
-  library(mlr3)
   set.seed(2)
 
   df = data.frame(
     x = rnorm(90),
     y = factor(rep(c("A", "B", "C"), each = 30))
   )
-  tsk = TaskClassif$new("toy2", backend = df, target = "y")
+  tsk = mlr3::TaskClassif$new("toy2", backend = df, target = "y")
 
   # Drop label "A" -> others = {B, C}; now simulate that only B remains
   po = PipeOpTargetLabelFilter$new(param_vals = list(
@@ -52,15 +50,13 @@ test_that("target_label_filter keeps >= 2 levels with invert = TRUE", {
 })
 
 test_that("drop_stratum removes only the role, not features/targets", {
-  library(mlr3)
-
   df = data.frame(
     x1 = rnorm(10),
     x2 = rnorm(10),
     s  = sample(letters[1:2], 10, replace = TRUE),
     y  = factor(sample(c("A", "B"), 10, replace = TRUE))
   )
-  tsk = TaskClassif$new("toy3", backend = df, target = "y")
+  tsk = mlr3::TaskClassif$new("toy3", backend = df, target = "y")
   tsk$set_col_roles("s", roles = "stratum")
 
   po = PipeOpTargetLabelFilter$new(param_vals = list(
@@ -74,13 +70,11 @@ test_that("drop_stratum removes only the role, not features/targets", {
 })
 
 test_that("drop_unused_levels works", {
-  library(mlr3)
-
   df = data.frame(
     x = rnorm(20),
     y = factor(rep(c("A", "B", "C"), length.out = 20))
   )
-  tsk = TaskClassif$new("toy4", backend = df, target = "y")
+  tsk = mlr3::TaskClassif$new("toy4", backend = df, target = "y")
 
   po = PipeOpTargetLabelFilter$new(param_vals = list(
     target = "y", labels = c("A", "B"), drop_unused_levels = TRUE

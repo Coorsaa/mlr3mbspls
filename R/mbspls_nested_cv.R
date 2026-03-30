@@ -136,15 +136,13 @@ mbspls_nested_cv = function(
       )
     } else {
       mac = as.numeric(payload$mac_comp %||% NA_real_)
-      ev = as.numeric(payload$ev_comp %||% NA_real_)
-      w = ev / (sum(ev) + 1e-12)
       vp = payload$val_test_p %||% payload$val_perm_p # backward compat
       vs = payload$val_test_stat %||% NULL
       res_row = data.table::data.table(
         split          = i,
         inner_score    = inner_scores[i],
         mac_lv1_test   = mac[1],
-        mac_evwt_test  = sum(w * mac),
+        mac_evwt_test  = mbspls_measure_score_from_payload(payload, "mbspls.mac_evwt"),
         ncomp_kept     = length(mac),
         perf_metric    = payload$perf_metric %||% performance_metric,
         val_p_last     = if (!is.null(vp)) as.numeric(utils::tail(vp, 1L)) else NA_real_,

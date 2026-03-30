@@ -184,3 +184,113 @@ assert_blocks_present = function(colnames_dt, blocks_map, context = "task") {
 
   invisible(TRUE)
 }
+
+# ------------------------------------------------------------------------------
+# Multi-block task helpers
+# ------------------------------------------------------------------------------
+
+#' Normalize a multi-block mapping.
+#' @keywords internal
+mb_normalize_blocks = function(blocks, .var.name = "blocks") {
+  checkmate::assert_list(
+    blocks,
+    types = "character",
+    min.len = 1L,
+    names = "unique",
+    .var.name = .var.name
+  )
+  lapply(blocks, function(cols) unique(as.character(cols)))
+}
+
+
+#' Expand stable base names to concrete task/backend column names.
+#' @keywords internal
+mb_expand_block_cols = function(dt_names, cols) {
+  checkmate::assert_character(dt_names, any.missing = FALSE, .var.name = "dt_names")
+  checkmate::assert_character(cols, any.missing = FALSE, min.len = 1L, .var.name = "cols")
+
+  esc = function(s) gsub("([][{}()|^$.*+?\\\\-])", "\\\\\\\\1", s)
+
+  unique(unlist(lapply(cols, function(co) {
+    if (co %in% dt_names) {
+      co
+    } else {
+      grep(paste0("^", esc(co), "(\\\\.|$)"), dt_names, value = TRUE)
+    }
+  }), use.names = FALSE))
+}
+
+
+#' Resolve blocks against a concrete data table.
+#' @keywords internal
+mb_resolve_blocks = function(
+  dt,
+  blocks,
+  numeric_only = TRUE,
+  non_constant = TRUE) {
+
+  if (is.null(blocks)) {
+    return(NULL)
+  }
+
+  blocks = mb_normalize_blocks(blocks)
+  dt = data.table::as.data.table(dt)
+  dt_names = names(dt)
+
+  out = lapply(blocks, function(cols) {
+    cand = mb_expand_block_cols(dt_names, cols)
+
+    if (isTRUE(numeric_only)) {
+      cand = cand[vapply(cand, function(cl) is.numeric(dt[[cl]]), logical(1))]
+    }
+    if (!length(cand)) {
+      return(character(0))
+    }
+
+    if (isTRUE(non_constant)) {
+      cand = cand[vapply(cand, function(cl) stats::var(dt[[cl]], na.rm = TRUE) > 0, logical(1))]
+    }
+    cand
+  })
+
+  Filter(length, out)
+}
+
+
+#' Extract block metadata from a multiblock task if available.
+#' @keywords internal
+mb_task_blocks = function(task, context = "task", allow_null = FALSE) {
+  checkmate::assert_class(task, "Task", .var.name = paste0(context, "$task"))
+
+  blocks = tryCatch(task$blocks, error = function(e) NULL)
+  if (is.null(blocks)) {
+    if (isTRUE(allow_null)) {
+      return(NULL)
+    }
+    stop(
+      sprintf(
+        "%s: no 'blocks' supplied and the task does not carry multi-block metadata.",
+        context
+      ),
+      call. = FALSE
+    )
+  }
+
+  mb_normalize_blocks(blocks, .var.name = paste0(context, "$blocks"))
+}
+
+
+#' Resolve a blocks argument for high-level graph constructors.
+#' @keywords internal
+mb_graph_blocks = function(blocks = NULL, task = NULL, context = "mbspls_graph") {
+  if (!is.null(blocks)) {
+    return(mb_normalize_blocks(blocks, .var.name = paste0(context, "$blocks")))
+  }
+  if (is.null(task)) {
+    stop(
+      sprintf("%s: supply either 'blocks' or a TaskMultiBlock via 'task'.", context),
+      call. = FALSE
+    )
+  }
+  mb_task_blocks(task, context = context)
+}

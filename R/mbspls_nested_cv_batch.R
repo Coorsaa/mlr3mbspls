@@ -91,8 +91,6 @@
     )
   } else {
     mac = as.numeric(or_null(payload$mac_comp, NA_real_))
-    ev = as.numeric(or_null(payload$ev_comp, NA_real_))
-    w = ev / (sum(ev) + 1e-12)
     vp = or_null(payload$val_test_p, payload$val_perm_p) # backward compat
     vs = or_null(payload$val_test_stat, NULL)
 
@@ -100,7 +98,7 @@
       split          = split_id,
       inner_score    = inner_score,
       mac_lv1_test   = mac[1],
-      mac_evwt_test  = sum(w * mac),
+      mac_evwt_test  = mbspls_measure_score_from_payload(payload, "mbspls.mac_evwt"),
       ncomp_kept     = length(mac),
       perf_metric    = or_null(payload$perf_metric, performance_metric),
       val_p_last     = if (!is.null(vp)) as.numeric(utils::tail(vp, 1L)) else NA_real_,
