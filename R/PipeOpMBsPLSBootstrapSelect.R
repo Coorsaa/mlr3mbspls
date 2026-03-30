@@ -45,7 +45,7 @@
 #'   only controls the *magnitude* of the non-zero coefficients.
 #' @param stratify_by_block Optional dummy-encoded block name for stratified bootstrap (e.g., "Studygroup").
 #' @param workers Integer. Requested number of parallel workers for the bootstrap loop.
-#'   Uses \pkg{future} / \pkg{future.apply} when available; falls back to sequential otherwise. Default 1L.
+#'   Requires \pkg{future} and \pkg{future.apply} when set to a value larger than 1; otherwise an explicit error is raised. Default 1L.
 #'
 #' @return Replaces task LV columns with kept components' LV columns (renumbered).
 #' Stores \code{weights_ci}, \code{weights_selectfreq}, \code{weights_stable},
@@ -206,17 +206,20 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
 
           ## ---- choose base values for kept features ------------------------
           if (identical(weight_source, "training")) {
-            # fall back gracefully if training weights are not available
-            if (!is.null(W_train) && length(W_train) >= k &&
-              !is.null(W_train[[k]][[b]])) {
-              w_train_b = W_train[[k]][[b]]
-              w_map = stats::setNames(as.numeric(w_train_b), names(w_train_b))
-              val = as.numeric(w_map[feats])
-              if (length(val) == 0L) val <- numeric(length(feats))
-              val[is.na(val)] = 0
-            } else {
-              val = numeric(length(feats))
+            if (is.null(W_train) || length(W_train) < k || is.null(W_train[[k]]) || is.null(W_train[[k]][[b]])) {
+              stop(
+                sprintf(
+                  "stable_weight_source='training' requested but training weights are unavailable for component '%s', block '%s'. Refit the upstream MB-sPLS PipeOp and keep its state intact.",
+                  k_lab, b
+                ),
+                call. = FALSE
+              )
             }
+            val = as.numeric(mb_align_named_numeric(
+              W_train[[k]][[b]],
+              cols = feats,
+              context = sprintf("W_train[['%s']][['%s']]", k_lab, b)
+            ))
           } else {
             # original behaviour: use aligned bootstrap means
             val = mu
@@ -256,29 +259,32 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
           b = all_blocks[bi]
           w_b = W_list[[k]][[b]]
           if (is.null(w_b)) {
-            Tk[, bi] = 0
-            Pk[[b]] = setNames(rep(0, ncol(X_cur[[b]])), colnames(X_cur[[b]]))
+            stop(
+              sprintf("Stable weights are missing for component %d, block '%s'. Stable score recomputation requires a complete block-wise weight structure.", k, b),
+              call. = FALSE
+            )
+          }
+          cols = colnames(X_cur[[b]])
+          wv = as.numeric(mb_align_named_numeric(
+            w_b,
+            cols = cols,
+            context = sprintf("W_list[[%d]][['%s']]", k, b)
+          ))
+          storage.mode(wv) = "double"
+          Tk[, bi] = X_cur[[b]] %*% wv
+          denom = sum(Tk[, bi] * Tk[, bi])
+          if (denom <= 0) {
+            Pk[[b]] = setNames(rep(0, ncol(X_cur[[b]])), cols)
           } else {
-            cols = colnames(X_cur[[b]])
-            if (!is.null(names(w_b))) {
-              wv = as.numeric(w_b[cols])
-              wv[is.na(wv)] = 0
-            } else {
-              wv = as.numeric(w_b)
-              if (length(wv) != length(cols)) {
-                wv = numeric(length(cols))
-              }
+            pb = drop(crossprod(X_cur[[b]], Tk[, bi]) / denom)
+            names(pb) = cols
+            if (anyNA(pb) || any(!is.finite(pb))) {
+              stop(
+                sprintf("Recomputed loadings for component %d, block '%s' contain NA/Inf values.", k, b),
+                call. = FALSE
+              )
             }
-            storage.mode(wv) = "double"
-            Tk[, bi] = X_cur[[b]] %*% wv
-            denom = sum(Tk[, bi] * Tk[, bi])
-            if (denom <= 0) {
-              Pk[[b]] = setNames(rep(0, ncol(X_cur[[b]])), colnames(X_cur[[b]]))
-            } else {
-              pb = drop(crossprod(X_cur[[b]], Tk[, bi]) / denom)
-              names(pb) = colnames(X_cur[[b]])
-              Pk[[b]] = pb
-            }
+            Pk[[b]] = pb
           }
         }
         colnames(Tk) = paste0("LV", k, "_", all_blocks)
@@ -313,7 +319,9 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       W_ref = lapply(W_ref, function(wk) wk[bn])
       comp_lab = sprintf("LC_%02d", seq_len(ncomp))
       N = nrow(X_list[[1]])
-      stopifnot(all(vapply(X_list, nrow, 1L) == N))
+      if (!all(vapply(X_list, nrow, integer(1)) == N)) {
+        stop("bootstrap: all blocks in 'X_list' must have the same number of rows.", call. = FALSE)
+      }
 
       pad_to_order = function(w_boot, w_ref_named) {
         all_feat = names(w_ref_named)
@@ -387,7 +395,10 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
           splits = split(seq_len(N), strata, drop = FALSE)
           idx_cat = unlist(lapply(splits, function(ix) if (length(ix)) sample(ix, length(ix), TRUE) else integer(0)), use.names = FALSE)
           if (!length(idx_cat)) {
-            return(NULL)
+            stop(
+              sprintf("Bootstrap replicate %d produced an empty stratified resample. Check 'stratify_by_block' and class availability.", r),
+              call. = FALSE
+            )
           }
           sample(idx_cat)
         } else {
@@ -395,14 +406,22 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         }
 
         Xb = lapply(X_list, function(X) X[idx, , drop = FALSE])
-        fit_r = try(fit_once(Xb), silent = TRUE)
-        if (inherits(fit_r, "try-error")) {
-          return(NULL)
-        }
+        fit_r = tryCatch(
+          fit_once(Xb),
+          error = function(e) {
+            stop(
+              sprintf("Bootstrap replicate %d failed while refitting MB-sPLS: %s", r, conditionMessage(e)),
+              call. = FALSE
+            )
+          }
+        )
         W_r = fit_r$W
         Kfit = length(W_r)
         if (!Kfit) {
-          return(NULL)
+          stop(
+            sprintf("Bootstrap replicate %d returned zero extracted components.", r),
+            call. = FALSE
+          )
         }
         W_r = lapply(W_r, function(wk) {
           if (is.null(names(wk))) names(wk) <- bn
@@ -522,9 +541,15 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       }
 
       rep_idx = seq_len(B)
-      rep_res = if (workers > 1L &&
-        requireNamespace("future", quietly = TRUE) &&
-        requireNamespace("future.apply", quietly = TRUE)) {
+      if (workers > 1L &&
+        !(requireNamespace("future", quietly = TRUE) && requireNamespace("future.apply", quietly = TRUE))) {
+        stop(
+          "bootstrap_select: workers > 1 requires packages 'future' and 'future.apply'. Install them or set workers = 1.",
+          call. = FALSE
+        )
+      }
+
+      rep_res = if (workers > 1L) {
 
         old_plan = future::plan()
         on.exit(future::plan(old_plan), add = TRUE)
@@ -544,9 +569,6 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
           future.packages = c("mlr3mbspls")
         )
       } else {
-        if (workers > 1L) {
-          lgr$warn("bootstrap_select: workers>1 requested but future/future.apply not available; running sequentially.")
-        }
         lapply(rep_idx, one_rep)
       }
 
@@ -634,10 +656,11 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       self$state$stability_only = isTRUE(pv$stability_only)
 
       if (!isTRUE(pv$bootstrap)) {
-        # Keep behavior: do not compute stability/selection,
-        # but NEVER leak raw features (if upstream append=TRUE).
         if (isTRUE(pv$stability_only)) {
-          lgr$warn("%s: stability_only=TRUE has no effect when bootstrap=FALSE; returning scores-only output.", self$id)
+          stop(
+            sprintf("%s: stability_only=TRUE requires bootstrap=TRUE because stable weights/loadings are defined only after the bootstrap selection stage.", self$id),
+            call. = FALSE
+          )
         }
         self$state$weights_stable = NULL
         self$state$loadings_stable = NULL
@@ -660,44 +683,20 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       blocks_map = st_env$blocks
       X_blocks_train = st_env$X_train_blocks
       if (is.null(X_blocks_train)) {
-        lgr$warn("X_train_blocks not in env; rebuilding from current task for bootstrap stage.")
+        stop(
+          "Cannot rebuild training blocks: log_env$mbspls_state$X_train_blocks is missing. Fix: set 'store_train_blocks = TRUE' in po('mbspls', ...) and refit the upstream model.",
+          call. = FALSE
+        )
       }
-      # Rebuild if row count no longer matches (e.g., upstream row filtering PipeOp)
-      if (!is.null(X_blocks_train)) {
-        n_env = unique(vapply(X_blocks_train, nrow, integer(1)))
-        if (length(n_env) != 1L) {
-          lgr$warn("Inconsistent row counts among stored X_train_blocks; rebuilding.")
-          X_blocks_train = NULL
-        } else if (n_env != nrow(dt_all)) {
-          lgr$info("Rebuilding X_train_blocks: task has %d rows, stored matrices had %d.", nrow(dt_all), n_env)
-          X_blocks_train = NULL
-        }
+      n_env = unique(vapply(X_blocks_train, nrow, integer(1)))
+      if (length(n_env) != 1L) {
+        stop("Stored X_train_blocks have inconsistent row counts; refit the upstream MB-sPLS model with a valid shared log_env.", call. = FALSE)
       }
-      if (is.null(X_blocks_train)) {
-        # In stability_only mode, avoid modifying the task's data.table by reference
-        dt_boot = if (isTRUE(pv$stability_only)) data.table::copy(dt_all) else dt_all
-
-        # Fail fast if raw block features are not available
-        missing = lapply(blocks_map, function(cols) setdiff(cols, names(dt_boot)))
-        if (any(lengths(missing) > 0L)) {
-          msg = paste0(
-            "Cannot rebuild training blocks for bootstrap selection because required block features are missing from the task.
-",
-            "Fix: set 'store_train_blocks = TRUE' in po('mbspls', ...) (recommended), or set 'append = TRUE' upstream and ensure raw block columns are still present.
-",
-            "Missing features:
-",
-            paste0(" - ", names(missing), ": ", vapply(missing, function(x) paste(x, collapse = ", "), character(1)), collapse = "
-")
-          )
-          stop(msg, call. = FALSE)
-        }
-
-        X_blocks_train = lapply(blocks_map, function(cols) {
-          m = as.matrix(dt_boot[, ..cols])
-          storage.mode(m) = "double"
-          m
-        })
+      if (n_env != nrow(dt_all)) {
+        stop(
+          sprintf("Stored X_train_blocks contain %d rows but the current task contains %d rows. Rebuilding from the current task is disabled because it can change the bootstrap basis. Refit the upstream MB-sPLS model on the exact training task used here.", n_env, nrow(dt_all)),
+          call. = FALSE
+        )
       }
 
       bt = with_seed_local(pv$seed_bootstrap, function() {
@@ -928,60 +927,64 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       blocks_map = st_env$blocks
       all_blocks = names(blocks_map)
 
-      # Build X_test by blocks (fill missing features with zeros)
-      X_test = lapply(blocks_map, function(cols) {
-        miss = setdiff(cols, names(dt))
-        if (length(miss)) for (m in miss) dt[, (m) := 0.0]
+      # Build X_test by blocks (strictly require trained features)
+      X_test = lapply(names(blocks_map), function(bn) {
+        cols = blocks_map[[bn]]
+        mb_assert_columns_present(
+          names(dt),
+          cols,
+          context = sprintf("PipeOpMBsPLSBootstrapSelect prediction block '%s'", bn),
+          hint = "Ensure the prediction task still contains the raw block features used during training."
+        )
         m = as.matrix(dt[, ..cols])
         storage.mode(m) = "double"
         m
       })
+      names(X_test) = names(blocks_map)
 
-      # Use stable weights + (if available) stable loadings to deflate
+      # Use stable weights + stable loadings to deflate
       W_stable = st$weights_stable
       P_train = st$loadings_stable
-
       if (is.null(P_train) || !length(P_train)) {
-        rec = private$.recompute_scores_deflated(X_test, W_stable, all_blocks)
-        T_pred_all_dt = rec$T_mat
-      } else {
-        K = length(W_stable)
-        X_cur = lapply(X_test, identity)
-        tabs = vector("list", K)
+        stop(
+          "Prediction with stable bootstrap-selected components requires stored stable loadings. Refit the bootstrap selection stage so that 'loadings_stable' is available.",
+          call. = FALSE
+        )
+      }
 
-        for (k in seq_len(K)) {
-          Tk = matrix(0, nrow(X_cur[[1]]), length(all_blocks))
+      K = length(W_stable)
+      X_cur = lapply(X_test, identity)
+      tabs = vector("list", K)
+
+      for (k in seq_len(K)) {
+        Tk = matrix(0, nrow(X_cur[[1]]), length(all_blocks))
+        for (bi in seq_along(all_blocks)) {
+          b = all_blocks[bi]
+          cols = colnames(X_cur[[b]])
+          wv = as.numeric(mb_align_named_numeric(
+            W_stable[[k]][[b]],
+            cols = cols,
+            context = sprintf("weights_stable[[%d]][['%s']]", k, b)
+          ))
+          storage.mode(wv) = "double"
+          Tk[, bi] = X_cur[[b]] %*% wv
+        }
+        colnames(Tk) = paste0("LV", k, "_", all_blocks)
+        tabs[[k]] = data.table::as.data.table(Tk)
+        if (k < K) {
           for (bi in seq_along(all_blocks)) {
             b = all_blocks[bi]
-            w_b = W_stable[[k]][[b]]
-            if (is.null(w_b)) {
-              Tk[, bi] = 0
-            } else {
-              cols = colnames(X_cur[[b]])
-              if (!is.null(names(w_b))) {
-                wv = as.numeric(w_b[cols])
-                wv[is.na(wv)] = 0
-              } else {
-                wv = as.numeric(w_b)
-                if (length(wv) != length(cols)) wv <- numeric(length(cols))
-              }
-              storage.mode(wv) = "double"
-              Tk[, bi] = X_cur[[b]] %*% wv
-            }
-          }
-          colnames(Tk) = paste0("LV", k, "_", all_blocks)
-          tabs[[k]] = data.table::as.data.table(Tk)
-          if (k < K) {
-            for (bi in seq_along(all_blocks)) {
-              b = all_blocks[bi]
-              pb = P_train[[k]][[b]]
-              if (is.null(pb)) next
-              X_cur[[b]] = X_cur[[b]] - Tk[, bi, drop = FALSE] %*% t(as.matrix(pb))
-            }
+            cols = colnames(X_cur[[b]])
+            pb = as.numeric(mb_align_named_numeric(
+              P_train[[k]][[b]],
+              cols = cols,
+              context = sprintf("loadings_stable[[%d]][['%s']]", k, b)
+            ))
+            X_cur[[b]] = X_cur[[b]] - Tk[, bi, drop = FALSE] %*% t(as.matrix(pb))
           }
         }
-        T_pred_all_dt = do.call(cbind, tabs)
       }
+      T_pred_all_dt = do.call(cbind, tabs)
 
       # keep only non-empty block columns from kept blocks
       keep_cols = character(0)

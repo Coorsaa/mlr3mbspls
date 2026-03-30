@@ -153,3 +153,31 @@ test_that("PipeOpMBsPLSBootstrapSelect stores the upstream run_id", {
   po_sel$train(list(task_lv))
   expect_identical(po_sel$state$run_id, log_env$mbspls_state$run_id)
 })
+
+
+test_that("PipeOpMBsPLSBootstrapSelect requires bootstrap when stability_only is TRUE", {
+  log_env = new.env(parent = emptyenv())
+  log_env$mbspls_state = list(
+    blocks = list(block = "x"),
+    weights = list()
+  )
+
+  po_sel = mlr3mbspls::PipeOpMBsPLSBootstrapSelect$new(
+    param_vals = list(
+      log_env = log_env,
+      bootstrap = FALSE,
+      stability_only = TRUE
+    )
+  )
+
+  task = mlr3::TaskRegr$new(
+    id = "bootstrap_guard",
+    backend = data.frame(LV1_block = rnorm(10), y = rnorm(10)),
+    target = "y"
+  )
+
+  expect_error(
+    po_sel$train(list(task)),
+    "stability_only=TRUE requires bootstrap=TRUE"
+  )
+})

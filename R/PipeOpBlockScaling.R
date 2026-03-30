@@ -177,11 +177,12 @@ PipeOpBlockScaling = R6::R6Class(
       dt = task_copy$data(rows = task_copy$row_ids, cols = task_copy$feature_names)
 
       # Ensure training-time columns exist
-      missing_cols = setdiff(unlist(st$blocks), names(dt))
-      if (length(missing_cols)) {
-        lgr::lgr$warn("PipeOpBlockScaling: adding %d missing feature columns at predict time (zeros)", length(missing_cols))
-        dt[, (missing_cols) := 0.0]
-      }
+      mb_assert_columns_present(
+        colnames_dt = names(dt),
+        required = unlist(st$blocks),
+        context = sprintf("[%s] Prediction task", self$id),
+        hint = "Apply the same preprocessing used during training and retain all block features before PipeOpBlockScaling."
+      )
 
       for (bn in names(st$blocks)) {
         cols = st$blocks[[bn]]

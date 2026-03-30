@@ -76,8 +76,10 @@ TunerSeqMBsPLS = R6::R6Class(
       }
 
       if (grepl("async", tuner, ignore.case = TRUE)) {
-        warning("Asynchronous tuners are unsupported - switching to 'random_search'.", call. = FALSE)
-        tuner = "random_search"
+        stop(
+          "Asynchronous tuners are unsupported by TunerSeqMBsPLS because the sequential component path depends on deterministic synchronous evaluations. Choose a synchronous tuner such as 'random_search'.",
+          call. = FALSE
+        )
       }
 
       private$.tuner = tuner
@@ -230,16 +232,18 @@ TunerSeqMBsPLS = R6::R6Class(
 
       out = lapply(block_map, function(cols) {
         ex = if (allow_encoded) expand_cols(cols) else unique(cols)
-        miss = setdiff(ex, names(data))
-        if (length(miss)) {
-          data[, (miss) := 0]
-        }
         if (!length(ex)) {
           stop(sprintf(
             "After preprocessing, no columns matched any of: %s",
             paste(cols, collapse = ", ")
           ), call. = FALSE)
         }
+        mb_assert_columns_present(
+          colnames_dt = names(data),
+          required = ex,
+          context = "Preprocessed data for TunerSeqMBsPLS",
+          hint = "Ensure that all block columns survive upstream preprocessing exactly as during tuning."
+        )
         M = as.matrix(data[, ..ex])
         storage.mode(M) = "double"
         M
@@ -257,7 +261,26 @@ TunerSeqMBsPLS = R6::R6Class(
         if (is.null(B[[i]])) {
           out[[i]] = A[[i]]
         } else {
-          stopifnot(ncol(A[[i]]) == ncol(B[[i]]))
+          if (ncol(A[[i]]) != ncol(B[[i]])) {
+            stop(sprintf(
+              "Cannot row-bind block '%s': %d training columns versus %d additional-task columns.",
+              names(A)[i],
+              ncol(A[[i]]),
+              ncol(B[[i]])
+            ), call. = FALSE)
+          }
+          cols_a = colnames(A[[i]])
+          cols_b = colnames(B[[i]])
+          if (!identical(cols_a, cols_b)) {
+            if (!is.null(cols_a) && !is.null(cols_b) && setequal(cols_a, cols_b)) {
+              B[[i]] = B[[i]][, cols_a, drop = FALSE]
+            } else {
+              stop(sprintf(
+                "Cannot row-bind block '%s': column names differ between the main task and additional_task.",
+                names(A)[i]
+              ), call. = FALSE)
+            }
+          }
           out[[i]] = rbind(A[[i]], B[[i]])
         }
       }
@@ -345,7 +368,15 @@ TunerSeqMBsPLS = R6::R6Class(
       learner_tpl = inst$objective$learner
       mbspls_id = .mbspls_pipeop_id(learner_tpl$graph, where = "inst$objective$learner$graph")
       mbspls_po = learner_tpl$graph$pipeops[[mbspls_id]]
-      learner_perf = tryCatch(mbspls_po$param_set$values$performance_metric %||% "mac", error = function(e) "mac")
+      po_vals = utils::modifyList(
+        paradox::default_values(mbspls_po$param_set),
+        mbspls_po$param_set$values,
+        keep.null = TRUE
+      )
+      learner_perf = po_vals$performance_metric
+      if (is.null(learner_perf) || !learner_perf %in% c("mac", "frobenius")) {
+        stop("PipeOpMBsPLS must expose a valid 'performance_metric' parameter value ('mac' or 'frobenius').", call. = FALSE)
+      }
       if (!identical(learner_perf, private$.perf_metric)) {
         stop(
           sprintf(
@@ -360,13 +391,14 @@ TunerSeqMBsPLS = R6::R6Class(
 
       pre_graph_tpl = private$.pre_graph_before_mbspls(learner_tpl, mbspls_id = mbspls_id)
 
-      use_spear = tryCatch({
-        identical(mbspls_po$param_set$values$correlation_method, "spearman")
-      }, error = function(e) FALSE)
-      correlation_method = if (use_spear) "spearman" else "pearson"
+      correlation_method = po_vals$correlation_method
+      if (is.null(correlation_method) || !correlation_method %in% c("pearson", "spearman")) {
+        stop("PipeOpMBsPLS must expose a valid 'correlation_method' parameter value ('pearson' or 'spearman').", call. = FALSE)
+      }
+      use_spear = identical(correlation_method, "spearman")
 
       blocks_raw = mbspls_po$blocks
-      K_max = mbspls_po$param_set$values$ncomp %||% 1L
+      K_max = po_vals$ncomp %||% 1L
       B = length(blocks_raw)
       if (B == 0L) {
         stop("No blocks specified in PipeOpMBsPLS.", call. = FALSE)
@@ -528,7 +560,7 @@ TunerSeqMBsPLS = R6::R6Class(
           fold_payloads[[f]] = private$.append_fold_payload(fold_payloads[[f]], payload_k)
 
           if (private$.early_stop) {
-            res = try(
+            res = tryCatch(
               cpp_perm_test_oos(
                 X_test = lapply(Xva_before, identity),
                 W_trained = fit_fold_k$W,
@@ -538,9 +570,23 @@ TunerSeqMBsPLS = R6::R6Class(
                 early_stop_threshold = private$.perm_alpha,
                 permute_all_blocks = TRUE
               ),
-              silent = TRUE
+              error = function(e) {
+                stop(sprintf(
+                  "Early-stopping permutation test failed at component %d, fold %d: %s",
+                  k,
+                  f,
+                  conditionMessage(e)
+                ), call. = FALSE)
+              }
             )
-            p_folds[f] = if (inherits(res, "try-error")) 1 else as.numeric(res$p_value)
+            p_folds[f] = as.numeric(res$p_value %||% NA_real_)
+            if (!is.finite(p_folds[f])) {
+              stop(sprintf(
+                "Early-stopping permutation test returned a non-finite p-value at component %d, fold %d.",
+                k,
+                f
+              ), call. = FALSE)
+            }
           }
 
           spl = private$.deflate_blocks_split(Xtr_before, Xad_before, fit_fold_k$W)

@@ -69,8 +69,8 @@
 #'   Initial parameter values passed to the `ParamSet`.
 #'
 #' @details
-#' During training, non-numeric or constant features are silently removed from
-#' each block. If `c_matrix` is supplied, its number of columns determines the
+#' During training, non-numeric or constant features are removed from
+#' each block before fitting. If no usable block remains, training errors explicitly. If `c_matrix` is supplied, its number of columns determines the
 #' maximum number of components (overrides `ncomp`). Deflation is performed
 #' block-wise after each component.
 #'
@@ -604,9 +604,12 @@ PipeOpMBsPCA = R6::R6Class(
         }
       }
       blocks = st$blocks
-      ## add missing columns (zeros) so matrix dimensions match
-      miss = setdiff(unlist(blocks), names(dt))
-      if (length(miss)) dt[, (miss) := 0]
+      mb_assert_columns_present(
+        colnames_dt = names(dt),
+        required = unlist(blocks),
+        context = sprintf("[%s] Prediction task", self$id),
+        hint = "Apply the same preprocessing used during training and retain all block features before PipeOpMBsPCA."
+      )
 
       X_cur = lapply(blocks, \(cols) {
         M = as.matrix(dt[, ..cols])

@@ -85,7 +85,9 @@
 #' @param store_train_blocks \code{logical(1)}. If \code{TRUE} and \code{log_env} is provided,
 #'   store preprocessed training block matrices and sparsity settings in \code{log_env$mbspls_state}.
 #' @param predict_weights character; one of "auto","raw","stable_ci","stable_frequency".
-#'   Controls which weights PipeOpMBsPLS uses at predict/validation time.
+#'   Controls which weights PipeOpMBsPLS uses at predict/validation time. Explicit
+#'   requests for \code{"stable_ci"} or \code{"stable_frequency"} now error if the
+#'   requested stability-selected weights/loadings are unavailable in \code{log_env}.
 #' @param val_test \code{character(1)}. Prediction-side validation: \code{"none"}, \code{"permutation"}, \code{"bootstrap"}.
 #' @param val_test_n \code{integer(1)}. Number of permutations / bootstrap replicates for prediction-side validation.
 #' @param val_test_alpha \code{numeric(1)}. Early-stop threshold for permutation and CI level for bootstrap validation.
@@ -421,11 +423,12 @@ PipeOpMBsPLS = R6::R6Class(
       B = length(block_names)
 
       # Ensure trained columns exist
-      missing_cols = setdiff(unlist(st$blocks), names(dt))
-      if (length(missing_cols)) {
-        lgr$warn("Adding %d feature columns (all-zero) that were present during training", length(missing_cols))
-        dt[, (missing_cols) := 0.0]
-      }
+      mb_assert_columns_present(
+        colnames_dt = names(dt),
+        required = unlist(st$blocks),
+        context = sprintf("[%s] Prediction task", self$id),
+        hint = "Apply the same preprocessing used during training and retain all trained feature columns before PipeOpMBsPLS."
+      )
 
       # Build X_test
       X_cur = lapply(st$blocks, function(cols) {
@@ -447,7 +450,7 @@ PipeOpMBsPLS = R6::R6Class(
       st_env = NULL
       run_id_for_lookup = st$run_id %||% NULL
       if (!is.null(run_id_for_lookup) && nzchar(as.character(run_id_for_lookup)) &&
-          !is.null(pv$log_env) && inherits(pv$log_env, "environment")) {
+        !is.null(pv$log_env) && inherits(pv$log_env, "environment")) {
         st_env = tryCatch(
           .mbspls_state_from_env(
             pv$log_env,
@@ -498,6 +501,26 @@ PipeOpMBsPLS = R6::R6Class(
         FALSE
       }
 
+      stable_request_error = function(requested) {
+        requested = as.character(requested)[1L]
+        run_label = if (!is.null(run_id_for_lookup) && nzchar(as.character(run_id_for_lookup))) {
+          as.character(run_id_for_lookup)
+        } else {
+          "<latest>"
+        }
+        selection = switch(requested,
+          stable_ci = "ci",
+          stable_frequency = "frequency",
+          requested
+        )
+        stop(sprintf(
+          "predict_weights='%s' was requested, but matching stability-selected weights/loadings are not available in log_env for run_id='%s'. Run PipeOpMBsPLSBootstrapSelect with selection_method='%s' on the same log_env, or use predict_weights='raw'.",
+          requested,
+          run_label,
+          selection
+        ), call. = FALSE)
+      }
+
       pick = pv$predict_weights %||% "auto"
       if (identical(pick, "auto")) {
         if (!is.null(st_env) && length(st_env$weights_stable)) {
@@ -508,44 +531,52 @@ PipeOpMBsPLS = R6::R6Class(
         }
       } else if (identical(pick, "stable_ci")) {
         if (!use_env_weights(ci = TRUE, freq = FALSE)) {
-          lgr$warn("predict_weights='stable_ci' requested but not available; falling back to raw.")
-          used_source = "raw"
+          stable_request_error("stable_ci")
         }
       } else if (identical(pick, "stable_frequency")) {
         if (!use_env_weights(ci = FALSE, freq = TRUE)) {
-          lgr$warn("predict_weights='stable_frequency' requested but not available; falling back to raw.")
-          used_source = "raw"
+          stable_request_error("stable_frequency")
         }
       } else {
         used_source = "raw"
       }
 
-      # ---- NOW normalize/pad the *final* chosen weights ----
-      for (k in seq_len(K_active)) {
-        for (bnm in block_names) {
-          feats = colnames(X_for_ev[[bnm]])
-          wb = W_active[[k]][[bnm]]
-          if (is.null(wb)) {
-            W_active[[k]][[bnm]] = stats::setNames(numeric(length(feats)), feats)
-          } else if (!is.null(names(wb))) {
-            tmp = as.numeric(wb[feats])
-            tmp[is.na(tmp)] = 0
-            W_active[[k]][[bnm]] = stats::setNames(tmp, feats)
-          } else {
-            if (length(wb) != length(feats)) {
-              W_active[[k]][[bnm]] = stats::setNames(numeric(length(feats)), feats)
-            } else {
-              W_active[[k]][[bnm]] = stats::setNames(as.numeric(wb), feats)
-            }
-          }
-        }
+      if (!is.list(W_active) || length(W_active) < K_active) {
+        stop(sprintf(
+          "Selected prediction weights are inconsistent: expected %d component(s), got %d.",
+          K_active,
+          length(W_active %||% list())
+        ), call. = FALSE)
+      }
+      if (!is.list(P_active) || length(P_active) < K_active) {
+        stop(sprintf(
+          "Selected prediction loadings are unavailable or incomplete for weights_source='%s'. Prediction requires matching loadings to preserve the trained deflation path.",
+          used_source
+        ), call. = FALSE)
       }
 
-      # Prepare active state for EV/MAC on the sanitized weights
-      st_active = st
-      st_active$weights = W_active
-      st_active$loadings = P_active
-      st_active$ncomp = K_active
+      # ---- align the final chosen weights/loadings strictly to trained features ----
+      for (k in seq_len(K_active)) {
+        if (!is.list(W_active[[k]])) {
+          stop(sprintf("Component %d of the selected prediction weights is not a block-wise list.", k), call. = FALSE)
+        }
+        if (!is.list(P_active[[k]])) {
+          stop(sprintf("Component %d of the selected prediction loadings is not a block-wise list.", k), call. = FALSE)
+        }
+        for (bnm in block_names) {
+          feats = colnames(X_for_ev[[bnm]])
+          W_active[[k]][[bnm]] = mb_align_named_numeric(
+            W_active[[k]][[bnm]],
+            cols = feats,
+            context = sprintf("Prediction weights for component %d, block '%s'", k, bnm)
+          )
+          P_active[[k]][[bnm]] = mb_align_named_numeric(
+            P_active[[k]][[bnm]],
+            cols = feats,
+            context = sprintf("Prediction loadings for component %d, block '%s'", k, bnm)
+          )
+        }
+      }
 
       # Then compute EV/MAC safely
       test_ev_results = compute_test_ev(
@@ -555,8 +586,7 @@ PipeOpMBsPLS = R6::R6Class(
         deflate            = TRUE,
         performance_metric = pv$performance_metric,
         correlation_method = pv$correlation_method,
-        # if stable weights have no loadings, this will default to test_ls internally
-        loading_source     = if (!is.null(P_active) && length(P_active)) "train" else "test_ls"
+        loading_source     = "train"
       )
 
       use_frob = identical(pv$performance_metric, "frobenius")
@@ -565,6 +595,16 @@ PipeOpMBsPLS = R6::R6Class(
       val_test = pv$val_test
       val_test_n = pv$val_test_n
       val_test_permute_all = pv$val_test_permute_all
+
+      if (val_test != "none" && B < 2L) {
+        stop("Prediction-side validation requires at least two blocks.", call. = FALSE)
+      }
+      if (val_test == "bootstrap" && nrow(dt) < 10L) {
+        stop(sprintf(
+          "Prediction-side bootstrap validation requires at least 10 test rows; got %d.",
+          nrow(dt)
+        ), call. = FALSE)
+      }
 
       val_test_p = rep(NA_real_, K_active)
       val_test_stat = rep(NA_real_, K_active)
@@ -577,18 +617,8 @@ PipeOpMBsPLS = R6::R6Class(
         for (bn in block_names) {
           bi = bi + 1L
           w_b = Wk[[bn]]
-          if (is.null(w_b)) {
-            Tk[, bi] = 0
-            next
-          }
           cols = colnames(X_cur[[bn]])
-          if (!is.null(names(w_b))) {
-            wv = as.numeric(w_b[cols])
-            wv[is.na(wv)] = 0
-          } else {
-            wv = as.numeric(w_b)
-            if (length(wv) != length(cols)) wv <- numeric(length(cols))
-          }
+          wv = as.numeric(w_b[cols])
           storage.mode(wv) = "double"
           Tk[, bi] = X_cur[[bn]] %*% wv
         }
@@ -627,59 +657,53 @@ PipeOpMBsPLS = R6::R6Class(
             storage.mode(x) = "double"
             x
           })
-          n_test = nrow(dt)
-          if (n_test >= 10) {
-            bres = cpp_bootstrap_test_oos(
-              X_test = Xk_list,
-              W_trained = Wk,
-              n_boot = val_test_n,
-              spearman = use_spear,
-              frobenius = use_frob,
-              alpha = pv$val_test_alpha
+          bres = cpp_bootstrap_test_oos(
+            X_test = Xk_list,
+            W_trained = Wk,
+            n_boot = val_test_n,
+            spearman = use_spear,
+            frobenius = use_frob,
+            alpha = pv$val_test_alpha
+          )
+          observed_correlation = as.numeric(bres$stat_obs %||% NA_real_)
+          boot_mean = as.numeric(bres$boot_mean %||% NA_real_)
+          boot_se = as.numeric(bres$boot_se %||% NA_real_)
+          boot_p_value = as.numeric(bres$p_value %||% NA_real_)
+          ci_lower = as.numeric(bres$ci_lower %||% NA_real_)
+          ci_upper = as.numeric(bres$ci_upper %||% NA_real_)
+          n_boot_done = as.integer(bres$n_boot %||% val_test_n)
+          conf = 1 - (if (is.null(pv$val_test_alpha)) 0.05 else pv$val_test_alpha)
+          val_test_p[k] = boot_p_value
+          val_test_stat[k] = observed_correlation
+          if (k == 1L) {
+            val_bootstrap_results = data.table::data.table(
+              component = k, observed_correlation = observed_correlation,
+              boot_mean = boot_mean, boot_se = boot_se,
+              boot_p_value = boot_p_value,
+              boot_ci_lower = ci_lower, boot_ci_upper = ci_upper,
+              confidence_level = conf, n_boot = n_boot_done
             )
-            observed_correlation = as.numeric(bres$stat_obs %||% NA_real_)
-            boot_mean = as.numeric(bres$boot_mean %||% NA_real_)
-            boot_se = as.numeric(bres$boot_se %||% NA_real_)
-            boot_p_value = as.numeric(bres$p_value %||% NA_real_)
-            ci_lower = as.numeric(bres$ci_lower %||% NA_real_)
-            ci_upper = as.numeric(bres$ci_upper %||% NA_real_)
-            n_boot_done = as.integer(bres$n_boot %||% val_test_n)
-            conf = 1 - (if (is.null(pv$val_test_alpha)) 0.05 else pv$val_test_alpha)
-            val_test_p[k] = boot_p_value
-            val_test_stat[k] = observed_correlation
-            if (k == 1L) {
-              val_bootstrap_results = data.table::data.table(
-                component = k, observed_correlation = observed_correlation,
-                boot_mean = boot_mean, boot_se = boot_se,
-                boot_p_value = boot_p_value,
-                boot_ci_lower = ci_lower, boot_ci_upper = ci_upper,
-                confidence_level = conf, n_boot = n_boot_done
-              )
-            } else {
-              val_bootstrap_results = rbind(val_bootstrap_results, data.table::data.table(
-                component = k, observed_correlation = observed_correlation,
-                boot_mean = boot_mean, boot_se = boot_se,
-                boot_p_value = boot_p_value,
-                boot_ci_lower = ci_lower, boot_ci_upper = ci_upper,
-                confidence_level = conf, n_boot = n_boot_done
-              ), fill = TRUE)
-            }
           } else {
-            lgr$warn("Insufficient test samples (%d) for bootstrap validation", n_test)
+            val_bootstrap_results = rbind(val_bootstrap_results, data.table::data.table(
+              component = k, observed_correlation = observed_correlation,
+              boot_mean = boot_mean, boot_se = boot_se,
+              boot_p_value = boot_p_value,
+              boot_ci_lower = ci_lower, boot_ci_upper = ci_upper,
+              confidence_level = conf, n_boot = n_boot_done
+            ), fill = TRUE)
           }
         }
 
-        # Deflate for next component if loadings are available
+        # Deflate for next component using the stored loadings
         if (k < K_active) {
           Pk = P_active[[k]]
-          if (!is.null(Pk)) {
-            bi = 0L
-            for (bn in block_names) {
-              bi = bi + 1L
-              pb = Pk[[bn]]
-              if (is.null(pb)) next
-              X_cur[[bn]] = X_cur[[bn]] - as.matrix(score_tables[[k]][[bi]]) %*% t(as.matrix(pb))
+          for (bi in seq_along(block_names)) {
+            bn = block_names[[bi]]
+            pb = Pk[[bn]]
+            if (is.null(pb)) {
+              stop(sprintf("Prediction loadings are missing for component %d, block '%s'.", k, bn), call. = FALSE)
             }
+            X_cur[[bn]] = X_cur[[bn]] - as.matrix(score_tables[[k]][[bi]]) %*% t(as.matrix(pb))
           }
         }
       }

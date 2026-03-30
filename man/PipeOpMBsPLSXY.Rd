@@ -19,8 +19,8 @@ into dummy columns like \code{"base.level"} (e.g., via
 \code{PipeOpEncode(method = "treatment" | "one-hot")}), you may keep using the
 \strong{base names} in \code{blocks} (e.g., \code{"MINI_dx"}). At \verb{$train()}, base names are
 expanded to the actual post-encoding columns via regex \code{^<base>(\\.|$)}.
-The resolved names are stored and reused at prediction; any missing columns are
-filled with zeros.
+The resolved names are stored and reused at prediction; missing trained columns
+now raise an explicit error instead of being synthesized as zeros.
 
 For classification tasks, Y is internally one-hot encoded (no intercept).
 You can replicate the target block via \code{y_rep} to increase its weight in the
@@ -46,9 +46,9 @@ Supervised Multi-Block Sparse PLS (MB-sPLS-XY) Transformer
 \section{Prediction}{
 
 During \verb{$predict()}, X-scores are computed component-wise with deflation and
-returned as new columns \code{LVk_<block>}. The Y-block is not needed. Any
-columns that existed at training but are missing at prediction are created
-as all-zero columns.
+returned as new columns \code{LVk_<block>}. The Y-block is not needed. All
+trained X-columns must still be present at prediction time; otherwise the
+operator errors explicitly.
 }
 
 \section{Parameters}{

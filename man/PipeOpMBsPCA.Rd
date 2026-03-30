@@ -26,8 +26,8 @@ The operator appends one column per \emph{block x component} (name:
 \details{
 Multi-Block Sparse PCA (MB-sPCA) PipeOp
 
-During training, non-numeric or constant features are silently removed from
-each block. If \code{c_matrix} is supplied, its number of columns determines the
+During training, non-numeric or constant features are removed from
+each block before fitting. If no usable block remains, training errors explicitly. If \code{c_matrix} is supplied, its number of columns determines the
 maximum number of components (overrides \code{ncomp}). Deflation is performed
 block-wise after each component.
 }

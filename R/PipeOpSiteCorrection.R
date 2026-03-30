@@ -281,6 +281,12 @@ PipeOpSiteCorrection = R6::R6Class(
 
       blocks = private$.validate_blocks(task, pv$blocks)
       if (is.null(pv$site_correction) || !length(pv$site_correction)) {
+        self$state = list(
+          blocks = blocks,
+          per_block = list(),
+          unknown_site = pv$unknown_site,
+          keep_site_col = isTRUE(pv$keep_site_col)
+        )
         return(task)
       }
 
@@ -562,6 +568,9 @@ PipeOpSiteCorrection = R6::R6Class(
 
     .predict_task = function(task) {
       st = self$state
+      if (is.null(st) || is.null(st$blocks) || !length(st$blocks)) {
+        return(task$clone())
+      }
       pv = utils::modifyList(paradox::default_values(self$param_set),
         self$param_set$get_values(tags = "predict"),
         keep.null = TRUE)
@@ -571,9 +580,15 @@ PipeOpSiteCorrection = R6::R6Class(
       cols_needed = unique(c(task_copy$feature_names, site_cols_needed))
       dt = task_copy$data(rows = task_copy$row_ids, cols = cols_needed)
 
-      trained_feats = unique(unlist(st$blocks, use.names = FALSE))
-      miss = setdiff(trained_feats, names(dt))
-      if (length(miss)) dt[, (miss) := 0.0]
+      trained_feats = unique(unlist(st$blocks %||% list(), use.names = FALSE))
+      if (length(trained_feats)) {
+        mb_assert_columns_present(
+          colnames_dt = names(dt),
+          required = trained_feats,
+          context = sprintf("[%s] Prediction task", self$id),
+          hint = "Apply the same preprocessing used during training and retain all trained feature columns before PipeOpSiteCorrection."
+        )
+      }
 
       unknown_strategy = pv$unknown_site %||% st$unknown_site %||% "other"
       combat_policy = pv$combat_unknown %||% "noop"
@@ -611,39 +626,45 @@ PipeOpSiteCorrection = R6::R6Class(
           }
 
           if (nrow(G) != nrow(X)) {
-            warning(sprintf("Block '%s' (partial_corr): cannot align rows (G %dx%d vs X %dx%d); skipping.",
-              bn, nrow(G), ncol(G), nrow(X), ncol(X)))
-            next
+            stop(sprintf(
+              "Block '%s' (partial_corr): design matrix rows (%d) do not match feature matrix rows (%d).",
+              bn,
+              nrow(G),
+              nrow(X)
+            ), call. = FALSE)
           }
 
           beta = info$beta
           if (is.null(rownames(beta))) rownames(beta) <- info$design_cols
           miss_r = setdiff(colnames(G), rownames(beta))
           if (length(miss_r)) {
-            beta = rbind(beta, matrix(0, nrow = length(miss_r), ncol = ncol(beta),
-              dimnames = list(miss_r, colnames(beta))))
+            stop(sprintf(
+              "Block '%s' (partial_corr): stored coefficient matrix is missing %d design row(s): %s",
+              bn,
+              length(miss_r),
+              mb_format_truncated(miss_r)
+            ), call. = FALSE)
           }
           beta = beta[colnames(G), , drop = FALSE]
 
           miss_c = setdiff(colnames(beta), colnames(X))
-          if (length(miss_c)) {
-            X = cbind(X, matrix(0, nrow = nrow(X), ncol = length(miss_c),
-              dimnames = list(NULL, miss_c)))
-          }
           extra_c = setdiff(colnames(X), colnames(beta))
-          if (length(extra_c)) X <- X[, setdiff(colnames(X), extra_c), drop = FALSE]
+          if (length(miss_c) || length(extra_c)) {
+            stop(sprintf(
+              "Block '%s' (partial_corr): trained feature set and stored coefficient columns do not match. Missing in new data/state alignment: [%s]; unexpected columns: [%s].",
+              bn,
+              if (length(miss_c)) mb_format_truncated(miss_c) else "none",
+              if (length(extra_c)) mb_format_truncated(extra_c) else "none"
+            ), call. = FALSE)
+          }
           X = X[, colnames(beta), drop = FALSE]
 
           GB = G %*% beta
           if (!identical(colnames(GB), colnames(X))) {
-            miss_gb = setdiff(colnames(X), colnames(GB))
-            if (length(miss_gb)) {
-              GB = cbind(GB, matrix(0, nrow = nrow(GB), ncol = length(miss_gb),
-                dimnames = list(NULL, miss_gb)))
-            }
-            extra_gb = setdiff(colnames(GB), colnames(X))
-            if (length(extra_gb)) GB <- GB[, setdiff(colnames(GB), extra_gb), drop = FALSE]
-            GB = GB[, colnames(X), drop = FALSE]
+            stop(sprintf(
+              "Block '%s' (partial_corr): corrected design output columns do not match the trained feature columns.",
+              bn
+            ), call. = FALSE)
           }
 
           Xcorr = if (isTRUE(info$revert)) X + GB else X - GB
@@ -666,19 +687,38 @@ PipeOpSiteCorrection = R6::R6Class(
             if (!length(idx)) next
             Yk = t(as.matrix(dt[idx, .SD, .SDcols = Xcols]))
             bk = factor(batch_chr[idx], levels = valid)
-            Yck = tryCatch(neuroCombat::neuroCombatFromTraining(
-              dat = Yk, batch = bk, estimates = info$estimates
-            )$dat.combat, error = function(e) NULL)
-            if (!is.null(Yck)) dt[idx, (Xcols) := as.data.table(t(Yck))]
+            Yck = tryCatch(
+              neuroCombat::neuroCombatFromTraining(
+                dat = Yk, batch = bk, estimates = info$estimates
+              )$dat.combat,
+              error = function(e) {
+                stop(sprintf(
+                  "Block '%s' (combat): neuroCombatFromTraining failed for known batches: %s",
+                  bn,
+                  conditionMessage(e)
+                ), call. = FALSE)
+              }
+            )
+            dt[idx, (Xcols) := as.data.table(t(Yck))]
           } else {
             baseline = if (!is.null(info$ref_batch) && info$ref_batch %in% valid) info$ref_batch else valid[1]
             bmap = batch_chr
             bmap[!known_mask | is.na(bmap)] = baseline
             Y = t(as.matrix(dt[, .SD, .SDcols = Xcols]))
-            Yc = tryCatch(neuroCombat::neuroCombatFromTraining(
-              dat = Y, batch = factor(bmap, levels = valid), estimates = info$estimates
-            )$dat.combat, error = function(e) NULL)
-            if (!is.null(Yc)) dt[, (Xcols) := as.data.table(t(Yc))]
+            Yc = tryCatch(
+              neuroCombat::neuroCombatFromTraining(
+                dat = Y, batch = factor(bmap, levels = valid), estimates = info$estimates
+              )$dat.combat,
+              error = function(e) {
+                stop(sprintf(
+                  "Block '%s' (combat): neuroCombatFromTraining failed under combat_unknown='%s': %s",
+                  bn,
+                  combat_policy,
+                  conditionMessage(e)
+                ), call. = FALSE)
+              }
+            )
+            dt[, (Xcols) := as.data.table(t(Yc))]
           }
 
         } else if (identical(info$method, "dir")) {
