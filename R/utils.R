@@ -11,6 +11,97 @@ NULL
 `%||%` = function(x, y) if (is.null(x) || length(x) == 0L) y else x
 
 
+
+
+#' Format a character vector for concise error messages.
+#' @keywords internal
+mb_format_truncated = function(x, max_items = 20L) {
+  x = as.character(x %||% character(0))
+  if (!length(x)) {
+    return("")
+  }
+  max_items = as.integer(max_items %||% 20L)
+  max_items = if (is.finite(max_items) && max_items >= 1L) max_items else 20L
+  shown = utils::head(x, max_items)
+  out = paste(shown, collapse = ", ")
+  if (length(x) > max_items) {
+    out = sprintf("%s, ... (+%d more)", out, length(x) - max_items)
+  }
+  out
+}
+
+#' Assert that a dataset contains all columns required by a trained model.
+#' @keywords internal
+mb_assert_columns_present = function(colnames_dt, required, context = "data", hint = NULL) {
+  checkmate::assert_character(colnames_dt, any.missing = FALSE, .var.name = "colnames_dt")
+  checkmate::assert_character(required, any.missing = FALSE, .var.name = "required")
+
+  required = unique(required)
+  missing = setdiff(required, colnames_dt)
+  if (length(missing)) {
+    msg = sprintf(
+      "%s is missing %d trained feature(s): %s",
+      context,
+      length(missing),
+      mb_format_truncated(missing)
+    )
+    if (!is.null(hint) && length(hint) == 1L && nzchar(as.character(hint))) {
+      msg = paste0(msg, "\nFix: ", as.character(hint))
+    }
+    stop(msg, call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
+#' Align a numeric vector to trained feature names.
+#' @keywords internal
+mb_align_named_numeric = function(v, cols, context = "vector", allow_null = FALSE, zero_if_null = FALSE) {
+  checkmate::assert_character(cols, any.missing = FALSE, .var.name = "cols")
+
+  if (is.null(v)) {
+    if (isTRUE(zero_if_null)) {
+      return(stats::setNames(numeric(length(cols)), cols))
+    }
+    if (isTRUE(allow_null)) {
+      return(NULL)
+    }
+    stop(sprintf("%s is NULL; the trained model does not contain coefficients for these features.", context), call. = FALSE)
+  }
+
+  if (!is.numeric(v)) {
+    stop(sprintf("%s must be numeric.", context), call. = FALSE)
+  }
+
+  if (!is.null(names(v))) {
+    missing = setdiff(cols, names(v))
+    if (length(missing)) {
+      stop(sprintf(
+        "%s is missing %d trained feature name(s): %s",
+        context,
+        length(missing),
+        mb_format_truncated(missing)
+      ), call. = FALSE)
+    }
+    out = as.numeric(v[cols])
+  } else {
+    out = as.numeric(v)
+    if (length(out) != length(cols)) {
+      stop(sprintf(
+        "%s has length %d but %d trained feature(s) are required.",
+        context,
+        length(out),
+        length(cols)
+      ), call. = FALSE)
+    }
+  }
+
+  if (anyNA(out) || any(!is.finite(out))) {
+    stop(sprintf("%s contains NA/Inf values after alignment.", context), call. = FALSE)
+  }
+
+  stats::setNames(out, cols)
+}
+
 # ------------------------------------------------------------------------------
 # Randomness helpers
 # ------------------------------------------------------------------------------
@@ -335,12 +426,15 @@ mb_task_blocks = function(task, context = "task", allow_null = FALSE) {
 
   blocks = tryCatch(task$blocks, error = function(e) NULL)
   if (is.null(blocks)) {
+    blocks = tryCatch(task$extra_args$blocks, error = function(e) NULL)
+  }
+  if (is.null(blocks)) {
     if (isTRUE(allow_null)) {
       return(NULL)
     }
     stop(
       sprintf(
-        "%s: no 'blocks' supplied and the task does not carry multi-block metadata.",
+        "%s: no 'blocks' supplied and the task does not carry multi-block metadata in `task$blocks` or `task$extra_args$blocks`.",
         context
       ),
       call. = FALSE

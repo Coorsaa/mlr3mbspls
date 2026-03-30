@@ -18,7 +18,7 @@ workflows, with support for unsupervised, classification, and regression pipelin
 \item \code{TaskMultiBlock()} factory plus packaged synthetic multi-block tasks with persistent block membership metadata
 \item Integration with \pkg{mlr3pipelines} for complex workflows
 \item Visualization and interpretation tools
-\item Block-level task QC via \code{mb_task_overview()} and tidy reporting via \code{mbspls_model_summary()}
+\item Block-level task QC via \code{task$overview()} (with \code{mb_task_overview()} retained as a wrapper) and tidy reporting via \code{mbspls_model_summary()}
 \item Hyperparameter tuning support
 }
 }
@@ -31,7 +31,7 @@ workflows, with support for unsupervised, classification, and regression pipelin
 \item \code{\link{PipeOpSiteCorrection}}: Site/batch correction as a PipeOp
 \item \code{\link{mbspls_graph}} / \code{\link{mbsplsxy_graph}}: Construct unsupervised or supervised preprocessing + MB-sPLS graphs
 \item \code{\link{mbspls_graph_learner}} / \code{\link{mbsplsxy_graph_learner}}: Wrap graphs as GraphLearners
-\item \code{\link{mb_task_overview}} / \code{\link{mbspls_model_summary}}: Task QC and fitted-model reporting helpers
+\item \code{task$overview()} / \code{\link{mb_task_overview}} / \code{\link{mbspls_model_summary}}: Task QC and fitted-model reporting helpers
 \item \code{\link{mbspls_eval_new_data}}: Evaluate new data via a trained graph
 \item \code{\link{mbspls_nested_cv}} / \code{\link{mbspls_nested_cv_batchtools}}:
 Nested resampling utilities

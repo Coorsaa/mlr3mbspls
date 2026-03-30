@@ -14,7 +14,7 @@ mb_task_overview(
 }
 \arguments{
 \item{task}{A task created with \code{\link[=TaskMultiBlock]{TaskMultiBlock()}} or any \link[mlr3:Task]{mlr3::Task} that
-carries multiblock metadata in \code{task$blocks}.}
+carries multiblock metadata in \code{task$blocks} or \code{task$extra_args$blocks}.}
 
 \item{rows}{Optional row ids to summarize. Defaults to all task rows.}
 
@@ -50,15 +50,16 @@ This helper is particularly useful in clinical, social-science, and
 multi-omics workflows where block imbalance, missingness, and low-information
 variables should be checked explicitly before resampling or interpretation.
 
-\code{TaskMultiBlock()} objects also expose the same functionality as
-\code{task$overview()}.
+For \code{TaskMultiBlock()} objects, \code{task$overview()} is the primary interface.
+\code{mb_task_overview(task)} is retained as a convenience wrapper for ad hoc code
+and backward compatibility.
 }
 \details{
 Summarize a multi-block task
 }
 \examples{
 task = mlr3::tsk("mbspls_synthetic_classif")
-qc = mb_task_overview(task)
+qc = task$overview()
 qc$overview
 qc$blocks
 qc$issues

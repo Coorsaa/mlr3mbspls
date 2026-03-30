@@ -54,7 +54,9 @@ automatically.}
 
 \item{target}{Optional target. For flat input this can be a target column name
 or a target vector. For list-of-block input this can be \code{NULL} or a target
-vector.}
+vector. When \code{x} is already an \code{mlr3::Task}, \code{target} must be \code{NULL} or the
+name of an existing backend column so that the original task backend and
+view can be preserved.}
 
 \item{task_type}{One of \code{"auto"}, \code{"classif"}, \code{"regr"}, or \code{"clust"}.
 With \code{"auto"}, the factory infers the task type from \code{target}: factor-like
@@ -98,8 +100,9 @@ for a multi-block analysis:
 \item \link[mlr3:TaskRegr]{mlr3::TaskRegr} subclass for supervised regression.
 }
 
-The underlying task always stores a named \code{blocks} mapping and exposes three
-convenience methods:
+The underlying task always stores a named \code{blocks} mapping as task metadata
+(including \code{extra_args} for task conversion) and exposes three convenience
+methods:
 \itemize{
 \item \verb{$block_features(block = NULL, materialize = FALSE)}
 \item \verb{$block_data(rows = NULL, blocks = NULL, as_matrix = FALSE)}

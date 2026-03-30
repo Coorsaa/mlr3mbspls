@@ -109,7 +109,7 @@ blocks
 Before fitting any model, run a quick QC summary once. This is especially helpful in multi-omics, clinical, neuroimaging, and socioeconomic workflows where block imbalance or missingness may drive downstream results.
 
 ```{r qc}
-qc = mb_task_overview(task_source)
+qc = task_source$overview()
 qc$overview
 qc$blocks
 qc$issues

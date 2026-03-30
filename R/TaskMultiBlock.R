@@ -1,3 +1,171 @@
+mb_drop_target_from_blocks = function(blocks, target = NULL, context = "TaskMultiBlock()") {
+  blocks = mb_normalize_blocks(blocks, .var.name = paste0(context, "$blocks"))
+  if (is.null(target) || !length(target) || !nzchar(as.character(target)[1L])) {
+    return(blocks)
+  }
+
+  target = as.character(target)[1L]
+  out = lapply(blocks, function(cols) setdiff(cols, target))
+  empty = names(out)[lengths(out) == 0L]
+  if (length(empty)) {
+    stop(
+      sprintf(
+        "%s: the target column '%s' is part of block(s) %s, leaving them empty after removing the target.\nFix: keep the target outside the block mapping or add at least one non-target feature to each affected block.",
+        context,
+        target,
+        mb_format_truncated(empty)
+      ),
+      call. = FALSE
+    )
+  }
+
+  out
+}
+
+
+mb_blocks_rename = function(blocks, old, new) {
+  blocks = mb_normalize_blocks(blocks, .var.name = "blocks")
+  checkmate::assert_character(old, any.missing = FALSE, min.len = 1L, .var.name = "old")
+  checkmate::assert_character(new, any.missing = FALSE, len = length(old), .var.name = "new")
+
+  lookup = stats::setNames(as.character(new), as.character(old))
+  lapply(blocks, function(cols) {
+    cols = as.character(cols)
+    idx = match(cols, names(lookup), nomatch = 0L)
+    if (any(idx > 0L)) {
+      cols[idx > 0L] = unname(lookup[cols[idx > 0L]])
+    }
+    cols
+  })
+}
+
+
+mb_task_clone_backend = function(task, context = "as_task_multiblock()") {
+  checkmate::assert_class(task, "Task", .var.name = paste0(context, "$task"))
+  backend = tryCatch(task$backend, error = function(e) NULL)
+  if (is.null(backend)) {
+    stop(sprintf("%s: could not access the task backend.", context), call. = FALSE)
+  }
+
+  out = tryCatch(backend$clone(deep = TRUE), error = function(e) NULL)
+  if (is.null(out)) {
+    out = tryCatch(backend$clone(), error = function(e) NULL)
+  }
+  out %||% backend
+}
+
+
+mb_task_resolve_constructor_blocks = function(blocks = NULL, extra_args = list(), context = "TaskMultiBlock") {
+  extra_args = extra_args %||% list()
+  checkmate::assert_list(extra_args, .var.name = paste0(context, "$extra_args"))
+
+  resolved = blocks %||% extra_args$blocks %||% NULL
+  if (is.null(resolved)) {
+    stop(
+      sprintf(
+        "%s: missing multi-block metadata. Supply `blocks` explicitly or pass them via `extra_args$blocks`.",
+        context
+      ),
+      call. = FALSE
+    )
+  }
+
+  mb_normalize_blocks(resolved, .var.name = paste0(context, "$blocks"))
+}
+
+
+mb_task_copy_view = function(dst, src) {
+  checkmate::assert_class(dst, "Task", .var.name = "dst")
+  checkmate::assert_class(src, "Task", .var.name = "src")
+
+  try(dst$row_roles <- src$row_roles, silent = TRUE)
+  try(dst$col_roles <- src$col_roles, silent = TRUE)
+  try(dst$col_labels <- src$col_labels, silent = TRUE)
+
+  internal_valid = tryCatch(src$internal_valid_task, error = function(e) NULL)
+  if (!is.null(internal_valid)) {
+    try(dst$internal_valid_task <- internal_valid, silent = TRUE)
+  }
+
+  invisible(dst)
+}
+
+
+mb_task_construct_from_source = function(
+  source_task,
+  blocks,
+  target,
+  resolved_type,
+  id,
+  label,
+  positive = NULL
+) {
+  checkmate::assert_class(source_task, "Task", .var.name = "source_task")
+  checkmate::assert_choice(resolved_type, c("classif", "regr", "clust"), .var.name = "resolved_type")
+
+  source_copy = source_task$clone(deep = TRUE)
+  source_target = tryCatch(source_copy$target_names, error = function(e) character(0))
+  source_target = source_target[1L] %||% NULL
+  target_col = if (identical(resolved_type, "clust")) NULL else (target %||% source_target)
+
+  if (!identical(resolved_type, "clust") && is.null(target_col)) {
+    stop(
+      sprintf(
+        "as_task_multiblock(): task_type = '%s' requires a target column.",
+        resolved_type
+      ),
+      call. = FALSE
+    )
+  }
+
+  blocks = mb_drop_target_from_blocks(blocks, target_col, context = "as_task_multiblock()")
+
+  if (!identical(source_copy$task_type, resolved_type) || !identical(target_col, source_target)) {
+    source_copy = mlr3::convert_task(
+      source_copy,
+      target = target_col,
+      new_type = resolved_type,
+      drop_original_target = FALSE
+    )
+  }
+
+  backend = mb_task_clone_backend(source_copy, context = "as_task_multiblock()")
+  ctor_extra_args = list(blocks = blocks)
+  ctor_args = list(
+    id = id,
+    backend = backend,
+    blocks = blocks,
+    label = label,
+    extra_args = ctor_extra_args
+  )
+
+  task = switch(
+    resolved_type,
+    classif = {
+      ctor_args$target = target_col
+      ctor_args$positive = positive
+      do.call(TaskClassifMultiBlock$new, ctor_args)
+    },
+    regr = {
+      ctor_args$target = target_col
+      do.call(TaskRegrMultiBlock$new, ctor_args)
+    },
+    clust = do.call(TaskClustMultiBlock$new, ctor_args)
+  )
+
+  mb_task_copy_view(task, source_copy)
+
+  if (identical(resolved_type, "classif") && is.null(positive) && inherits(source_task, "TaskClassif")) {
+    pos = tryCatch(source_task$positive, error = function(e) NA_character_)
+    if (!is.na(pos) && pos %in% task$class_names) {
+      task$positive = pos
+    }
+  }
+
+  task
+}
+
+
 #' Multi-block task factory, packaged toy tasks, and dataset adapters
 #'
 #' @title Construct multi-block mlr3 tasks with optional supervision
@@ -10,8 +178,9 @@
 #' * [mlr3::TaskClassif] subclass for supervised classification,
 #' * [mlr3::TaskRegr] subclass for supervised regression.
 #'
-#' The underlying task always stores a named `blocks` mapping and exposes three
-#' convenience methods:
+#' The underlying task always stores a named `blocks` mapping as task metadata
+#' (including `extra_args` for task conversion) and exposes three convenience
+#' methods:
 #'
 #' * `$block_features(block = NULL, materialize = FALSE)`
 #' * `$block_data(rows = NULL, blocks = NULL, as_matrix = FALSE)`
@@ -39,7 +208,9 @@
 #'   automatically.
 #' @param target Optional target. For flat input this can be a target column name
 #'   or a target vector. For list-of-block input this can be `NULL` or a target
-#'   vector.
+#'   vector. When `x` is already an `mlr3::Task`, `target` must be `NULL` or the
+#'   name of an existing backend column so that the original task backend and
+#'   view can be preserved.
 #' @param task_type One of `"auto"`, `"classif"`, `"regr"`, or `"clust"`.
 #'   With `"auto"`, the factory infers the task type from `target`: factor-like
 #'   targets become classification tasks, numeric targets become regression
@@ -100,6 +271,7 @@
 #' }
 #' }
 #'
+
 #' @export
 as_task_multiblock = function(
   x,
@@ -123,12 +295,46 @@ as_task_multiblock = function(
     }
     if (is.null(blocks)) {
       blocks = tryCatch(x$blocks, error = function(e) NULL)
+      if (is.null(blocks)) {
+        blocks = tryCatch(x$extra_args$blocks, error = function(e) NULL)
+      }
     }
     if (is.null(target) && (inherits(x, "TaskClassif") || inherits(x, "TaskRegr"))) {
       target = x$target_names[1L]
     }
-    cols = unique(c(x$feature_names, tryCatch(x$target_names, error = function(e) character(0))))
-    x = data.table::as.data.table(x$data(rows = x$row_ids, cols = cols))
+    if (is.null(blocks)) {
+      stop(
+        paste0(
+          "as_task_multiblock(): no multi-block metadata was found on the supplied task.",
+          "\nFix: pass an explicit named `blocks` mapping, or construct the source task with `TaskMultiBlock()` so that `task$blocks` / `task$extra_args$blocks` is available."
+        ),
+        call. = FALSE
+      )
+    }
+    if (!is.null(target) && !(length(target) == 1L && is.character(target) && target %in% x$col_info$id)) {
+      stop(
+        paste0("When `x` is an mlr3 Task, `target` must be NULL or the name of an existing backend column.",
+        "\nFix: for an external target vector, call `TaskMultiBlock()` on raw tabular or list-of-block input instead of an existing Task so that the original task backend, view, and metadata remain intact."),
+        call. = FALSE
+      )
+    }
+
+    resolved_type = mb_infer_task_type(
+      task_type = task_type,
+      dt = NULL,
+      target = target,
+      source_task = source_task
+    )
+
+    return(mb_task_construct_from_source(
+      source_task = source_task,
+      blocks = blocks,
+      target = target,
+      resolved_type = resolved_type,
+      id = id,
+      label = label,
+      positive = positive
+    ))
   }
 
   id = id %||% "multiblock"
@@ -145,8 +351,15 @@ as_task_multiblock = function(
     task_type = task_type,
     dt = prep$backend,
     target = prep$target,
-    source_task = source_task
+    source_task = NULL
   )
+
+  if (!identical(resolved_type, "clust") && is.null(prep$target)) {
+    stop(
+      sprintf("TaskMultiBlock(): task_type = '%s' requires a target column or target vector.", resolved_type),
+      call. = FALSE
+    )
+  }
 
   prep$backend = mb_finalize_target_type(
     dt = prep$backend,
@@ -156,7 +369,7 @@ as_task_multiblock = function(
 
   target_col = if (identical(resolved_type, "clust")) NULL else prep$target
 
-  task = switch(
+  switch(
     resolved_type,
     classif = TaskClassifMultiBlock$new(
       id = id,
@@ -164,36 +377,25 @@ as_task_multiblock = function(
       target = target_col,
       blocks = prep$blocks,
       positive = positive,
-      label = label
+      label = label,
+      extra_args = list(blocks = prep$blocks)
     ),
     regr = TaskRegrMultiBlock$new(
       id = id,
       backend = prep$backend,
       target = target_col,
       blocks = prep$blocks,
-      label = label
+      label = label,
+      extra_args = list(blocks = prep$blocks)
     ),
     clust = TaskClustMultiBlock$new(
       id = id,
       backend = prep$backend,
       blocks = prep$blocks,
-      label = label
+      label = label,
+      extra_args = list(blocks = prep$blocks)
     )
   )
-
-  if (
-    is.null(positive) &&
-      !is.null(source_task) &&
-      inherits(source_task, "TaskClassif") &&
-      inherits(task, "TaskClassif")
-  ) {
-    pos = tryCatch(source_task$positive, error = function(e) NA_character_)
-    if (!is.na(pos) && pos %in% task$class_names) {
-      task$positive = pos
-    }
-  }
-
-  task
 }
 
 
@@ -445,10 +647,8 @@ mb_prepare_multiblock_input = function(x, blocks = NULL, target = NULL, target_n
       }
     }
 
-    if (!is.null(target_col)) {
-      block_map = lapply(block_map, function(cols) setdiff(cols, target_col))
-    }
-
+    block_map = mb_drop_target_from_blocks(block_map, target_col, context = "TaskMultiBlock()")
+    assert_blocks_present(names(dt), block_map, context = "TaskMultiBlock()")
     return(list(backend = dt, blocks = block_map, target = target_col))
   }
 
@@ -472,9 +672,8 @@ mb_prepare_multiblock_input = function(x, blocks = NULL, target = NULL, target_n
     }
   }
 
-  if (!is.null(target_col)) {
-    block_map = lapply(block_map, function(cols) setdiff(cols, target_col))
-  }
+  block_map = mb_drop_target_from_blocks(block_map, target_col, context = "TaskMultiBlock()")
+  assert_blocks_present(names(dt), block_map, context = "TaskMultiBlock()")
 
   list(backend = dt, blocks = block_map, target = target_col)
 }
@@ -484,6 +683,27 @@ mb_infer_task_type = function(task_type, dt, target, source_task = NULL) {
   if (!identical(task_type, "auto")) {
     return(task_type)
   }
+
+  if (!is.null(target)) {
+    if (is.null(dt)) {
+      if (is.null(source_task)) {
+        stop("Could not infer `task_type`: no data available for the supplied target.", call. = FALSE)
+      }
+      y = data.table::as.data.table(source_task$backend$data(rows = source_task$row_ids, cols = target))[[1L]]
+    } else {
+      y = dt[[target]]
+    }
+
+    if (is.factor(y) || is.character(y) || is.logical(y) || is.ordered(y)) {
+      return("classif")
+    }
+    if (is.numeric(y) || is.integer(y)) {
+      return("regr")
+    }
+
+    stop("Could not infer `task_type` from the supplied target.", call. = FALSE)
+  }
+
   if (!is.null(source_task)) {
     if (inherits(source_task, "TaskClassif")) {
       return("classif")
@@ -495,19 +715,8 @@ mb_infer_task_type = function(task_type, dt, target, source_task = NULL) {
       return("clust")
     }
   }
-  if (is.null(target)) {
-    return("clust")
-  }
 
-  y = dt[[target]]
-  if (is.factor(y) || is.character(y) || is.logical(y) || is.ordered(y)) {
-    return("classif")
-  }
-  if (is.numeric(y) || is.integer(y)) {
-    return("regr")
-  }
-
-  stop("Could not infer `task_type` from the supplied target.", call. = FALSE)
+  "clust"
 }
 
 
@@ -568,16 +777,47 @@ mb_task_block_data = function(task, rows = NULL, blocks = NULL, as_matrix = FALS
     available[blocks]
   } else {
     dt_task = data.table::as.data.table(task$data(rows = rows, cols = task$feature_names))
-    mb_resolve_blocks(dt_task, blocks, numeric_only = FALSE, non_constant = FALSE)
+    requested = mb_normalize_blocks(blocks, .var.name = "blocks")
+    resolved = mb_resolve_blocks(dt_task, requested, numeric_only = FALSE, non_constant = FALSE)
+    empty_blocks = setdiff(names(requested), names(resolved))
+    if (length(empty_blocks)) {
+      stop(
+        sprintf(
+          "`task$block_data()` could not resolve the requested block mapping against the task's active feature view for block(s): %s
+Fix: use block names from `task$block_names` / `task$block_features(materialize = TRUE)`, or reselect the required features before extracting block data.",
+          mb_format_truncated(empty_blocks)
+        ),
+        call. = FALSE
+      )
+    }
+    resolved
   }
 
   cols = unique(unlist(blocks_map, use.names = FALSE))
-  dt = data.table::as.data.table(task$data(rows = rows, cols = cols))
+  dt = if (length(cols)) {
+    data.table::as.data.table(task$data(rows = rows, cols = cols))
+  } else {
+    data.table::data.table()
+  }
 
   out = lapply(blocks_map, function(cols_block) {
     x_block = dt[, ..cols_block]
     if (isTRUE(as_matrix)) {
-      as.matrix(x_block)
+      storage_ok = vapply(cols_block, function(cl) {
+        is.numeric(x_block[[cl]]) || is.integer(x_block[[cl]]) || is.logical(x_block[[cl]])
+      }, logical(1))
+      if (!all(storage_ok)) {
+        bad = cols_block[!storage_ok]
+        stop(
+          sprintf(
+            paste0("`task$block_data(as_matrix = TRUE)` requires numeric, integer, or logical features only. Block columns with unsupported storage types: %s",
+            "\nFix: encode factor/character features before requesting matrix output, or call `task$block_data(as_matrix = FALSE)`."),
+            mb_format_truncated(bad)
+          ),
+          call. = FALSE
+        )
+      }
+      data.matrix(x_block)
     } else {
       x_block
     }
@@ -682,14 +922,44 @@ mb_generate_synthetic_multiblock = function(n = 90L, seed = 1L) {
 
 
 
+
 TaskClassifMultiBlock = R6::R6Class(
   "TaskClassifMultiBlock",
   inherit = mlr3::TaskClassif,
+  private = list(
+    .blocks = NULL
+  ),
   public = list(
-    blocks = NULL,
-    initialize = function(id, backend, target, blocks, positive = NULL, label = NA_character_) {
-      super$initialize(id = id, backend = backend, target = target, positive = positive, label = label)
-      self$blocks = mb_normalize_blocks(blocks)
+    initialize = function(id, backend, target, blocks = NULL, positive = NULL, label = NA_character_, extra_args = list()) {
+      resolved_blocks = mb_task_resolve_constructor_blocks(
+        blocks = blocks,
+        extra_args = extra_args,
+        context = "TaskClassifMultiBlock$new()"
+      )
+      extra_args$blocks = resolved_blocks
+      super$initialize(
+        id = id,
+        backend = backend,
+        target = target,
+        positive = positive,
+        label = label,
+        extra_args = extra_args
+      )
+      private$.blocks = mb_drop_target_from_blocks(resolved_blocks, target, context = "TaskClassifMultiBlock$new()")
+      mb_assert_columns_present(
+        self$col_info$id,
+        unique(unlist(private$.blocks, use.names = FALSE)),
+        context = "TaskClassifMultiBlock$new()",
+        hint = "Ensure that every block column exists in the backend after task construction."
+      )
+      self$extra_args$blocks = private$.blocks
+      self$man = "mlr3mbspls::as_task_multiblock"
+    },
+    rename = function(old, new) {
+      super$rename(old = old, new = new)
+      private$.blocks = mb_blocks_rename(private$.blocks, old = old, new = new)
+      self$extra_args$blocks = private$.blocks
+      invisible(self)
     },
     block_features = function(block = NULL, materialize = FALSE) {
       mb_task_block_features(self, block = block, materialize = materialize)
@@ -697,16 +967,32 @@ TaskClassifMultiBlock = R6::R6Class(
     block_data = function(rows = NULL, blocks = NULL, as_matrix = FALSE) {
       mb_task_block_data(self, rows = rows, blocks = blocks, as_matrix = as_matrix)
     },
+    format = function(...) {
+      out = super$format(...)
+      block_sizes = vapply(private$.blocks %||% list(), length, integer(1))
+      block_desc = if (length(block_sizes)) {
+        paste(sprintf("%s[%d]", names(block_sizes), unname(block_sizes)), collapse = ", ")
+      } else {
+        "<none>"
+      }
+      c(out, sprintf("Blocks: %d (%s)", length(block_sizes), block_desc))
+    },
     overview = function(rows = NULL, blocks = NULL, include_target = TRUE, top_levels = 5L) {
       mb_task_overview(self, rows = rows, blocks = blocks, include_target = include_target, top_levels = top_levels)
     }
   ),
   active = list(
+    blocks = function(rhs) {
+      if (!missing(rhs)) {
+        stop("`blocks` is read-only. Create a new task if the block mapping must change.", call. = FALSE)
+      }
+      private$.blocks
+    },
     block_names = function(rhs) {
       if (!missing(rhs)) {
         stop("`block_names` is read-only.", call. = FALSE)
       }
-      names(self$blocks) %||% character(0)
+      names(private$.blocks) %||% character(0)
     }
   )
 )
@@ -715,11 +1001,39 @@ TaskClassifMultiBlock = R6::R6Class(
 TaskRegrMultiBlock = R6::R6Class(
   "TaskRegrMultiBlock",
   inherit = mlr3::TaskRegr,
+  private = list(
+    .blocks = NULL
+  ),
   public = list(
-    blocks = NULL,
-    initialize = function(id, backend, target, blocks, label = NA_character_) {
-      super$initialize(id = id, backend = backend, target = target, label = label)
-      self$blocks = mb_normalize_blocks(blocks)
+    initialize = function(id, backend, target, blocks = NULL, label = NA_character_, extra_args = list()) {
+      resolved_blocks = mb_task_resolve_constructor_blocks(
+        blocks = blocks,
+        extra_args = extra_args,
+        context = "TaskRegrMultiBlock$new()"
+      )
+      extra_args$blocks = resolved_blocks
+      super$initialize(
+        id = id,
+        backend = backend,
+        target = target,
+        label = label,
+        extra_args = extra_args
+      )
+      private$.blocks = mb_drop_target_from_blocks(resolved_blocks, target, context = "TaskRegrMultiBlock$new()")
+      mb_assert_columns_present(
+        self$col_info$id,
+        unique(unlist(private$.blocks, use.names = FALSE)),
+        context = "TaskRegrMultiBlock$new()",
+        hint = "Ensure that every block column exists in the backend after task construction."
+      )
+      self$extra_args$blocks = private$.blocks
+      self$man = "mlr3mbspls::as_task_multiblock"
+    },
+    rename = function(old, new) {
+      super$rename(old = old, new = new)
+      private$.blocks = mb_blocks_rename(private$.blocks, old = old, new = new)
+      self$extra_args$blocks = private$.blocks
+      invisible(self)
     },
     block_features = function(block = NULL, materialize = FALSE) {
       mb_task_block_features(self, block = block, materialize = materialize)
@@ -727,16 +1041,32 @@ TaskRegrMultiBlock = R6::R6Class(
     block_data = function(rows = NULL, blocks = NULL, as_matrix = FALSE) {
       mb_task_block_data(self, rows = rows, blocks = blocks, as_matrix = as_matrix)
     },
+    format = function(...) {
+      out = super$format(...)
+      block_sizes = vapply(private$.blocks %||% list(), length, integer(1))
+      block_desc = if (length(block_sizes)) {
+        paste(sprintf("%s[%d]", names(block_sizes), unname(block_sizes)), collapse = ", ")
+      } else {
+        "<none>"
+      }
+      c(out, sprintf("Blocks: %d (%s)", length(block_sizes), block_desc))
+    },
     overview = function(rows = NULL, blocks = NULL, include_target = TRUE, top_levels = 5L) {
       mb_task_overview(self, rows = rows, blocks = blocks, include_target = include_target, top_levels = top_levels)
     }
   ),
   active = list(
+    blocks = function(rhs) {
+      if (!missing(rhs)) {
+        stop("`blocks` is read-only. Create a new task if the block mapping must change.", call. = FALSE)
+      }
+      private$.blocks
+    },
     block_names = function(rhs) {
       if (!missing(rhs)) {
         stop("`block_names` is read-only.", call. = FALSE)
       }
-      names(self$blocks) %||% character(0)
+      names(private$.blocks) %||% character(0)
     }
   )
 )
@@ -745,11 +1075,37 @@ TaskRegrMultiBlock = R6::R6Class(
 TaskClustMultiBlock = R6::R6Class(
   "TaskClustMultiBlock",
   inherit = mlr3cluster::TaskClust,
+  private = list(
+    .blocks = NULL
+  ),
   public = list(
-    blocks = NULL,
-    initialize = function(id, backend, blocks, label = NA_character_) {
-      super$initialize(id = id, backend = backend, label = label)
-      self$blocks = mb_normalize_blocks(blocks)
+    initialize = function(id, backend, blocks = NULL, label = NA_character_, extra_args = list()) {
+      resolved_blocks = mb_task_resolve_constructor_blocks(
+        blocks = blocks,
+        extra_args = extra_args,
+        context = "TaskClustMultiBlock$new()"
+      )
+      extra_args$blocks = resolved_blocks
+      super$initialize(
+        id = id,
+        backend = backend,
+        label = label
+      )
+      private$.blocks = resolved_blocks
+      mb_assert_columns_present(
+        self$col_info$id,
+        unique(unlist(private$.blocks, use.names = FALSE)),
+        context = "TaskClustMultiBlock$new()",
+        hint = "Ensure that every block column exists in the backend after task construction."
+      )
+      self$extra_args$blocks = private$.blocks
+      self$man = "mlr3mbspls::as_task_multiblock"
+    },
+    rename = function(old, new) {
+      super$rename(old = old, new = new)
+      private$.blocks = mb_blocks_rename(private$.blocks, old = old, new = new)
+      self$extra_args$blocks = private$.blocks
+      invisible(self)
     },
     block_features = function(block = NULL, materialize = FALSE) {
       mb_task_block_features(self, block = block, materialize = materialize)
@@ -757,16 +1113,32 @@ TaskClustMultiBlock = R6::R6Class(
     block_data = function(rows = NULL, blocks = NULL, as_matrix = FALSE) {
       mb_task_block_data(self, rows = rows, blocks = blocks, as_matrix = as_matrix)
     },
+    format = function(...) {
+      out = super$format(...)
+      block_sizes = vapply(private$.blocks %||% list(), length, integer(1))
+      block_desc = if (length(block_sizes)) {
+        paste(sprintf("%s[%d]", names(block_sizes), unname(block_sizes)), collapse = ", ")
+      } else {
+        "<none>"
+      }
+      c(out, sprintf("Blocks: %d (%s)", length(block_sizes), block_desc))
+    },
     overview = function(rows = NULL, blocks = NULL, include_target = TRUE, top_levels = 5L) {
       mb_task_overview(self, rows = rows, blocks = blocks, include_target = include_target, top_levels = top_levels)
     }
   ),
   active = list(
+    blocks = function(rhs) {
+      if (!missing(rhs)) {
+        stop("`blocks` is read-only. Create a new task if the block mapping must change.", call. = FALSE)
+      }
+      private$.blocks
+    },
     block_names = function(rhs) {
       if (!missing(rhs)) {
         stop("`block_names` is read-only.", call. = FALSE)
       }
-      names(self$blocks) %||% character(0)
+      names(private$.blocks) %||% character(0)
     }
   )
 )

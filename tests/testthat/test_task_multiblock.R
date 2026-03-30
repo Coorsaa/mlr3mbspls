@@ -115,3 +115,80 @@ test_that("TaskMultiBlock supports auto regression inference and block_data subs
   expect_true(is.matrix(sub$b))
   expect_equal(colnames(sub$b), blocks$b)
 })
+
+
+
+test_that("TaskMultiBlock preserves task views and stores blocks in extra_args", {
+  dt = data.table::data.table(
+    x1 = rnorm(12),
+    x2 = rnorm(12),
+    grp = factor(rep(c("A", "B", "C"), each = 4L)),
+    y = factor(sample(c("no", "yes"), 12L, replace = TRUE))
+  )
+
+  src = mlr3::TaskClassif$new(id = "src", backend = dt, target = "y")
+  src$set_col_roles("grp", add_to = "group", remove_from = "feature")
+  src$set_row_roles(src$row_ids[1:2], remove_from = "use")
+
+  blocks = list(a = "x1", b = "x2")
+  task = TaskMultiBlock(src, blocks = blocks, id = "mb")
+
+  expect_equal(task$feature_names, src$feature_names)
+  expect_equal(task$row_roles, src$row_roles)
+  expect_equal(task$col_roles$group, src$col_roles$group)
+  expect_equal(task$blocks, blocks)
+  expect_equal(task$extra_args$blocks, blocks)
+})
+
+
+test_that("TaskMultiBlock syncs block metadata on rename and keeps blocks read-only", {
+  dt = data.table::data.table(
+    a1 = rnorm(8),
+    a2 = rnorm(8),
+    b1 = rnorm(8),
+    y = factor(sample(c("a", "b"), 8L, replace = TRUE))
+  )
+  task = TaskMultiBlock(
+    dt,
+    blocks = list(a = c("a1", "a2"), b = "b1"),
+    target = "y",
+    task_type = "classif"
+  )
+
+  task$rename(c("a1", "b1"), c("a1_sfx", "b1_sfx"))
+
+  expect_equal(task$blocks, list(a = c("a1_sfx", "a2"), b = "b1_sfx"))
+  expect_equal(task$extra_args$blocks, list(a = c("a1_sfx", "a2"), b = "b1_sfx"))
+  expect_error(task$blocks <- list(a = "a1"), "read-only")
+})
+
+
+test_that("TaskMultiBlock auto-inference prefers an explicit target over the source task type", {
+  dt = data.table::data.table(
+    x1 = rnorm(20),
+    x2 = rnorm(20),
+    y_class = factor(sample(c("a", "b"), 20L, replace = TRUE)),
+    y_num = rnorm(20)
+  )
+  src = mlr3::TaskClassif$new(id = "src", backend = dt, target = "y_class")
+
+  task = TaskMultiBlock(src, blocks = list(main = c("x1", "x2")), target = "y_num", task_type = "auto")
+
+  expect_true(inherits(task, "TaskRegr"))
+  expect_equal(task$target_names, "y_num")
+})
+
+
+test_that("TaskMultiBlock matrix extraction fails loudly for non-numeric block features", {
+  dt = data.table::data.table(
+    x_num = rnorm(6),
+    x_fac = factor(c("a", "b", "a", "b", "a", "b")),
+    y = rnorm(6)
+  )
+  task = TaskMultiBlock(dt, blocks = list(mixed = c("x_num", "x_fac")), target = "y", task_type = "regr")
+
+  expect_error(
+    task$block_data(as_matrix = TRUE),
+    "requires numeric, integer, or logical"
+  )
+})

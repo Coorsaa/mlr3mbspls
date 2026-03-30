@@ -20,11 +20,12 @@
 #' multi-omics workflows where block imbalance, missingness, and low-information
 #' variables should be checked explicitly before resampling or interpretation.
 #'
-#' `TaskMultiBlock()` objects also expose the same functionality as
-#' `task$overview()`.
+#' For `TaskMultiBlock()` objects, `task$overview()` is the primary interface.
+#' `mb_task_overview(task)` is retained as a convenience wrapper for ad hoc code
+#' and backward compatibility.
 #'
 #' @param task A task created with [TaskMultiBlock()] or any [mlr3::Task] that
-#'   carries multiblock metadata in `task$blocks`.
+#'   carries multiblock metadata in `task$blocks` or `task$extra_args$blocks`.
 #' @param rows Optional row ids to summarize. Defaults to all task rows.
 #' @param blocks Optional block subset. Either a character vector of block names
 #'   or a named block mapping.
@@ -38,7 +39,7 @@
 #'
 #' @examples
 #' task = mlr3::tsk("mbspls_synthetic_classif")
-#' qc = mb_task_overview(task)
+#' qc = task$overview()
 #' qc$overview
 #' qc$blocks
 #' qc$issues

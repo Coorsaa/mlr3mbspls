@@ -45,7 +45,7 @@
 * Aggregation helpers: `aggregate_mbspls_payloads()`, `collect_mbspls_nested_cv()`
 
 ### Task QC & Reporting
-* `mb_task_overview()` – block-wise task QC (missingness, constants, complete-case rates, target balance)
+* `task$overview()` / `mb_task_overview()` – block-wise task QC (missingness, constants, complete-case rates, target balance)
 * `mbspls_model_summary()` – tidy component/block/feature summaries for fitted MB-sPLS, MB-sPLS-XY, and MB-sPCA models
 
 ### Higher Level Graph Utilities
@@ -97,7 +97,7 @@ if (requireNamespace("multiblock", quietly = TRUE)) {
 Before fitting any model, summarise the task once and inspect block balance, missingness, constant features, and target balance.
 
 ```r
-task_qc <- mb_task_overview(tsk("mbspls_synthetic_classif"))
+task_qc <- tsk("mbspls_synthetic_classif")$overview()
 task_qc$overview
 task_qc$blocks
 task_qc$issues
