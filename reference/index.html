@@ -17,7 +17,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.2.14</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.0</span>
       </span>
     </div>
 
@@ -68,23 +68,23 @@
       </tr><tr><td>
           <p><code><a href="MeasureMBSPCAMEV.html">MeasureMBSPCAMEV</a></code> </p>
         </td>
-        <td><p>MB-SPCA Mean Explained Variance</p></td>
+        <td><p>MB-sPCA Mean Explained Variance</p></td>
       </tr><tr><td>
           <p><code><a href="MeasureMBsPLS_BlockEV.html">MeasureMBsPLS_BlockEV</a></code> </p>
         </td>
-        <td><p>MB-sPLS mean block-wise explained variance (test)</p></td>
+        <td><p>MB-sPLS mean block-wise explained variance (prediction-side)</p></td>
       </tr><tr><td>
           <p><code><a href="MeasureMBsPLS_EV.html">MeasureMBsPLS_EV</a></code> </p>
         </td>
-        <td><p>MB-sPLS mean explained variance across components (test)</p></td>
+        <td><p>MB-sPLS mean explained variance across components (prediction-side)</p></td>
       </tr><tr><td>
           <p><code><a href="MeasureMBsPLS_EVWeightedMAC.html">MeasureMBsPLS_EVWeightedMAC</a></code> </p>
         </td>
-        <td><p>MB-sPLS EV-weighted latent correlation (test)</p></td>
+        <td><p>MB-sPLS EV-weighted latent correlation (prediction-side)</p></td>
       </tr><tr><td>
           <p><code><a href="MeasureMBsPLS_MAC.html">MeasureMBsPLS_MAC</a></code> </p>
         </td>
-        <td><p>MB-sPLS mean latent correlation across components (test)</p></td>
+        <td><p>MB-sPLS mean latent correlation across components (prediction-side)</p></td>
       </tr><tr><td>
           <p><code><a href="PipeOpBlockScaling.html">PipeOpBlockScaling</a></code> </p>
         </td>
@@ -108,7 +108,7 @@
       </tr><tr><td>
           <p><code><a href="TunerSeqMBsPCA.html">TunerSeqMBsPCA</a></code> </p>
         </td>
-        <td><p>Sequential Component-wise Tuner for Group-Sparse MB-sPCA</p></td>
+        <td><p>Sequential Component-wise Tuner for MB-sPCA</p></td>
       </tr><tr><td>
           <p><code><a href="TunerSeqMBsPLS.html">TunerSeqMBsPLS</a></code> </p>
         </td>
@@ -117,6 +117,10 @@
           <p><code><a href="aggregate_mbspls_payloads.html">aggregate_mbspls_payloads()</a></code> </p>
         </td>
         <td><p>Aggregate MB-sPLS test metrics across outer CV folds</p></td>
+      </tr><tr><td>
+          <p><code><a href="as_task_multiblock.html">as_task_multiblock()</a></code> <code><a href="as_task_multiblock.html">TaskMultiBlock()</a></code> <code><a href="as_task_multiblock.html">task_multiblock_synthetic()</a></code> <code><a href="as_task_multiblock.html">task_multiblock_breast_tcga()</a></code> <code><a href="as_task_multiblock.html">task_multiblock_potato()</a></code> </p>
+        </td>
+        <td><p>Construct multi-block mlr3 tasks with optional supervision</p></td>
       </tr><tr><td>
           <p><code><a href="autoplot.GraphLearner.html">autoplot(<i>&lt;GraphLearner&gt;</i>)</a></code> </p>
         </td>
@@ -152,7 +156,7 @@
       </tr><tr><td>
           <p><code><a href="mbspls_measures.html">mbspls_measures</a></code> </p>
         </td>
-        <td><p>Measures for MB-sPLS (test-time)</p></td>
+        <td><p>Measures for MB-sPLS (prediction-side)</p></td>
       </tr><tr><td>
           <p><code><a href="mbspls_nested_cv.html">mbspls_nested_cv()</a></code> </p>
         </td>
@@ -169,6 +173,14 @@
           <p><code><a href="mbspls_preproc_graph.html">mbspls_preproc_graph()</a></code> </p>
         </td>
         <td><p>Default MB-sPLS Preprocessing Graph</p></td>
+      </tr><tr><td>
+          <p><code><a href="mbsplsxy_graph.html">mbsplsxy_graph()</a></code> </p>
+        </td>
+        <td><p>Supervised MB-sPLS-XY graph: preproc -&gt; MB-sPLS-XY</p></td>
+      </tr><tr><td>
+          <p><code><a href="mbsplsxy_graph_learner.html">mbsplsxy_graph_learner()</a></code> </p>
+        </td>
+        <td><p>MB-sPLS-XY GraphLearner: preproc -&gt; MB-sPLS-XY -&gt; learner</p></td>
       </tr><tr><td>
           <p><code><a href="mlr3mbspls-package.html">mlr3mbspls-package</a></code> <code><a href="mlr3mbspls-package.html">mlr3mbspls</a></code> </p>
         </td>

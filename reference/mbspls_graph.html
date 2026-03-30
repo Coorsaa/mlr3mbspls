@@ -17,7 +17,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.2.14</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.0</span>
       </span>
     </div>
 
@@ -51,7 +51,7 @@
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>MB-sPLS Graph: preproc -&gt; MB-sPLS -&gt; bootstrap-select (two selection methods)</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.2.15/R/graph_mbspls.R" class="external-link"><code>R/graph_mbspls.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/graph_mbspls.R" class="external-link"><code>R/graph_mbspls.R</code></a></small>
     <div class="hidden name"><code>mbspls_graph.Rd</code></div>
     </div>
 
@@ -61,9 +61,10 @@
 
     <div id="ref-usage">
     <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">mbspls_graph</span><span class="op">(</span></span>
-<span>  <span class="va">blocks</span>,</span>
-<span>  <span class="va">site_correction</span>,</span>
-<span>  <span class="va">site_correction_methods</span>,</span>
+<span>  blocks <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  task <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  site_correction <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span>,</span>
+<span>  site_correction_methods <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span>,</span>
 <span>  keep_site_col <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  <span class="va">ncomp</span>,</span>
 <span>  k <span class="op">=</span> <span class="fl">5</span>,</span>
@@ -100,7 +101,7 @@
     <h2>Arguments</h2>
 
 
-<dl><dt id="arg-blocks-site-correction-site-correction-methods-keep-site-col">blocks, site_correction, site_correction_methods, keep_site_col<a class="anchor" aria-label="anchor" href="#arg-blocks-site-correction-site-correction-methods-keep-site-col"></a></dt>
+<dl><dt id="arg-blocks-task-site-correction-site-correction-methods-keep-site-col">blocks, task, site_correction, site_correction_methods, keep_site_col<a class="anchor" aria-label="anchor" href="#arg-blocks-task-site-correction-site-correction-methods-keep-site-col"></a></dt>
 <dd><p>Preproc settings.</p></dd>
 
 
