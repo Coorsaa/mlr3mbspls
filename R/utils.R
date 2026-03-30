@@ -119,10 +119,7 @@ log_env_store_last = function(log_env, payload, run_id = NULL) {
     stop("log_env_store_last: 'payload' must be a list.", call. = FALSE)
   }
 
-  # Try to infer a run id from the current training snapshot
-  if (is.null(run_id) && is.list(log_env$mbspls_state) && !is.null(log_env$mbspls_state$run_id)) {
-    run_id = as.character(log_env$mbspls_state$run_id)
-  }
+  # Only persist run-indexed prediction payloads when run_id is explicit.
   if (!is.null(run_id) && nzchar(run_id)) {
     if (is.null(log_env$mbspls_last) || !is.list(log_env$mbspls_last)) {
       log_env$mbspls_last = list()

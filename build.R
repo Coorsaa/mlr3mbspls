@@ -2,20 +2,13 @@
 
 # Build script for mlr3mbspls package
 
-# Parse command line arguments
 args <- commandArgs(trailingOnly = TRUE)
 
-# Default options
-clean <- FALSE
-build_vignettes <- FALSE
-run_tests <- FALSE
-install_deps <- FALSE
+clean <- "--clean" %in% args
+build_vignettes <- "--vignettes" %in% args
+run_tests <- "--test" %in% args
+install_deps <- "--deps" %in% args
 
-# Process arguments
-if ("--clean" %in% args) clean <- TRUE
-if ("--vignettes" %in% args) build_vignettes <- TRUE
-if ("--test" %in% args) run_tests <- TRUE
-if ("--deps" %in% args) install_deps <- TRUE
 if ("--help" %in% args || "-h" %in% args) {
   cat("Usage: Rscript build.R [options]\n")
   cat("Options:\n")
@@ -27,12 +20,23 @@ if ("--help" %in% args || "-h" %in% args) {
   quit(status = 0)
 }
 
-# Working directory should be the package root
 if (!file.exists("DESCRIPTION")) {
   stop("This script should be run from the package root directory")
 }
 
-# Install dependencies if needed
+run_checked <- function(cmd, args = character()) {
+  status <- system2(cmd, args = args)
+  if (!identical(status, 0L)) {
+    stop(sprintf(
+      "Command failed (%s %s) with exit status %s",
+      cmd,
+      paste(args, collapse = " "),
+      status
+    ))
+  }
+  invisible(status)
+}
+
 if (install_deps) {
   cat("Installing dependencies...\n")
   if (!requireNamespace("pak", quietly = TRUE)) {
@@ -41,30 +45,30 @@ if (install_deps) {
   pak::pkg_install_deps(dependencies = TRUE)
 }
 
-# Generate documentation
-cat("Generating documentation with roxygen2...\n")
-if (!requireNamespace("roxygen2", quietly = TRUE)) {
-  install.packages("roxygen2")
-}
-roxygen2::roxygenize()
-
-# Compile Rcpp code
 cat("Compiling Rcpp code...\n")
 if (!requireNamespace("Rcpp", quietly = TRUE)) {
   install.packages("Rcpp")
 }
-Rcpp::compileAttributes()
+Rcpp::compileAttributes(".")
 
-# Install command
-install_cmd <- "R CMD INSTALL"
-if (clean) install_cmd <- paste(install_cmd, "--preclean")
-if (build_vignettes) install_cmd <- paste(install_cmd, "--with-keep.source", "--install-tests")
+cat("Generating documentation with roxygen2...\n")
+if (!requireNamespace("roxygen2", quietly = TRUE)) {
+  install.packages("roxygen2")
+}
+roxygen2::roxygenize(".")
 
-# Install the package
+install_args <- c("CMD", "INSTALL")
+if (clean) {
+  install_args <- c(install_args, "--preclean")
+}
+if (build_vignettes) {
+  install_args <- c(install_args, "--with-keep.source", "--install-tests")
+}
+install_args <- c(install_args, ".")
+
 cat("Installing package...\n")
-system(install_cmd)
+run_checked("R", install_args)
 
-# Run tests if requested
 if (run_tests) {
   cat("Running tests...\n")
   if (!requireNamespace("testthat", quietly = TRUE)) {

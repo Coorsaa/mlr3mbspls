@@ -19,3 +19,14 @@ test_that(".mbspls_state_from_env prefers the requested run-specific state", {
   expect_identical(got$run_id, "run_old")
   expect_equal(unname(got$weights[[1L]]$b1), 1)
 })
+
+test_that("log_env_store_last does not infer an unrelated run_id", {
+  env = new.env(parent = emptyenv())
+  env$mbspls_state = list(run_id = "other_run")
+
+  mlr3mbspls:::log_env_store_last(env, list(flag = TRUE), run_id = NULL)
+
+  expect_true(is.list(env$last))
+  expect_true(isTRUE(env$last$flag))
+  expect_true(is.null(env$mbspls_last))
+})

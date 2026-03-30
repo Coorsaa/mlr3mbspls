@@ -417,16 +417,6 @@ PipeOpMBsPLS = R6::R6Class(
         keep.null = TRUE)
 
       st = self$state
-      if (is.null(st$run_id) || !nzchar(as.character(st$run_id))) {
-        log_env = pv$log_env
-        if (inherits(log_env, "environment")) {
-          rid = log_env$mbspls_state_last_id %||% NULL
-          if (!is.null(rid) && nzchar(as.character(rid))) {
-            st$run_id = as.character(rid)
-            self$state$run_id = as.character(rid)
-          }
-        }
-      }
       block_names = names(st$blocks)
       B = length(block_names)
 
@@ -455,11 +445,13 @@ PipeOpMBsPLS = R6::R6Class(
       K_active = length(W_active)
 
       st_env = NULL
-      if (!is.null(pv$log_env) && inherits(pv$log_env, "environment")) {
+      run_id_for_lookup = st$run_id %||% NULL
+      if (!is.null(run_id_for_lookup) && nzchar(as.character(run_id_for_lookup)) &&
+          !is.null(pv$log_env) && inherits(pv$log_env, "environment")) {
         st_env = tryCatch(
           .mbspls_state_from_env(
             pv$log_env,
-            run_id = self$state$run_id %||% NULL,
+            run_id = as.character(run_id_for_lookup),
             require_train_blocks = FALSE,
             where = "log_env"
           ),
