@@ -105,7 +105,10 @@ PipeOpTargetLabelFilter = R6::R6Class(
       }
       if (is.null(trg) || !(trg %in% task$target_names)) {
         if (stage == "train") {
-          lgr$warn("[%s] No valid target column found; passing task through unchanged.", self$id)
+          stop(sprintf(
+            "[%s] No valid target column found for training. Set parameter 'target' explicitly or provide a task with a target column.",
+            self$id
+          ), call. = FALSE)
         }
         return(task)
       }

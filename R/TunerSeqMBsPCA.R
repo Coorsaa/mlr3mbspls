@@ -81,8 +81,10 @@ TunerSeqMBsPCA = R6::R6Class(
       checkmate::assert_number(perm_alpha, lower = 0, upper = 1)
 
       if (grepl("async", tuner, ignore.case = TRUE)) {
-        lgr$warning("Asynchronous tuners are unsupported - using 'random_search' instead.")
-        tuner = "random_search"
+        stop(
+          "Asynchronous tuners are unsupported by TunerSeqMBsPCA because the sequential component path depends on deterministic synchronous evaluations. Choose a synchronous tuner such as 'random_search'.",
+          call. = FALSE
+        )
       }
 
       private$.tuner = tuner
@@ -206,13 +208,15 @@ TunerSeqMBsPCA = R6::R6Class(
 
       out = lapply(block_map, function(cols) {
         ex = if (allow_encoded) expand_cols(cols) else unique(cols)
-        miss = setdiff(ex, names(data))
-        if (length(miss)) {
-          data[, (miss) := 0]
-        }
         if (!length(ex)) {
           stop(sprintf("After preprocessing, no columns matched any of: %s", paste(cols, collapse = ", ")), call. = FALSE)
         }
+        mb_assert_columns_present(
+          colnames_dt = names(data),
+          required = ex,
+          context = "Preprocessed data for TunerSeqMBsPCA",
+          hint = "Ensure that all block columns survive upstream preprocessing exactly as during tuning."
+        )
         M = as.matrix(data[, ..ex])
         storage.mode(M) = "double"
         M
@@ -325,6 +329,12 @@ TunerSeqMBsPCA = R6::R6Class(
       }
 
       if (private$.parallel == "inner") {
+        if (!requireNamespace("future", quietly = TRUE) || !requireNamespace("future.apply", quietly = TRUE)) {
+          stop(
+            "parallel = 'inner' requires the optional packages 'future' and 'future.apply'.",
+            call. = FALSE
+          )
+        }
         future::plan("multisession", workers = max(1L, future::availableCores() - 1L))
         on.exit(future::plan("sequential"), add = TRUE)
         fold_apply = function(X, FUN) future.apply::future_sapply(X, FUN, future.seed = TRUE)

@@ -19,7 +19,19 @@ mbspls_flip_weights = function(x, signs = -1L, ...) {
 #' @export
 mbspls_flip_weights.list = function(x, signs = -1L, flip_boot = TRUE, flip_T = TRUE, ...) {
   # This is the original mbspls_flip_state logic
-  stopifnot(is.list(x), length(x$weights) == length(x$loadings))
+  if (!is.list(x)) {
+    stop("'x' must be a list-like MB-sPLS state.", call. = FALSE)
+  }
+  if (!is.list(x$weights) || !is.list(x$loadings)) {
+    stop("MB-sPLS state must contain list elements 'weights' and 'loadings'.", call. = FALSE)
+  }
+  if (length(x$weights) != length(x$loadings)) {
+    stop(sprintf(
+      "MB-sPLS state is inconsistent: %d weight component(s) but %d loading component(s).",
+      length(x$weights),
+      length(x$loadings)
+    ), call. = FALSE)
+  }
   K = as.integer(x$ncomp %||% length(x$weights))
   bn = names(x$blocks)
   B = length(bn)
@@ -206,10 +218,11 @@ mbspls_flip_weights.GraphLearner = function(x, signs = -1L, inplace = TRUE, ...)
 #' @return A [PipeOpMBsPLS].
 #' @keywords internal
 .mbspls_find_po = function(gl) {
-  pops = gl$graph$pipeops
-  idx = vapply(pops, function(p) inherits(p, "PipeOpMBsPLS"), logical(1))
-  if (!any(idx)) stop("No PipeOpMBsPLS found in gl$graph")
-  pops[[which(idx)[1L]]]
+  if (!inherits(gl, "GraphLearner") || is.null(gl$graph)) {
+    stop("'gl' must be a GraphLearner with a graph.", call. = FALSE)
+  }
+  id = .mbspls_pipeop_id(gl$graph, where = "GraphLearner$graph")
+  gl$graph$pipeops[[id]]
 }
 
 # Keep the old functions as wrappers for backward compatibility

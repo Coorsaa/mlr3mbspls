@@ -50,14 +50,17 @@ arma::mat cpp_lm_coeff_ridge(const arma::mat& X,
   arma::mat Xa    = arma::join_cols(X, Psqrt);
   arma::mat Ya    = arma::join_cols(Y, arma::mat(p, q, arma::fill::zeros));
 
-  // QR solve; fallback to pinv if needed
   arma::mat Q, R;
   if (!arma::qr_econ(Q, R, Xa)) {
-    Rcpp::warning("QR decomposition failed, using pseudoinverse");
-    return arma::pinv(Xa) * Ya;
+    Rcpp::stop("cpp_lm_coeff_ridge: QR decomposition failed; cannot compute coefficients without changing the estimation method.");
   }
   const arma::mat QtY = Q.t() * Ya;
-  return arma::solve(arma::trimatu(R), QtY, arma::solve_opts::fast);
+  arma::mat coef;
+  const bool ok = arma::solve(coef, arma::trimatu(R), QtY, arma::solve_opts::fast);
+  if (!ok || !coef.is_finite()) {
+    Rcpp::stop("cpp_lm_coeff_ridge: triangular solve failed or returned non-finite coefficients.");
+  }
+  return coef;
 }
 
 
@@ -70,9 +73,13 @@ arma::mat cpp_lm_coeff(const arma::mat& X, const arma::mat& Y) {
 
   arma::mat Q, R;
   if (!arma::qr_econ(Q, R, X)) {
-    Rcpp::warning("QR decomposition failed, using pseudoinverse");
-    return arma::pinv(X) * Y;
+    Rcpp::stop("cpp_lm_coeff: QR decomposition failed; cannot compute coefficients without changing the estimation method.");
   }
   const arma::mat QtY = Q.t() * Y;
-  return arma::solve(arma::trimatu(R), QtY, arma::solve_opts::fast);
+  arma::mat coef;
+  const bool ok = arma::solve(coef, arma::trimatu(R), QtY, arma::solve_opts::fast);
+  if (!ok || !coef.is_finite()) {
+    Rcpp::stop("cpp_lm_coeff: triangular solve failed or returned non-finite coefficients.");
+  }
+  return coef;
 }

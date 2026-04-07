@@ -53,8 +53,9 @@
 #'         yielding a "weights-only" EV diagnostic (note this uses test data to
 #'         estimate \eqn{p}).
 #' }
-#' If \code{P_all} is \code{NULL} or empty, the function automatically falls back
-#' to \code{"test_ls"}.
+#' If \code{P_all} is \code{NULL} or empty, callers must choose
+#' \code{loading_source = "test_ls"} explicitly; \code{"auto"} now errors
+#' instead of silently changing the diagnostic definition.
 #'
 #' \strong{Latent correlation (MAC/Frobenius).}
 #' For each component, the function computes pairwise correlations between block
@@ -79,11 +80,13 @@
 #'   number of rows (samples). Column names are used to align named weights/loadings.
 #' @param W_all \code{list}. Component-wise weight vectors learned in training.
 #'   Must be a list of length \code{K}; each element is a block-wise list of length
-#'   \code{B} containing weight vectors. If a weight vector is named, it is aligned
-#'   to the corresponding block's column names; missing entries are set to zero.
+#'   \code{B} containing weight vectors. Named vectors are aligned to the test
+#'   block column names and must cover all trained features; missing entries now
+#'   raise an error instead of being silently zero-filled.
 #' @param P_all \code{list} or \code{NULL}. Optional component-wise block loadings.
-#'   Same nesting convention as \code{W_all}. If \code{NULL} or empty, loadings are
-#'   computed from test data when \code{loading_source = "test_ls"}.
+#'   Same nesting convention as \code{W_all}. Required when
+#'   \code{loading_source = "train"}; otherwise callers must opt into
+#'   \code{loading_source = "test_ls"} explicitly.
 #' @param deflate \code{logical(1)}. If \code{TRUE} (default), apply sequential
 #'   deflation on test blocks between components. If \code{FALSE}, evaluate each
 #'   component on the original test blocks without updating residuals.
@@ -97,8 +100,8 @@
 #' @param loading_source \code{character(1)} Source of loadings for the rank-1
 #'   deflation step used in out-of-sample EV:
 #'   \itemize{
-#'     \item \code{"auto"} (default): use \code{"train"} if \code{P_all} is available,
-#'           otherwise fall back to \code{"test_ls"};
+#'     \item \code{"auto"} (default): use \code{"train"} if \code{P_all} is available;
+#'           otherwise error and ask the caller to choose \code{"test_ls"} explicitly;
 #'     \item \code{"train"}: use training loadings \code{P_all} (strict application of the
 #'           trained model; recommended when available);
 #'     \item \code{"test_ls"}: compute least-squares loadings on the current test residual
@@ -148,24 +151,52 @@ compute_test_ev = function(
 
   # Resolve loading source automatically if requested
   if (identical(loading_source, "auto")) {
-    loading_source = if (!is.null(P_all) && length(P_all) > 0L) "train" else "test_ls"
+    if (!is.null(P_all) && length(P_all) > 0L) {
+      loading_source = "train"
+    } else {
+      stop(
+        "loading_source='auto' requires training loadings in 'P_all'. Pass loading_source='test_ls' explicitly if you intentionally want a weights-only EV diagnostic.",
+        call. = FALSE
+      )
+    }
   }
   if (identical(loading_source, "train") && (is.null(P_all) || length(P_all) == 0L)) {
-    stop("loading_source='train' requested but P_all is NULL/empty.")
+    stop("loading_source='train' requested but P_all is NULL/empty.", call. = FALSE)
   }
 
-  stopifnot(is.list(X_blocks_test), length(X_blocks_test) >= 1L)
-  stopifnot(is.list(W_all), length(W_all) >= 1L)
-  stopifnot(is.logical(deflate), length(deflate) == 1L)
+  if (!is.list(X_blocks_test) || length(X_blocks_test) < 1L) {
+    stop("'X_blocks_test' must be a non-empty list of numeric matrices.", call. = FALSE)
+  }
+  if (!is.list(W_all) || length(W_all) < 1L) {
+    stop("'W_all' must be a non-empty list of component-wise block weights.", call. = FALSE)
+  }
+  if (!is.logical(deflate) || length(deflate) != 1L) {
+    stop("'deflate' must be a single logical value.", call. = FALSE)
+  }
 
   B = length(X_blocks_test)
   K = length(W_all)
-  n_test = nrow(X_blocks_test[[1]])
-  stopifnot(all(vapply(X_blocks_test, nrow, integer(1)) == n_test))
+  nrows = vapply(X_blocks_test, nrow, integer(1))
+  n_test = nrows[[1L]]
+  if (any(nrows != n_test)) {
+    stop("All matrices in 'X_blocks_test' must have the same number of rows.", call. = FALSE)
+  }
 
   block_names = names(X_blocks_test)
   if (is.null(block_names) || any(!nzchar(block_names))) {
     block_names = paste0("block", seq_len(B))
+    names(X_blocks_test) = block_names
+  }
+
+  for (b in seq_len(B)) {
+    Xb = X_blocks_test[[b]]
+    if (!is.matrix(Xb) || !is.numeric(Xb)) {
+      stop(sprintf("X_blocks_test[['%s']] must be a numeric matrix.", block_names[[b]]), call. = FALSE)
+    }
+    cols_b = colnames(Xb)
+    if (is.null(cols_b) || any(!nzchar(cols_b))) {
+      stop(sprintf("X_blocks_test[['%s']] must have non-empty column names for weight/loading alignment.", block_names[[b]]), call. = FALSE)
+    }
   }
 
   comp_names = names(W_all)
@@ -173,45 +204,35 @@ compute_test_ev = function(
     comp_names = sprintf("LC_%02d", seq_len(K))
   }
 
-  # If no train loadings, default to test LS loadings (weights-only EV)
-  if (is.null(P_all) || length(P_all) == 0L) {
-    loading_source = "test_ls"
-  } else {
-    loading_source = match.arg(loading_source)
-  }
-  if (identical(loading_source, "train") && (is.null(P_all) || length(P_all) == 0L)) {
-    stop("loading_source='train' requested but P_all is NULL/empty.")
-  }
-
-  align_vec = function(v, cols, p) {
-    if (is.null(v)) {
-      return(rep(0, p))
-    }
-    if (!is.null(names(v)) && !is.null(cols)) {
-      out = as.numeric(v[cols])
-      out[is.na(out)] = 0
-      return(out)
-    }
-    out = as.numeric(v)
-    if (length(out) != p) {
-      return(rep(0, p))
-    }
-    out
-  }
-
   # Align weights/loadings once in R (handles names), compute heavy loops in C++
   W_aligned = vector("list", K)
   P_aligned = vector("list", K)
   for (k in seq_len(K)) {
     Wk = W_all[[k]]
+    if (!is.list(Wk)) {
+      stop(sprintf("W_all[[%d]] must be a block-wise list.", k), call. = FALSE)
+    }
     Pk = if (!is.null(P_all) && length(P_all) >= k) P_all[[k]] else NULL
+    if (identical(loading_source, "train") && !is.list(Pk)) {
+      stop(sprintf("P_all[[%d]] must be a block-wise list when loading_source='train'.", k), call. = FALSE)
+    }
+
     W_aligned[[k]] = lapply(seq_len(B), function(b) {
       Xb = X_blocks_test[[b]]
-      align_vec(if (is.list(Wk)) Wk[[b]] else NULL, colnames(Xb), ncol(Xb))
+      mb_align_named_numeric(
+        if (is.list(Wk)) Wk[[b]] else NULL,
+        cols = colnames(Xb),
+        context = sprintf("W_all[['%s']][['%s']]", comp_names[[k]], block_names[[b]])
+      )
     })
     P_aligned[[k]] = lapply(seq_len(B), function(b) {
       Xb = X_blocks_test[[b]]
-      align_vec(if (is.list(Pk)) Pk[[b]] else NULL, colnames(Xb), ncol(Xb))
+      mb_align_named_numeric(
+        if (is.list(Pk)) Pk[[b]] else NULL,
+        cols = colnames(Xb),
+        context = sprintf("P_all[['%s']][['%s']]", comp_names[[k]], block_names[[b]]),
+        zero_if_null = identical(loading_source, "test_ls")
+      )
     })
   }
 
@@ -278,9 +299,9 @@ compute_test_ev = function(
 #' MAC/Frobenius is taken from \code{state$correlation_method} when available;
 #' otherwise it defaults to \code{"pearson"}.
 #'
-#' If the state does not contain loadings (\code{state$loadings} is \code{NULL} or
-#' empty), \code{\link{compute_test_ev}} will automatically fall back to
-#' \code{loading_source = "test_ls"} (least-squares loadings on test residuals).
+#' The wrapper now requires training loadings in \code{state$loadings}; if they are
+#' absent, it errors instead of silently switching to test-derived least-squares
+#' loadings.
 #'
 #' @param X_blocks_test \code{list} of numeric matrices; test data blocks
 #'   (\code{n_test × p_b}). All blocks must have the same number of rows.
@@ -307,7 +328,7 @@ compute_pipeop_test_ev = function(X_blocks_test, state) {
     deflate            = TRUE,
     performance_metric = state$performance_metric %||% "mac",
     correlation_method = state$correlation_method %||% "pearson",
-    loading_source     = "auto",
+    loading_source     = "train",
     clamp_ev           = "none",
     eps_var            = 1e-12
   )

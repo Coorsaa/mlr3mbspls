@@ -9,6 +9,8 @@
 
 `mlr3mbspls` integrates **multi-block sparse partial least squares (MB-sPLS)** with the mlr3 ecosystem: pipelines, tuning, resampling, custom measures, rich visualisations, bootstrap stability selection, prediction‑side validation and nested CV utilities. A high‑performance C++/Armadillo backend powers the core algorithms (training + test EV, permutation, bootstrap, sparsity by block/component, deflation).
 
+Current release: **0.3.2**
+
 ## Highlights
 
 ### Multi-Block Representation Learning
@@ -44,9 +46,14 @@
 * `mbspls_plot_block_weight_ci()` – block weight CIs
 * Aggregation helpers: `aggregate_mbspls_payloads()`, `collect_mbspls_nested_cv()`
 
+### Task QC & Reporting
+* `task$overview()` / `mb_task_overview()` – block-wise task QC (missingness, constants, complete-case rates, target balance)
+* `mbspls_model_summary()` – tidy component/block/feature summaries for fitted MB-sPLS, MB-sPLS-XY, and MB-sPCA models
+
 ### Higher Level Graph Utilities
 * `mbspls_preproc_graph()` – canonical preprocessing (type conversion → encoding → kNN impute → site correction → scaling)
 * `mbspls_graph_learner()` – end‑to‑end GraphLearner constructor (preproc → MB‑sPLS → optional bootstrap selection → downstream learner)
+* `mbsplsxy_graph()` / `mbsplsxy_graph_learner()` – supervised MB‑sPLS‑XY graph constructors for classification and regression
 * `mbsplsxy_graph()` / `mbsplsxy_graph_learner()` – supervised MB‑sPLS‑XY graph constructors for classification and regression
 
 ### Resampling & Batch Infrastructure
@@ -76,16 +83,45 @@ Use the dataset adapters to obtain ready-to-use multi-block tasks.
 ```r
 # breast.TCGA adapter
 if (requireNamespace("mixOmics", quietly = TRUE)) {
-  task_tcga = task_multiblock_breast_tcga(task_type = "classif")
+  task_tcga <- task_multiblock_breast_tcga(task_type = "classif")
   task_tcga$block_names
 }
 
 # potato adapter
 if (requireNamespace("multiblock", quietly = TRUE)) {
-  task_potato = task_multiblock_potato(task_type = "regr", response = 1L)
+  task_potato <- task_multiblock_potato(task_type = "regr", response = 1L)
   task_potato$block_names
 }
 ```
+
+## Task QC and Reporting Helpers
+
+Before fitting any model, summarise the task once and inspect block balance, missingness, constant features, and target balance.
+
+```r
+task_qc <- tsk("mbspls_synthetic_classif")$overview()
+task_qc$overview
+task_qc$blocks
+task_qc$issues
+```
+
+After training, produce a compact reporting table for manuscripts, dashboards, or clinical review.
+
+```r
+gl <- mbsplsxy_graph_learner(
+  task = tsk("mbspls_synthetic_classif"),
+  learner = lrn("classif.featureless"),
+  ncomp = 2L
+)
+# gl$train(tsk("mbspls_synthetic_classif"))
+# fit_report <- mbspls_model_summary(gl)
+# fit_report$overview
+# fit_report$components
+# fit_report$blocks
+# head(fit_report$weights)
+```
+
+These helpers are designed to make the package easier to use outside pure ML benchmarking workflows, for example in multi-omics, neuroimaging, psychiatry, psychology, epidemiology, economics, and precision-medicine settings where structured reporting matters.
 
 ## Supervised Quick Start (MB-sPLS-XY)
 
@@ -93,16 +129,16 @@ Packaged classification and regression toy tasks are also available and work wit
 
 ```r
 # classification
-task_cls = tsk("mbspls_synthetic_classif")
-gl_cls = mbsplsxy_graph_learner(
+task_cls <- tsk("mbspls_synthetic_classif")
+gl_cls <- mbsplsxy_graph_learner(
   task = task_cls,
   learner = lrn("classif.featureless"),
   ncomp = 2L
 )
 
 # regression
-task_regr = tsk("mbspls_synthetic_regr")
-gl_regr = mbsplsxy_graph_learner(
+task_regr <- tsk("mbspls_synthetic_regr")
+gl_regr <- mbsplsxy_graph_learner(
   task = task_regr,
   learner = lrn("regr.featureless"),
   ncomp = 2L
@@ -128,7 +164,7 @@ library(data.table)
 
 set.seed(42)
 
-cfg = list(
+cfg <- list(
   ncomp = 3L,
   centers = 2L,
   inner_folds = 3L,
@@ -148,9 +184,9 @@ cfg = list(
 Load the packaged synthetic multi-block task, inspect its backend, and reuse the task-level block metadata directly.
 
 ```r
-task_source = tsk("mbspls_synthetic_blocks")
-dt_demo = as.data.table(task_source$data(cols = task_source$feature_names))
-blocks = task_source$block_features()
+task_source <- tsk("mbspls_synthetic_blocks")
+dt_demo <- as.data.table(task_source$data(cols = task_source$feature_names))
+blocks <- task_source$block_features()
 ```
 
 ### Step 2: Define Site Correction
@@ -158,8 +194,8 @@ blocks = task_source$block_features()
 The block mapping already lives on the task. Site correction is declared per block so adjustments stay explicit.
 
 ```r
-site_correction = list(block_a = "site_batch", block_b = "site_batch", block_c = "site_batch")
-site_correction_methods = list(block_a = "partial_corr", block_b = "partial_corr", block_c = "partial_corr")
+site_correction <- list(block_a = "site_batch", block_b = "site_batch", block_c = "site_batch")
+site_correction_methods <- list(block_a = "partial_corr", block_b = "partial_corr", block_c = "partial_corr")
 ```
 
 ### Step 3: Clone the Analysis Task
@@ -167,7 +203,7 @@ site_correction_methods = list(block_a = "partial_corr", block_b = "partial_corr
 The packaged task is already a `TaskMultiBlock`, so for analysis you can usually just clone it.
 
 ```r
-task_train = TaskMultiBlock(
+task_train <- TaskMultiBlock(
   task_source,
   id = "mbspls_synthetic_blocks_analysis"
 )
@@ -178,7 +214,7 @@ task_train = TaskMultiBlock(
 For nested CV and tuning, bootstrap selection is disabled intentionally. This keeps evaluation focused on core model generalization.
 
 ```r
-gl_nested = ppl(
+gl_nested <- ppl(
   "mbspls_graph_learner",
   learner = lrn("clust.kmeans", centers = cfg$centers),
   task = task_train,
@@ -195,8 +231,8 @@ gl_nested = ppl(
   val_test_n = cfg$val_test_n
 )
 
-rs_outer = rsmp("cv", folds = cfg$outer_folds)
-rs_inner = rsmp("cv", folds = cfg$inner_folds)
+rs_outer <- rsmp("cv", folds = cfg$outer_folds)
+rs_inner <- rsmp("cv", folds = cfg$inner_folds)
 rs_outer$instantiate(task_train)
 ```
 
@@ -205,7 +241,7 @@ rs_outer$instantiate(task_train)
 This is the primary inferential validation stage.
 
 ```r
-res_nested = mbspls_nested_cv(
+res_nested <- mbspls_nested_cv(
   task = task_train,
   graphlearner = gl_nested,
   rs_outer = rs_outer,
@@ -228,7 +264,7 @@ res_nested$summary_table
 Retune `c_matrix` on all rows after nested validation. This final matrix is reused across final mode fits.
 
 ```r
-gl_tune = ppl(
+gl_tune <- ppl(
   "mbspls_graph_learner",
   learner = lrn("clust.kmeans", centers = cfg$centers),
   task = task_train,
@@ -244,7 +280,7 @@ gl_tune = ppl(
   val_test = "none"
 )
 
-tuner = TunerSeqMBsPLS$new(
+tuner <- TunerSeqMBsPLS$new(
   tuner = "random_search",
   budget = cfg$tuner_budget,
   resampling = rsmp("cv", folds = cfg$inner_folds),
@@ -254,7 +290,7 @@ tuner = TunerSeqMBsPLS$new(
   performance_metric = cfg$perf_metric
 )
 
-instance = ti(
+instance <- ti(
   task = task_train,
   learner = gl_tune,
   resampling = rsmp("insample"),
@@ -263,7 +299,7 @@ instance = ti(
 )
 
 tuner$optimize(instance)
-c_matrix_final = instance$result$learner_param_vals[[1]]$c_matrix
+c_matrix_final <- instance$result$learner_param_vals[[1]]$c_matrix
 c_matrix_final
 ```
 
@@ -278,19 +314,19 @@ Train three final modes:
 Bootstrap selection is enabled only at this stage.
 
 ```r
-out_dir = file.path("analysis_results", paste0(format(Sys.time(), "%Y%m%d_%H%M%S"), "_MBSPLS_SYNTHETIC_BLOCKS"))
+out_dir <- file.path("analysis_results", paste0(format(Sys.time(), "%Y%m%d_%H%M%S"), "_MBSPLS_SYNTHETIC_BLOCKS"))
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 
-modes = list(
+modes <- list(
   raw = list(selection = "none", predict_weights = "raw"),
   stable_ci = list(selection = "ci", predict_weights = "stable_ci"),
   stable_frequency = list(selection = "frequency", predict_weights = "stable_frequency")
 )
 
 for (mode_name in names(modes)) {
-  mode_spec = modes[[mode_name]]
+  mode_spec <- modes[[mode_name]]
 
-  gl_final = ppl(
+  gl_final <- ppl(
     "mbspls_graph_learner",
     learner = lrn("clust.kmeans", centers = cfg$centers),
     blocks = blocks,
@@ -308,18 +344,18 @@ for (mode_name in names(modes)) {
     val_test = "none"
   )
 
-  gl_final$param_set$values$mbspls.c_matrix = c_matrix_final
+  gl_final$param_set$values$mbspls.c_matrix <- c_matrix_final
   if (!is.null(gl_final$graph$pipeops$mbspls)) {
-    gl_final$graph$pipeops$mbspls$param_set$values$c_matrix = c_matrix_final
-    gl_final$graph$pipeops$mbspls$param_set$values$predict_weights = mode_spec$predict_weights
-    gl_final$graph$pipeops$mbspls$param_set$values$store_train_blocks = TRUE
+    gl_final$graph$pipeops$mbspls$param_set$values$c_matrix <- c_matrix_final
+    gl_final$graph$pipeops$mbspls$param_set$values$predict_weights <- mode_spec$predict_weights
+    gl_final$graph$pipeops$mbspls$param_set$values$store_train_blocks <- TRUE
   }
 
   gl_final$train(task_train)
-  pred_train = gl_final$predict(task_train)
-  po_state = gl_final$model$mbspls
+  pred_train <- gl_final$predict(task_train)
+  po_state <- gl_final$model$mbspls
 
-  mode_dir = file.path(out_dir, mode_name)
+  mode_dir <- file.path(out_dir, mode_name)
   dir.create(mode_dir, recursive = TRUE, showWarnings = FALSE)
 
   fwrite(data.table(row_id = pred_train$row_ids, cluster = as.character(pred_train$partition)),
@@ -591,7 +627,7 @@ If you use `mlr3mbspls` in academic work please cite:
   title = {mlr3mbspls: Multi-Block Sparse PLS for mlr3},
   author = {Stefan Coors and Clara Sophie Vetter},
   year = {2025},
-  note = {R package version 0.3.0},
+  note = {R package version 0.3.2},
   url = {https://github.com/coorsaa/mlr3mbspls}
 }
 ```

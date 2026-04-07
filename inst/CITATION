@@ -1,0 +1,19 @@
+citHeader("To cite mlr3mbspls in publications, please cite the package manual.")
+
+citEntry(
+  entry = "Manual",
+  title = "mlr3mbspls: Multi-Block Sparse Partial Least Squares for mlr3",
+  author = c(
+    person("Stefan", "Coors"),
+    person("Clara Sophie", "Vetter")
+  ),
+  year = "2026",
+  note = paste("R package version", meta$Version),
+  url = "https://github.com/coorsaa/mlr3mbspls",
+  textVersion = paste(
+    "Coors S, Vetter CS (2026).",
+    "mlr3mbspls: Multi-Block Sparse Partial Least Squares for mlr3.",
+    paste("R package version", meta$Version),
+    "https://github.com/coorsaa/mlr3mbspls"
+  )
+)

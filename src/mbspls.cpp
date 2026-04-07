@@ -41,16 +41,14 @@ inline bool is_valid_vector(const arma::vec& v) {
 
 inline arma::vec safe_normalize(const arma::vec& v) {
   if (!is_valid_vector(v)) {
-    return arma::vec(v.n_elem, arma::fill::ones) / std::sqrt(v.n_elem);
+    Rcpp::stop("safe_normalize: received a non-finite or empty vector.");
   }
-  
+
   double norm_val = arma::norm(v, 2);
-  if (norm_val < 1e-12) {
-    arma::vec result(v.n_elem, arma::fill::zeros);
-    if (result.n_elem > 0) result(0) = 1.0;
-    return result;
+  if (!std::isfinite(norm_val) || norm_val < 1e-12) {
+    Rcpp::stop("safe_normalize: vector norm is numerically zero; cannot normalize weights.");
   }
-  
+
   return v / norm_val;
 }
 
@@ -105,7 +103,9 @@ arma::vec rank_ties_avg(const arma::vec& x) {
 
 // CORE: Standardized correlation computation
 double compute_correlation_core(const arma::vec& x, const arma::vec& y, bool spearman=false) {
-  if (!is_valid_vector(x) || !is_valid_vector(y) || x.n_elem != y.n_elem) return 0.0;
+  if (!is_valid_vector(x) || !is_valid_vector(y) || x.n_elem != y.n_elem) {
+    Rcpp::stop("compute_correlation_core: correlation requires two finite vectors of equal length.");
+  }
   try {
     if (spearman) {
       arma::vec rx = rank_ties_avg(x);
@@ -114,7 +114,11 @@ double compute_correlation_core(const arma::vec& x, const arma::vec& y, bool spe
     } else {
       return arma::as_scalar(arma::cor(x, y));
     }
-  } catch (...) { return 0.0; }
+  } catch (const std::exception& e) {
+    Rcpp::stop(std::string("compute_correlation_core: correlation failed: ") + e.what());
+  } catch (...) {
+    Rcpp::stop("compute_correlation_core: correlation failed with an unknown error.");
+  }
 }
 
 // --------------------------------------------------------------------
@@ -139,7 +143,9 @@ double compute_block_objective_core(const ScoreMatrix& scores,
             ++valid_pairs;
           }
         }
-  if (!valid_pairs) return 0.0;
+  if (!valid_pairs) {
+    Rcpp::stop("compute_block_objective_core: no valid block pairs remain; the latent-correlation objective is undefined.");
+  }
   return frobenius ? std::sqrt(acc)          // ‖R‖_F
                    : acc / valid_pairs;      // ⟨|r|⟩
 }
@@ -160,7 +166,9 @@ double cpp_block_objective_oos(const Rcpp::List& X_blocks,
                                bool              frobenius = false)
 {
   const int B = X_blocks.size();
-  if (B < 2) return 0.0;
+  if (B < 2) {
+    Rcpp::stop("cpp_block_objective_oos: need at least two blocks to compute an inter-block objective.");
+  }
   if (W_list.size() != B) {
     Rcpp::stop("W_list must have the same length as X_blocks.");
   }
@@ -184,35 +192,44 @@ double cpp_block_objective_oos(const Rcpp::List& X_blocks,
     }
 
     if (nb < 1 || pb < 1 || Wr.size() < 1) {
-      continue;
+      Rcpp::stop(std::string("cpp_block_objective_oos: block ") + std::to_string(b + 1) +
+                 " has empty data or an empty weight vector.");
     }
 
     arma::mat X(Xr.begin(), nb, pb, false, true);
+    if (!X.is_finite()) {
+      Rcpp::stop(std::string("cpp_block_objective_oos: block ") + std::to_string(b + 1) +
+                 " contains non-finite values.");
+    }
+    if (Wr.size() != pb) {
+      Rcpp::stop(std::string("cpp_block_objective_oos: weight vector length mismatch in block ") +
+                 std::to_string(b + 1) + ": expected " + std::to_string(pb) +
+                 ", got " + std::to_string(Wr.size()) + ".");
+    }
 
-    arma::vec w;
-    if (Wr.size() == pb) {
-      w = arma::vec(Wr.begin(), pb, false, true);
-    } else {
-      w = arma::vec(pb, arma::fill::zeros);
-      const int m = std::min(pb, static_cast<int>(Wr.size()));
-      for (int j = 0; j < m; ++j) w(j) = Wr[j];
+    arma::vec w(Wr.begin(), pb, false, true);
+    if (!w.is_finite()) {
+      Rcpp::stop(std::string("cpp_block_objective_oos: weight vector for block ") + std::to_string(b + 1) +
+                 " contains non-finite values.");
     }
 
     arma::vec tb = X * w;
     if (!tb.is_finite() || tb.n_elem < 2) {
-      continue;
+      Rcpp::stop(std::string("cpp_block_objective_oos: score computation failed for block ") + std::to_string(b + 1) + ".");
     }
 
     const double v = arma::var(tb);
-    if (std::isfinite(v) && v > 1e-12) {
-      T[b] = std::move(tb);
-      valid[b] = 1;
-      ++n_valid;
+    if (!(std::isfinite(v) && v > 1e-12)) {
+      Rcpp::stop(std::string("cpp_block_objective_oos: block score variance is numerically zero for block ") +
+                 std::to_string(b + 1) + ".");
     }
+    T[b] = std::move(tb);
+    valid[b] = 1;
+    ++n_valid;
   }
 
   if (n_valid < 2) {
-    return 0.0;
+    Rcpp::stop("cpp_block_objective_oos: fewer than two valid block scores remain; the inter-block objective is undefined.");
   }
 
   auto fast_pearson = [](const arma::vec& x, const arma::vec& y) {
@@ -223,7 +240,7 @@ double cpp_block_objective_oos(const Rcpp::List& X_blocks,
     const double sxx = arma::dot(xc, xc);
     const double syy = arma::dot(yc, yc);
     if (!(std::isfinite(sxx) && std::isfinite(syy)) || sxx <= 1e-12 || syy <= 1e-12) {
-      return 0.0;
+      Rcpp::stop("cpp_block_objective_oos: Pearson correlation is undefined because at least one score vector has zero variance.");
     }
     return arma::dot(xc, yc) / std::sqrt(sxx * syy);
   };
@@ -243,7 +260,7 @@ double cpp_block_objective_oos(const Rcpp::List& X_blocks,
   }
 
   if (valid_pairs == 0) {
-    return 0.0;
+    Rcpp::stop("cpp_block_objective_oos: no valid block pairs remain for the requested objective.");
   }
   return frobenius ? std::sqrt(acc) : (acc / valid_pairs);
 }
@@ -336,29 +353,26 @@ inline arma::vec pmd_update_bisection(const arma::vec& g,
                                       double tol   = 1e-8)
 {
   const arma::uword p = g.n_elem;
-  if (p == 0) return arma::vec();
-
-  // If gradient is ~zero, return a simple unit basis vector
-  if (!g.is_finite() || arma::norm(g, 2) < 1e-16) {
-    arma::vec w(p, arma::fill::zeros);
-    if (p) w(0) = 1.0;
-    return w;
+  if (p == 0) {
+    Rcpp::stop("pmd_update_bisection: empty gradient vector.");
   }
 
-  // If c is large, no sparsity: just normalize g
+  if (!g.is_finite() || arma::norm(g, 2) < 1e-16) {
+    Rcpp::stop("pmd_update_bisection: gradient is non-finite or numerically zero; cannot compute a sparse weight vector.");
+  }
+
   if (!std::isfinite(c) || c >= std::sqrt(static_cast<double>(p))) {
     arma::vec w = g;
     double n2 = arma::norm(w, 2);
-    if (n2 < 1e-12) { w.zeros(p); if (p) w(0) = 1.0; return w; }
+    if (!std::isfinite(n2) || n2 < 1e-12) {
+      Rcpp::stop("pmd_update_bisection: unconstrained normalization failed because the gradient norm is numerically zero.");
+    }
     return w / n2;
   }
 
-  // Bisection bracket: α in [0, max|g|]
   double lo = 0.0, hi = arma::abs(g).max();
-  if (hi <= 0.0) { // extremely degenerate, be safe
-    arma::vec w(p, arma::fill::zeros);
-    if (p) w(0) = 1.0;
-    return w;
+  if (!std::isfinite(hi) || hi <= 0.0) {
+    Rcpp::stop("pmd_update_bisection: bisection bracket is degenerate because the gradient has no finite magnitude.");
   }
 
   arma::vec w; double l1 = 0.0;
@@ -382,6 +396,13 @@ inline arma::vec pmd_update_bisection(const arma::vec& g,
     arma::vec z = soft_no_scale(g, hi);
     double n2 = arma::norm(z, 2);
     if (n2 >= 1e-16) w = z / n2;
+  }
+  if (w.n_elem != p || !w.is_finite()) {
+    Rcpp::stop("pmd_update_bisection: produced a non-finite weight vector.");
+  }
+  const double w_norm = arma::norm(w, 2);
+  if (!std::isfinite(w_norm) || w_norm < 1e-12) {
+    Rcpp::stop("pmd_update_bisection: produced a numerically zero weight vector.");
   }
   return w;
 }
@@ -450,17 +471,13 @@ Rcpp::List cpp_mbspls_one_lv(const Rcpp::List&  X_blocks,
       arma::vec target = build_target_score_core(current_scores, b);
       
       if (arma::norm(target, 2) < 1e-12) {
-        W[b] = arma::vec(X[b].n_cols, arma::fill::zeros);
-        if (X[b].n_cols > 0) W[b](0) = 1.0;
-        continue;
+        Rcpp::stop(std::string("cpp_mbspls_one_lv: no valid cross-block target score could be formed for block ") + std::to_string(b + 1) + ". Check that at least two blocks contain informative, non-degenerate signals.");
       }
-      
+
       arma::vec grad = Xt[b] * target;
 
       if (!is_valid_vector(grad)) {
-        W[b] = arma::vec(X[b].n_cols, arma::fill::zeros);
-        if (X[b].n_cols > 0) W[b](0) = 1.0;  // Fix: proper condition and assignment
-        continue;
+        Rcpp::stop(std::string("cpp_mbspls_one_lv: gradient became non-finite for block ") + std::to_string(b + 1) + ".");
       }
 
       // Enforce L2 = 1 and L1 ≈ c via bisection (PMD update)
@@ -651,9 +668,9 @@ double perm_test_component(
 
       if (obj_perm >= obj_ref) ++ge;
 
-    } catch (...) {
-      // If a replicate fails to fit, skip it
-      continue;
+    } catch (const std::exception &e) {
+      Rcpp::stop(std::string("Permutation replicate ") + std::to_string(p + 1) +
+                 " failed while fitting a one-component MB-sPLS model: " + e.what());
     }
   }
 
@@ -718,9 +735,8 @@ Rcpp::List cpp_mbspls_multi_lv(const Rcpp::List&  X_blocks,
     Rcpp::List fit;
     try {
       fit = cpp_mbspls_one_lv(X_list, c_constraints, max_iter, tol, frobenius);
-    } catch (...) {
-      log_info("Component extraction failed, stopping");
-      break;
+    } catch (const std::exception &e) {
+      Rcpp::stop(std::string("Component extraction failed at component ") + std::to_string(k + 1) + ": " + e.what());
     }
 
     std::vector<arma::vec> Wk(B);
@@ -742,9 +758,8 @@ Rcpp::List cpp_mbspls_multi_lv(const Rcpp::List&  X_blocks,
                             /* frobenius */            frobenius);
         keep_it = (p_val <= alpha);
         log_info("     p-value = " + std::to_string(p_val));
-      } catch (...) {
-        log_info("Permutation test failed, assuming not significant");
-        keep_it = false;
+      } catch (const std::exception &e) {
+        Rcpp::stop(std::string("Permutation test failed at component ") + std::to_string(k + 1) + ": " + e.what());
       }
     }
 
@@ -774,8 +789,8 @@ Rcpp::List cpp_mbspls_multi_lv(const Rcpp::List&  X_blocks,
       Pk[b] = pb;
       
       if (!deflate_block(X[b], tb, pb)) {
-        log_info("Deflation failed for block " + std::to_string(b + 1) + 
-                 ", component " + std::to_string(k + 1));
+        Rcpp::stop(std::string("cpp_mbspls_multi_lv: deflation failed for block ") +
+                   std::to_string(b + 1) + ", component " + std::to_string(k + 1) + ".");
       }
     }
 
@@ -893,9 +908,8 @@ Rcpp::List cpp_mbspls_multi_lv_cmatrix(const Rcpp::List&  X_blocks,
     try {
       // IMPORTANT: pass spearman through
       fit = cpp_mbspls_one_lv(X_list, c_vec, max_iter, tol, frobenius, spearman);
-    } catch (...) {
-      log_info("Component extraction failed, stopping");
-      break;
+    } catch (const std::exception &e) {
+      Rcpp::stop(std::string("Component extraction failed at component ") + std::to_string(k + 1) + ": " + e.what());
     }
 
     // Unwrap weights
@@ -925,9 +939,8 @@ Rcpp::List cpp_mbspls_multi_lv_cmatrix(const Rcpp::List&  X_blocks,
           /* frob    */ frobenius
         );
         keep_it = (p_val <= alpha);
-      } catch (...) {
-        log_info("Permutation test failed; treating as not significant");
-        keep_it = false;
+      } catch (const std::exception &e) {
+        Rcpp::stop(std::string("Permutation test failed at component ") + std::to_string(k + 1) + ": " + e.what());
       }
     }
 
@@ -959,8 +972,8 @@ Rcpp::List cpp_mbspls_multi_lv_cmatrix(const Rcpp::List&  X_blocks,
 
       // Deflate for next component
       if (!deflate_block(X[b], tb, pb)) {
-        log_info("Deflation failed for block " + std::to_string(b + 1) +
-                 ", component " + std::to_string(k + 1));
+        Rcpp::stop(std::string("cpp_mbspls_multi_lv_cmatrix: deflation failed for block ") +
+                   std::to_string(b + 1) + ", component " + std::to_string(k + 1) + ".");
       }
     }
 
@@ -1131,7 +1144,9 @@ Rcpp::List cpp_compute_test_ev_core(const Rcpp::List& X_blocks_test,
   const double ss_tot_all = arma::accu(ss_tot_test);
 
   auto clamp_ratio = [&](double x) {
-    if (!std::isfinite(x)) return 0.0;
+    if (!std::isfinite(x)) {
+      Rcpp::stop("cpp_compute_test_ev_core: encountered a non-finite explained-variance ratio.");
+    }
     if (clamp_mode == 1) return x < 0.0 ? 0.0 : x;            // zero
     if (clamp_mode == 2) return std::max(0.0, std::min(1.0, x)); // zero_one
     return x;                                                   // none
@@ -1162,12 +1177,10 @@ Rcpp::List cpp_compute_test_ev_core(const Rcpp::List& X_blocks_test,
       const int p = static_cast<int>(Xb.n_cols);
 
       arma::vec wv = Rcpp::as<arma::vec>(Wk[b]);
-      if (static_cast<int>(wv.n_elem) < p) {
-        arma::vec tmp(p, arma::fill::zeros);
-        if (wv.n_elem > 0) tmp.subvec(0, wv.n_elem - 1) = wv;
-        wv = std::move(tmp);
-      } else if (static_cast<int>(wv.n_elem) > p) {
-        wv = wv.head(p);
+      if (static_cast<int>(wv.n_elem) != p) {
+        Rcpp::stop(std::string("cpp_compute_test_ev_core: weight length mismatch at component ") +
+                   std::to_string(k + 1) + ", block " + std::to_string(b + 1) +
+                   ". Expected " + std::to_string(p) + " entries but received " + std::to_string(wv.n_elem) + ".");
       }
 
       arma::vec tb = Xb * wv;
@@ -1205,11 +1218,12 @@ Rcpp::List cpp_compute_test_ev_core(const Rcpp::List& X_blocks_test,
       arma::vec pb(p, arma::fill::zeros);
       if (use_train_loadings && P_all.size() > k) {
         arma::vec p_in = Rcpp::as<arma::vec>(Pk[b]);
-        if (static_cast<int>(p_in.n_elem) < p) {
-          if (p_in.n_elem > 0) pb.subvec(0, p_in.n_elem - 1) = p_in;
-        } else {
-          pb = p_in.head(p);
+        if (static_cast<int>(p_in.n_elem) != p) {
+          Rcpp::stop(std::string("cpp_compute_test_ev_core: loading length mismatch at component ") +
+                     std::to_string(k + 1) + ", block " + std::to_string(b + 1) +
+                     ". Expected " + std::to_string(p) + " entries but received " + std::to_string(p_in.n_elem) + ".");
         }
+        pb = p_in;
       } else {
         const double denom = arma::dot(tb, tb);
         if (std::isfinite(denom) && denom > 1e-12) {
@@ -1380,9 +1394,8 @@ Rcpp::List cpp_mbspls_bootstrap(const Rcpp::List&  X_blocks,
       ++ok_runs;
 
     } catch (const std::exception &e) {
-      Rcpp::Rcout << "[bootstrap " << r + 1 << "] "
-                  << e.what() << std::endl;
-      // Silently skip this replicate
+      Rcpp::stop(std::string("Bootstrap replicate ") + std::to_string(r + 1) +
+                 " failed while refitting MB-sPLS: " + e.what());
     }
   }
 
@@ -1420,7 +1433,9 @@ double cpp_bootstrap_latent_correlation(const arma::mat&  weights_matrix,
                                         double            min_var    = 1e-12,
                                         bool              frobenius  = false)    // ← NEW
 {
-  if (n_blocks < 2) return 0.0;
+  if (n_blocks < 2) {
+    Rcpp::stop("cpp_bootstrap_latent_correlation: need at least two blocks to compute a latent correlation.");
+  }
 
   double acc          = 0.0;        // collects  Σ|r|  or  Σr²
   int    n_comparisons = 0;
@@ -1470,15 +1485,14 @@ double cpp_bootstrap_latent_correlation(const arma::mat&  weights_matrix,
           int b1 = valid_blocks[i];
           int b2 = valid_blocks[j];
           
-          // Align vector lengths (pad shorter with zeros or truncate longer)
           arma::vec w1 = block_weights[b1];
           arma::vec w2 = block_weights[b2];
-          
-          arma::uword min_len = std::min(w1.n_elem, w2.n_elem);
-          if (min_len >= 3) {
-            w1 = w1.head(min_len);
-            w2 = w2.head(min_len);
-            
+          if (w1.n_elem != w2.n_elem) {
+            Rcpp::stop(std::string("cpp_bootstrap_latent_correlation: block weight vectors have unequal lengths for component ") +
+                       std::to_string(k) + ", blocks " + std::to_string(b1 + 1) + " and " + std::to_string(b2 + 1) +
+                       ". Correlation is undefined without an explicit feature alignment.");
+          }
+          if (w1.n_elem >= 3) {
             double cor_val = 0.0;
             if (spearman) {
               // Convert to ranks for Spearman
@@ -1501,7 +1515,9 @@ double cpp_bootstrap_latent_correlation(const arma::mat&  weights_matrix,
   }
   
   // Return performance based on measure, frobenius norm or mean absolute correlation
-  if (n_comparisons == 0) return 0.0;
+  if (n_comparisons == 0) {
+    Rcpp::stop("cpp_bootstrap_latent_correlation: no valid block comparisons remain after feature grouping.");
+  }
 
   return frobenius
          ? std::sqrt(acc)                 // ‖R‖_F   (same convention as solver)
@@ -1528,21 +1544,19 @@ align_and_filter(const std::vector<arma::mat>& Xin,
     arma::mat Xb = Xin[b];
     arma::vec Wb = Win[b];
 
-    // basic sanity
-    if (!Xb.is_finite() || !Wb.is_finite()) continue;
-    if (Xb.n_rows == 0 || Xb.n_cols == 0 || Wb.n_elem == 0) continue;
+    if (!Xb.is_finite() || !Wb.is_finite()) {
+      Rcpp::stop(std::string("Prediction-side validation received non-finite data in block ") + std::to_string(b + 1) + ".");
+    }
+    if (Xb.n_rows == 0 || Xb.n_cols == 0 || Wb.n_elem == 0) {
+      Rcpp::stop(std::string("Prediction-side validation received an empty block or weight vector in block ") + std::to_string(b + 1) + ".");
+    }
 
-    // trim to common width
     const int pX = static_cast<int>(Xb.n_cols);
     const int pW = static_cast<int>(Wb.n_elem);
-    const int p  = std::min(pX, pW);
-    if (p <= 0) continue;
-
-    if (pX != p) Xb = Xb.cols(0, p - 1);
-    if (pW != p) Wb = Wb.head(p);
-
-    // reject near‑zero feature blocks
-    if (arma::accu(arma::abs(Xb)) < 1e-12) continue;
+    if (pX != pW) {
+      Rcpp::stop(std::string("Prediction-side validation feature/weight mismatch in block ") + std::to_string(b + 1) +
+                 ": block has " + std::to_string(pX) + " columns but the weight vector has " + std::to_string(pW) + " entries.");
+    }
 
     Xv.push_back(std::move(Xb));
     Wv.push_back(std::move(Wb));
@@ -1574,33 +1588,21 @@ Rcpp::List cpp_perm_test_oos(
     W[b] = Rcpp::as<arma::vec>(W_trained[b]);
 
     if (!is_valid_matrix(X[b]) || !is_valid_vector(W[b])) {
-      // We do not stop here; alignment will drop this block.
-      continue;
+      Rcpp::stop(std::string("cpp_perm_test_oos: invalid matrix or weight vector in block ") + std::to_string(b + 1) + ".");
     }
     if (n == -1) n = static_cast<int>(X[b].n_rows);
   }
 
   if (n < 3) {
-    // Too few rows to compute stable correlations
-    return Rcpp::List::create(
-      Rcpp::_["stat_obs"] = 0.0,
-      Rcpp::_["p_value"]  = 1.0,
-      Rcpp::_["n_perm"]   = 0
-    );
+    Rcpp::stop("cpp_perm_test_oos requires at least 3 rows in every block.");
   }
 
-  // Align & filter once for the observed statistic
   auto pr_obs = align_and_filter(X, W);
   const auto& Xv_obs = pr_obs.first;
   const auto& Wv_obs = pr_obs.second;
-
-  if (Xv_obs.size() < 2) {
-    // Not enough valid blocks after filtering → neutral result
-    return Rcpp::List::create(
-      Rcpp::_["stat_obs"] = 0.0,
-      Rcpp::_["p_value"]  = 1.0,
-      Rcpp::_["n_perm"]   = 0
-    );
+  const ScoreMatrix obs_scores = compute_scores_core(Xv_obs, Wv_obs);
+  if (obs_scores.n_valid < 2) {
+    Rcpp::stop("cpp_perm_test_oos requires at least two blocks with non-degenerate score vectors in the observed data.");
   }
 
   const double stat_obs = compute_objective_direct_core(Xv_obs, Wv_obs, spearman, frobenius);
@@ -1637,16 +1639,15 @@ Rcpp::List cpp_perm_test_oos(
       }
     }
 
-    // Align & filter on the permuted copy
     auto pr_perm = align_and_filter(Xp, W);
     const auto& Xv_perm = pr_perm.first;
     const auto& Wv_perm = pr_perm.second;
-
-    // If <2 usable blocks after alignment, treat this replicate as stat_perm = 0
-    double stat_perm = 0.0;
-    if (Xv_perm.size() >= 2) {
-      stat_perm = compute_objective_direct_core(Xv_perm, Wv_perm, spearman, frobenius);
+    const ScoreMatrix perm_scores = compute_scores_core(Xv_perm, Wv_perm);
+    if (perm_scores.n_valid < 2) {
+      Rcpp::stop(std::string("cpp_perm_test_oos: permutation replicate ") + std::to_string(p + 1) +
+                 " produced fewer than two valid score blocks.");
     }
+    const double stat_perm = compute_objective_direct_core(Xv_perm, Wv_perm, spearman, frobenius);
     if (stat_perm >= stat_obs) ++ge;
 
     // Early stop (optional)
@@ -1692,51 +1693,23 @@ Rcpp::List cpp_bootstrap_test_oos(
     W[b] = Rcpp::as<arma::vec>(W_trained[b]);
 
     if (!is_valid_matrix(X[b]) || !is_valid_vector(W[b])) {
-      continue;
+      Rcpp::stop(std::string("cpp_bootstrap_test_oos: invalid matrix or weight vector in block ") + std::to_string(b + 1) + ".");
     }
     if (n == -1) n = static_cast<int>(X[b].n_rows);
   }
 
   if (n < 3) {
-    return Rcpp::List::create(
-      Rcpp::_["stat_obs"]  = 0.0,
-      Rcpp::_["boot_mean"] = 0.0,
-      Rcpp::_["boot_se"]   = 0.0,
-      Rcpp::_["p_value"]   = NA_REAL,
-      Rcpp::_["ci_lower"]  = NA_REAL,
-      Rcpp::_["ci_upper"]  = NA_REAL,
-      Rcpp::_["n_boot"]    = 0
-    );
+    Rcpp::stop("cpp_bootstrap_test_oos requires at least 3 rows in every block.");
   }
 
   auto pr_obs = align_and_filter(X, W);
   const auto& Xv_obs = pr_obs.first;
   const auto& Wv_obs = pr_obs.second;
 
-  if (Xv_obs.size() < 2) {
-    return Rcpp::List::create(
-      Rcpp::_["stat_obs"]  = 0.0,
-      Rcpp::_["boot_mean"] = 0.0,
-      Rcpp::_["boot_se"]   = 0.0,
-      Rcpp::_["p_value"]   = NA_REAL,
-      Rcpp::_["ci_lower"]  = NA_REAL,
-      Rcpp::_["ci_upper"]  = NA_REAL,
-      Rcpp::_["n_boot"]    = 0
-    );
-  }
-
   const int Bv = static_cast<int>(Xv_obs.size());
   const int n_aligned = static_cast<int>(Xv_obs[0].n_rows);
   if (n_aligned < 3) {
-    return Rcpp::List::create(
-      Rcpp::_["stat_obs"]  = 0.0,
-      Rcpp::_["boot_mean"] = 0.0,
-      Rcpp::_["boot_se"]   = 0.0,
-      Rcpp::_["p_value"]   = NA_REAL,
-      Rcpp::_["ci_lower"]  = NA_REAL,
-      Rcpp::_["ci_upper"]  = NA_REAL,
-      Rcpp::_["n_boot"]    = 0
-    );
+    Rcpp::stop("cpp_bootstrap_test_oos requires at least 3 aligned rows in the observed data.");
   }
 
   std::vector<arma::vec> T_full;
@@ -1758,15 +1731,7 @@ Rcpp::List cpp_bootstrap_test_oos(
   }
 
   if (static_cast<int>(valid_blocks.size()) < 2) {
-    return Rcpp::List::create(
-      Rcpp::_["stat_obs"]  = 0.0,
-      Rcpp::_["boot_mean"] = 0.0,
-      Rcpp::_["boot_se"]   = 0.0,
-      Rcpp::_["p_value"]   = NA_REAL,
-      Rcpp::_["ci_lower"]  = NA_REAL,
-      Rcpp::_["ci_upper"]  = NA_REAL,
-      Rcpp::_["n_boot"]    = 0
-    );
+    Rcpp::stop("cpp_bootstrap_test_oos requires at least two blocks with non-degenerate score vectors in the observed data.");
   }
 
   auto stat_from_scores = [&](const std::vector<arma::vec>& Tset, const arma::uvec* idx) {
@@ -1785,7 +1750,9 @@ Rcpp::List cpp_bootstrap_test_oos(
         }
       }
     }
-    if (pairs == 0) return 0.0;
+    if (pairs == 0) {
+      Rcpp::stop("cpp_bootstrap_test_oos: no valid score pairs remain for the requested statistic.");
+    }
     return frobenius ? std::sqrt(acc) : (acc / pairs);
   };
 
@@ -1816,15 +1783,7 @@ Rcpp::List cpp_bootstrap_test_oos(
   }
 
   if (valid_reps == 0) {
-    return Rcpp::List::create(
-      Rcpp::_["stat_obs"]  = stat_obs,
-      Rcpp::_["boot_mean"] = NA_REAL,
-      Rcpp::_["boot_se"]   = NA_REAL,
-      Rcpp::_["p_value"]   = NA_REAL,
-      Rcpp::_["ci_lower"]  = NA_REAL,
-      Rcpp::_["ci_upper"]  = NA_REAL,
-      Rcpp::_["n_boot"]    = 0
-    );
+    Rcpp::stop("cpp_bootstrap_test_oos: all bootstrap replicates produced invalid statistics.");
   }
 
   arma::vec vals = boot_vals.head(valid_reps);

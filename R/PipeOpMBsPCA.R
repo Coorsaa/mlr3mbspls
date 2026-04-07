@@ -31,6 +31,8 @@
 #' * `ev_comp`: numeric vector of total variance explained by each PC.
 #' * `T_mat`: numeric matrix of appended latent scores (column names match the
 #'   appended features).
+#' * `run_id`: optional identifier used to match prediction-side payloads to the
+#'   trained fit when a shared `log_env` is used.
 #'
 #' @section Parameters (ParamSet):
 #' * `blocks` (`uty`, **required**; tag `"train"`): named list mapping block IDs
@@ -44,6 +46,9 @@
 #'   default `sqrt(#features)`; tags `c("train","tune")`): sqrt(L1-budget) for that block.
 #' * `c_matrix` (`uty`, default `NULL`; tags `c("train","tune")`): optional
 #'   matrix (`blocks x components`) overriding single-value `c_<block>` parameters.
+#' * `log_env` (`uty`, default `NULL`; tags `c("train","predict")`): optional
+#'   environment that stores a training snapshot and prediction-side explained-
+#'   variance payloads for measures and diagnostics.
 #'
 #' @section Methods:
 #' * `$plot_variance()`: stacked bar chart of `ev_block`.
@@ -64,14 +69,15 @@
 #'   Initial parameter values passed to the `ParamSet`.
 #'
 #' @details
-#' During training, non-numeric or constant features are silently removed from
-#' each block. If `c_matrix` is supplied, its number of columns determines the
+#' During training, non-numeric or constant features are removed from
+#' each block before fitting. If no usable block remains, training errors explicitly. If `c_matrix` is supplied, its number of columns determines the
 #' maximum number of components (overrides `ncomp`). Deflation is performed
 #' block-wise after each component.
 #'
 #' @return
 #' * **Training**: appends latent score columns and sets `$state` as described.
-#' * **Prediction**: appends latent score columns computed from stored weights.
+#' * **Prediction**: appends latent score columns computed from stored weights and,
+#'   if `log_env` is supplied, writes prediction-side EV payloads.
 #' * **Plot methods**: return a `ggplot` object.
 #'
 #' @examples
@@ -88,7 +94,6 @@
 #' }
 #'
 #' @seealso [mlr3pipelines::PipeOp], [mlr3tuning], `TunerSeqMBsPCA`
-#' @importFrom rlang "%||%"
 #' @export
 PipeOpMBsPCA = R6::R6Class(
   "PipeOpMBsPCA",
@@ -107,7 +112,7 @@ PipeOpMBsPCA = R6::R6Class(
       blocks,
       param_vals = list()) {
 
-      checkmate::assert_list(blocks, min.len = 1L, names = "unique")
+      blocks = mb_normalize_blocks(blocks, .var.name = "blocks")
 
       ## -- build ParamSet ---------------------------------------------
       ps_base = list(
@@ -375,7 +380,6 @@ PipeOpMBsPCA = R6::R6Class(
       )
 
       blocks = pv$blocks
-      n_block = length(blocks)
 
       ## 0) sanity-filter columns: numeric, non-constant ---------------
       blocks = lapply(blocks, function(cols) {
@@ -383,7 +387,7 @@ PipeOpMBsPCA = R6::R6Class(
         cols = cols[vapply(cols, \(cl) is.numeric(dt[[cl]]),
           logical(1))] # numeric only
         cols = cols[vapply(cols,
-          \(cl) stats::var(dt[[cl]], na.rm = TRUE) > 0,
+          \(cl) mb_has_finite_variance(dt[[cl]]),
           logical(1))] # non-constant
         cols
       })
@@ -391,6 +395,7 @@ PipeOpMBsPCA = R6::R6Class(
       if (!length(blocks)) {
         stop("No block contains at least one usable numeric column.")
       }
+      n_block = length(blocks)
 
       ## 1) materialise block matrices ---------------------------------
       X = lapply(blocks, \(cols) {
@@ -402,8 +407,23 @@ PipeOpMBsPCA = R6::R6Class(
       ## 2) handle c-matrix vs single-value per block ------------------
       if (!is.null(pv$c_matrix)) {
         cm = pv$c_matrix
+        if (!is.matrix(cm) || !is.numeric(cm)) {
+          stop("`c_matrix` must be a numeric matrix.", call. = FALSE)
+        }
         if (!is.null(rownames(cm))) {
+          missing_rows = setdiff(names(blocks), rownames(cm))
+          if (length(missing_rows)) {
+            stop(
+              sprintf(
+                "`c_matrix` rows must cover all retained blocks. Missing: %s",
+                paste(missing_rows, collapse = ", ")
+              ),
+              call. = FALSE
+            )
+          }
           cm = cm[names(blocks), , drop = FALSE]
+        } else if (nrow(cm) != n_block) {
+          stop(sprintf("`c_matrix` must have %d rows (retained blocks); got %d.", n_block, nrow(cm)), call. = FALSE)
         }
         pv$ncomp = ncol(cm) # override
       } else {
@@ -489,10 +509,27 @@ PipeOpMBsPCA = R6::R6Class(
       ## -- build output latent score table ---------------------------
       coln = unlist(lapply(seq_len(ncomp),
         \(k) paste0("PC", k, "_", names(blocks))))
-      T_mat = do.call(cbind, lapply(seq_len(ncomp), \(k) {
-        do.call(cbind, lapply(seq_along(blocks), \(b)
-        X[[b]] %*% W_all[[k]][[b]]))
-      }))
+      X_scores = lapply(X, function(M) {
+        M = as.matrix(M)
+        storage.mode(M) = "double"
+        M
+      })
+      T_seq = vector("list", ncomp)
+      for (k in seq_len(ncomp)) {
+        Tk = do.call(cbind, lapply(seq_along(blocks), \(b) X_scores[[b]] %*% W_all[[k]][[b]]))
+        colnames(Tk) = paste0("PC", k, "_", names(blocks))
+        T_seq[[k]] = Tk
+        if (k < ncomp) {
+          for (b in seq_along(blocks)) {
+            tb = Tk[, b]
+            denom = drop(crossprod(tb))
+            if (denom > 1e-12) {
+              X_scores[[b]] = X_scores[[b]] - tcrossprod(tb, P_all[[k]][[b]])
+            }
+          }
+        }
+      }
+      T_mat = do.call(cbind, T_seq)
       colnames(T_mat) = coln
       dt_lat = data.table::as.data.table(T_mat)
 
@@ -567,9 +604,12 @@ PipeOpMBsPCA = R6::R6Class(
         }
       }
       blocks = st$blocks
-      ## add missing columns (zeros) so matrix dimensions match
-      miss = setdiff(unlist(blocks), names(dt))
-      if (length(miss)) dt[, (miss) := 0]
+      mb_assert_columns_present(
+        colnames_dt = names(dt),
+        required = unlist(blocks),
+        context = sprintf("[%s] Prediction task", self$id),
+        hint = "Apply the same preprocessing used during training and retain all block features before PipeOpMBsPCA."
+      )
 
       X_cur = lapply(blocks, \(cols) {
         M = as.matrix(dt[, ..cols])

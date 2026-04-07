@@ -15,8 +15,8 @@ A \emph{k}-nearest neighbours regressor using \strong{Gower distance}
 ordered factors with the same encodings as the classification learner.
 Predictions are (optionally inverse-distance) \strong{weighted means} of the
 neighbour responses; the (weighted) variance provides an approximate
-\code{se} when requested. If no eligible neighbours exist, prediction falls
-back to the training mean/variance.
+\code{se} when requested. If no eligible neighbours exist, prediction now errors
+explicitly instead of silently reverting to the training mean/variance.
 }
 \details{
 k-Nearest Neighbours with Gower Distance - Regression

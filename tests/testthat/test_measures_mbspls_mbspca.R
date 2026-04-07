@@ -26,7 +26,7 @@ test_that("MB-sPLS payload helpers score the documented scalar summaries", {
 })
 
 
-test_that("MB-sPLS EV-weighted MAC uses positive-part EV weights with fallback", {
+test_that("MB-sPLS EV-weighted MAC uses positive-part EV weights and errors without positive EV", {
   payload_pos = list(
     mac_comp = c(0.2, 0.8, 0.5),
     ev_comp = c(-1, 2, -3),
@@ -46,9 +46,9 @@ test_that("MB-sPLS EV-weighted MAC uses positive-part EV weights with fallback",
     perf_metric = "mac",
     blocks = c("a", "b")
   )
-  expect_equal(
+  expect_error(
     mbspls_measure_score_from_payload(payload_all_nonpos, "mbspls.mac_evwt"),
-    mean(payload_all_nonpos$mac_comp)
+    "no component has positive finite prediction-side explained variance"
   )
 })
 

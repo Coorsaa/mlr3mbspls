@@ -68,17 +68,22 @@ PipeOpFeatureSuffix = R6::R6Class(
       # Prediction: reuse the exact mapping from training if available
       if (stage == "predict" && length(self$state$rename_map)) {
         map = self$state$rename_map
-        olds = intersect(names(map), task$feature_names)
-        if (length(olds)) {
-          news = unname(map[olds])
-          task$rename(old = olds, new = news) # explicit args: old -> new
+        orig = names(map)
+        suff = unname(map)
+        has_orig = orig %in% task$feature_names
+        has_suff = suff %in% task$feature_names
+
+        if (all(has_orig)) {
+          task$rename(old = orig, new = suff)
+        } else if (all(has_suff)) {
+          lgr$debug("[%s] Predict: features already carry suffix; pass-through.", self$id)
         } else {
-          # If everything is already suffixed, pass through silently
-          if (all(unname(map) %in% task$feature_names)) {
-            lgr$debug("[%s] Predict: features already carry suffix; pass-through.", self$id)
-          } else {
-            lgr$warn("[%s] Predict: expected features not found; pass-through.", self$id)
-          }
+          stop(sprintf(
+            "[%s] Predict task is incompatible with the trained suffix mapping. Provide either all original feature names (%s) or all suffixed feature names (%s); mixed or partial representations are not supported.",
+            self$id,
+            mb_format_truncated(orig),
+            mb_format_truncated(suff)
+          ), call. = FALSE)
         }
         return(task)
       }
@@ -108,8 +113,9 @@ PipeOpFeatureSuffix = R6::R6Class(
         unchanged = setdiff(all_cols, todo)
 
         # 1) New names must be unique together with unchanged names
-        if (anyDuplicated(c(unchanged, new_names))) {
-          dup = unique(new_names[duplicated(c(unchanged, new_names))])
+        combined = c(unchanged, new_names)
+        if (anyDuplicated(combined)) {
+          dup = unique(combined[duplicated(combined)])
           stop(sprintf("[%s] Duplicate column name(s) after renaming: %s", self$id, paste(dup, collapse = ", ")))
         }
         # 2) New names must not collide with non-feature columns

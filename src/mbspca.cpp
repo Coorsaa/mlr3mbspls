@@ -23,9 +23,8 @@ inline bool valid_mat(const mat &M)  { return M.n_rows && M.n_cols && M.is_finit
 inline vec l2_normalise(const vec &v)
 {
   double n = arma::norm(v, 2);
-  if (n < 1e-12) {
-    vec z(v.n_elem, arma::fill::zeros); z(0) = 1;
-    return z;
+  if (!std::isfinite(n) || n < 1e-12) {
+    Rcpp::stop("l2_normalise: vector norm is numerically zero; cannot normalize the MB-sPCA loading.");
   }
   return v / n;
 }
@@ -115,7 +114,7 @@ double perm_test_component_mbspca(const Rcpp::List   &X_blocks,
                                   double              alpha  = 0.05)
 {
   const int B = X_blocks.size();
-  if (!B) return NA_REAL;
+  if (!B) Rcpp::stop("perm_test_component_mbspca: X_blocks is empty.");
 
   /* unpack X & W once */
   std::vector<mat> X(B);
@@ -126,7 +125,7 @@ double perm_test_component_mbspca(const Rcpp::List   &X_blocks,
   for (int b = 0; b < B; ++b) {
     X[b] = Rcpp::as<mat>(X_blocks[b]);
     W[b] = Rcpp::as<vec>(W_list[b]);
-    if (!valid_mat(X[b])) return NA_REAL;
+    if (!valid_mat(X[b])) Rcpp::stop(std::string("perm_test_component_mbspca: invalid matrix in block ") + std::to_string(b + 1) + ".");
     if (n == -1) n = X[b].n_rows;
     ss_tot += arma::accu(arma::square(X[b]));
   }

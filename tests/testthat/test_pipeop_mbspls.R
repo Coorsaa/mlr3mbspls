@@ -226,3 +226,27 @@ test_that("PipeOpMBsPLS - prediction-side bootstrap validation logs summary payl
     names(log_env$last$val_bootstrap)))
   expect_true(is.numeric(log_env$last$val_bootstrap$boot_p_value))
 })
+
+
+test_that("PipeOpMBsPLS accepts rownamed c_matrix entries for retained blocks after a block drops out", {
+  task0 = task_multiblock_synthetic(task_type = "clust", n = 30L, seed = 111L)
+  blocks = task0$block_features()
+
+  dt = data.table::as.data.table(task0$data(cols = task0$feature_names))
+  dt[, (blocks[[3L]]) := 1]
+  task = TaskMultiBlock(dt, blocks = blocks, task_type = "clust", id = "mbspls_drop")
+
+  cm = matrix(sqrt(2), nrow = 3L, ncol = 1L, dimnames = list(names(blocks), NULL))
+  po = PipeOpMBsPLS$new(
+    blocks = blocks,
+    param_vals = list(
+      ncomp = 1L,
+      c_matrix = cm,
+      append = FALSE
+    )
+  )
+
+  expect_no_error(po$train(list(task)))
+  expect_equal(names(po$state$blocks), names(blocks)[1:2])
+  expect_equal(dim(po$state$c_matrix), c(2L, 1L))
+})

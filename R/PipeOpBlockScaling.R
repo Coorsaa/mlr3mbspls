@@ -138,12 +138,32 @@ PipeOpBlockScaling = R6::R6Class(
         scalers  = scalers
       )
 
-      # Rebuild task backend preserving roles
+      # Rebuild task backend preserving targets and other non-feature roles
       row_ids = task$row_ids
-      if (!".row_id" %in% names(dt)) dt[, ".row_id" := row_ids]
+      pk_col = mb_make_backend_key_name(names(dt), "..row_id_blockscale")
+      dt[, (pk_col) := row_ids]
+
+      roles_orig = task$col_roles
+      nonfeat_roles = setdiff(names(roles_orig), "feature")
+      extra_cols = unique(unlist(roles_orig[nonfeat_roles], use.names = FALSE))
+      extra_cols = setdiff(extra_cols, names(dt))
+
+      if (length(extra_cols)) {
+        extra_dt = task$data(rows = task$row_ids, cols = extra_cols)
+        dt_out = cbind(dt, extra_dt)
+      } else {
+        dt_out = dt
+      }
+
       new_task = task_copy$clone()
-      new_task$backend = mlr3::as_data_backend(dt, primary_key = ".row_id")
-      new_task$col_roles$feature = setdiff(new_task$feature_names, ".row_id")
+      new_task$backend = mlr3::as_data_backend(dt_out, primary_key = pk_col)
+
+      present = names(dt_out)
+      new_roles = roles_orig
+      new_roles$feature = intersect(task$feature_names, setdiff(present, pk_col))
+      for (rn in names(new_roles)) new_roles[[rn]] = intersect(new_roles[[rn]], present)
+      new_task$col_roles = new_roles
+
       new_task
     },
 
@@ -157,11 +177,12 @@ PipeOpBlockScaling = R6::R6Class(
       dt = task_copy$data(rows = task_copy$row_ids, cols = task_copy$feature_names)
 
       # Ensure training-time columns exist
-      missing_cols = setdiff(unlist(st$blocks), names(dt))
-      if (length(missing_cols)) {
-        lgr::lgr$warn("PipeOpBlockScaling: adding %d missing feature columns at predict time (zeros)", length(missing_cols))
-        dt[, (missing_cols) := 0.0]
-      }
+      mb_assert_columns_present(
+        colnames_dt = names(dt),
+        required = unlist(st$blocks),
+        context = sprintf("[%s] Prediction task", self$id),
+        hint = "Apply the same preprocessing used during training and retain all block features before PipeOpBlockScaling."
+      )
 
       for (bn in names(st$blocks)) {
         cols = st$blocks[[bn]]
@@ -190,12 +211,32 @@ PipeOpBlockScaling = R6::R6Class(
         }
       }
 
-      # Rebuild task
+      # Rebuild task preserving targets and other non-feature roles
       row_ids = task$row_ids
-      if (!".row_id" %in% names(dt)) dt[, ".row_id" := row_ids]
+      pk_col = mb_make_backend_key_name(names(dt), "..row_id_blockscale")
+      dt[, (pk_col) := row_ids]
+
+      roles_orig = task$col_roles
+      nonfeat_roles = setdiff(names(roles_orig), "feature")
+      extra_cols = unique(unlist(roles_orig[nonfeat_roles], use.names = FALSE))
+      extra_cols = setdiff(extra_cols, names(dt))
+
+      if (length(extra_cols)) {
+        extra_dt = task$data(rows = task$row_ids, cols = extra_cols)
+        dt_out = cbind(dt, extra_dt)
+      } else {
+        dt_out = dt
+      }
+
       new_task = task_copy$clone()
-      new_task$backend = mlr3::as_data_backend(dt, primary_key = ".row_id")
-      new_task$col_roles$feature = setdiff(new_task$feature_names, ".row_id")
+      new_task$backend = mlr3::as_data_backend(dt_out, primary_key = pk_col)
+
+      present = names(dt_out)
+      new_roles = roles_orig
+      new_roles$feature = intersect(task$feature_names, setdiff(present, pk_col))
+      for (rn in names(new_roles)) new_roles[[rn]] = intersect(new_roles[[rn]], present)
+      new_task$col_roles = new_roles
+
       new_task
     }
   )

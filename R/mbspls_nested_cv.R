@@ -56,8 +56,6 @@ mbspls_nested_cv = function(
     rs_outer$instantiate(task)
   }
 
-  mbspls_id = .mbspls_pipeop_id(graphlearner$graph, where = "graphlearner$graph")
-
   outer_iters = rs_outer$iters
   res_tbl = data.table::data.table()
   c_mats = vector("list", outer_iters)
@@ -71,9 +69,11 @@ mbspls_nested_cv = function(
     task_tr = task$clone()$filter(tr_idx)
     task_te = task$clone()$filter(te_idx)
 
-    po = graphlearner$graph$pipeops[[mbspls_id]]
-    po$param_set$values$ncomp = as.integer(ncomp)
-    po$param_set$values$performance_metric = performance_metric
+    gl_tune = graphlearner$clone(deep = TRUE)
+    mbspls_id_tune = .mbspls_pipeop_id(gl_tune$graph, where = "gl_tune$graph")
+    po_tune = gl_tune$graph$pipeops[[mbspls_id_tune]]
+    po_tune$param_set$values$ncomp = as.integer(ncomp)
+    po_tune$param_set$values$performance_metric = performance_metric
 
     tuner = TunerSeqMBsPLS$new(
       tuner              = "random_search",
@@ -88,7 +88,7 @@ mbspls_nested_cv = function(
 
     inst = mlr3tuning::ti(
       task        = task_tr,
-      learner     = graphlearner,
+      learner     = gl_tune,
       resampling  = rsmp("holdout"),
       measure     = msr("mbspls.mac_evwt"),
       terminator  = bbotk::trm("evals", n_evals = 1)
@@ -109,20 +109,25 @@ mbspls_nested_cv = function(
       error = function(e) NA_real_
     )
 
-    po$param_set$values$c_matrix = c_star
-    po$param_set$values$permutation_test = TRUE
-    po$param_set$values$val_test = val_test
-    po$param_set$values$val_test_n = as.integer(val_test_n)
-    po$param_set$values$val_test_alpha = val_test_alpha
-    po$param_set$values$val_test_permute_all = isTRUE(val_permute_all)
+    gl_eval = graphlearner$clone(deep = TRUE)
+    mbspls_id_eval = .mbspls_pipeop_id(gl_eval$graph, where = "gl_eval$graph")
+    po_eval = gl_eval$graph$pipeops[[mbspls_id_eval]]
+    po_eval$param_set$values$ncomp = if (is.null(c_star)) as.integer(ncomp) else ncol(c_star)
+    po_eval$param_set$values$performance_metric = performance_metric
+    po_eval$param_set$values$c_matrix = c_star
+    po_eval$param_set$values$permutation_test = FALSE
+    po_eval$param_set$values$val_test = val_test
+    po_eval$param_set$values$val_test_n = as.integer(val_test_n)
+    po_eval$param_set$values$val_test_alpha = val_test_alpha
+    po_eval$param_set$values$val_test_permute_all = isTRUE(val_permute_all)
 
     log_env_te = new.env(parent = emptyenv())
-    po$param_set$values$log_env = log_env_te
+    po_eval$param_set$values$log_env = log_env_te
 
     lgr$info(paste0("  Evaluating on outer test fold ", i, "/", outer_iters, "..."))
 
-    graphlearner$train(task_tr)
-    graphlearner$predict(task_te)
+    gl_eval$train(task_tr)
+    gl_eval$predict(task_te)
     payload = log_env_te$last
     if (is.null(payload)) {
       res_row = data.table::data.table(

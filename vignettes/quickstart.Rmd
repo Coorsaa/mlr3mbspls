@@ -38,6 +38,27 @@ The sequence mirrors a typical analysis run:
 7. Save outputs.
 
 # Setup
+# Goal
+
+This vignette shows a straightforward, script-style MB-sPLS workflow:
+
+- Uses the packaged synthetic `TaskMultiBlock` `mbspls_synthetic_blocks`.
+- Notes the matching supervised toy tasks `mbspls_synthetic_classif` and `mbspls_synthetic_regr`.
+- Generic naming only.
+- No helper function definitions.
+- Sequential objects that are easy to inspect in an interactive R session.
+
+The sequence mirrors a typical analysis run:
+
+1. Load the packaged synthetic multi-block task.
+2. Reuse its block mapping and define site correction.
+3. Clone the analysis task.
+4. Run nested CV.
+5. Retune `c_matrix` on all rows.
+6. Fit final raw/stability modes.
+7. Save outputs.
+
+# Setup
 
 ```{r setup, message=FALSE}
 library(mlr3)
@@ -83,7 +104,18 @@ head(dt_demo)
 blocks
 ```
 
-# 2) Define Site Correction
+# 2) Inspect Task Quality
+
+Before fitting any model, run a quick QC summary once. This is especially helpful in multi-omics, clinical, neuroimaging, and socioeconomic workflows where block imbalance or missingness may drive downstream results.
+
+```{r qc}
+qc = task_source$overview()
+qc$overview
+qc$blocks
+qc$issues
+```
+
+# 3) Define Site Correction
 
 The block assignment already lives on the task, so only the site-correction policy needs to be declared here.
 
@@ -94,7 +126,7 @@ site_correction_methods = list(block_a = "partial_corr", block_b = "partial_corr
 lengths(blocks)
 ```
 
-# 3) Clone the Clustering Task
+# 4) Clone the Clustering Task
 
 The packaged synthetic object is already a `TaskMultiBlock`, so for analysis you can usually just clone it.
 
@@ -108,7 +140,7 @@ task_train
 length(task_train$feature_names)
 ```
 
-# 4) Nested CV (Primary Validation)
+# 5) Nested CV (Primary Validation)
 
 This stage performs the primary inferential validation.
 Bootstrap selection is intentionally disabled here to evaluate core model generalization under nested resampling.
@@ -155,7 +187,7 @@ nested_cv$summary_table
 
 The nested summary is the key validation output and should be inspected before any final-model interpretation.
 
-# 5) Retune c_matrix on All Rows
+# 6) Retune c_matrix on All Rows
 
 After nested validation, retune on the full training task to obtain a single final sparsity pattern (`c_matrix_final`).
 This matrix is then reused across all final modes for comparability.
@@ -203,7 +235,9 @@ c_matrix_final
 At this point, `c_matrix_final` is the most important object to inspect.
 It controls feature sparsity per block and per component in the final fits.
 
-# 6) Final Fits (raw / stable_ci / stable_frequency)
+For supervised analyses, the package also provides `mbspls_model_summary()` to extract compact reporting tables from fitted MB-sPLS, MB-sPLS-XY, or MB-sPCA models.
+
+# 7) Final Fits (raw / stable_ci / stable_frequency)
 
 Final fitting creates three representations:
 

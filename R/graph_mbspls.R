@@ -50,6 +50,7 @@ mbspls_preproc_graph = function(
   assert_list(blocks, types = "character", names = "unique")
   assert_list(site_correction, types = c("character", "list"), names = "unique")
   assert_list(site_correction_methods, types = "character", names = "unique")
+  mb_validate_site_correction(task = task, site_correction = site_correction, context = "mbspls_preproc_graph")
 
   id_with_suffix = function(base) {
     if (is.null(id_suffix)) base else paste0(base, "_", id_suffix)
@@ -375,6 +376,8 @@ mbsplsxy_graph = function(
   checkmate::assert_list(blocks, types = "character", names = "unique")
   checkmate::assert_list(site_correction, types = c("character", "list"), names = "unique")
   checkmate::assert_list(site_correction_methods, types = "character", names = "unique")
+  mb_validate_site_correction(task = task, site_correction = site_correction, context = "mbsplsxy_graph")
+  mb_validate_supervised_task(task = task, context = "mbsplsxy_graph")
   checkmate::assert_int(ncomp, lower = 1)
   performance_metric = match.arg(performance_metric)
   correlation_method = match.arg(correlation_method)
@@ -444,11 +447,13 @@ mbsplsxy_graph_learner = function(
   id_suffix = NULL,
   log_env = NULL
 ) {
+  inferred_type = if (!is.null(task)) {
+    mb_validate_supervised_task(task = task, context = "mbsplsxy_graph_learner")
+  } else {
+    match.arg(task_type)
+  }
+
   if (is.null(learner)) {
-    inferred_type = if (!is.null(task)) task$task_type else match.arg(task_type)
-    if (!inferred_type %in% c("classif", "regr")) {
-      stop("`mbsplsxy_graph_learner()` requires a supervised task type ('classif' or 'regr').", call. = FALSE)
-    }
     learner = if (identical(inferred_type, "classif")) {
       lrn("classif.featureless")
     } else {
@@ -457,6 +462,7 @@ mbsplsxy_graph_learner = function(
   }
 
   checkmate::assert_class(learner, "Learner")
+  mb_validate_supervised_learner(learner = learner, expected_type = inferred_type, context = "mbsplsxy_graph_learner")
 
   graph = mbsplsxy_graph(
     blocks = blocks,

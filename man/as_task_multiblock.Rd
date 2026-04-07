@@ -54,7 +54,9 @@ automatically.}
 
 \item{target}{Optional target. For flat input this can be a target column name
 or a target vector. For list-of-block input this can be \code{NULL} or a target
-vector.}
+vector. When \code{x} is already an \code{mlr3::Task}, \code{target} must be \code{NULL} or the
+name of an existing backend column so that the original task backend and
+view can be preserved.}
 
 \item{task_type}{One of \code{"auto"}, \code{"classif"}, \code{"regr"}, or \code{"clust"}.
 With \code{"auto"}, the factory infers the task type from \code{target}: factor-like
@@ -73,7 +75,7 @@ tasks.}
 
 \item{sep}{Separator used when flattening list-of-block input.}
 
-\item{...}{Forwarded to \code{\link[=as_task_multiblock]{as_task_multiblock()}}.}
+\item{...}{Passed through to \code{\link[=as_task_multiblock]{as_task_multiblock()}}.}
 
 \item{n}{Number of rows for the synthetic task.}
 
@@ -98,11 +100,13 @@ for a multi-block analysis:
 \item \link[mlr3:TaskRegr]{mlr3::TaskRegr} subclass for supervised regression.
 }
 
-The underlying task always stores a named \code{blocks} mapping and exposes two
-convenience methods:
+The underlying task always stores a named \code{blocks} mapping as task metadata
+(including \code{extra_args} for task conversion) and exposes three convenience
+methods:
 \itemize{
 \item \verb{$block_features(block = NULL, materialize = FALSE)}
 \item \verb{$block_data(rows = NULL, blocks = NULL, as_matrix = FALSE)}
+\item \verb{$overview(rows = NULL, blocks = NULL, include_target = TRUE)}
 }
 
 This design follows the mlr3 task hierarchy: supervised and unsupervised
@@ -144,19 +148,22 @@ dt = data.table::data.table(
 task = TaskMultiBlock(dt, blocks = blocks, target = "y")
 task$block_names
 names(task$block_data(as_matrix = TRUE))
+task$overview()$blocks
 
 toy_unsup = task_multiblock_synthetic(task_type = "clust")
 toy_class = task_multiblock_synthetic(task_type = "classif")
 toy_regr = task_multiblock_synthetic(task_type = "regr")
 
+\dontrun{
 if (requireNamespace("mixOmics", quietly = TRUE)) {
-  tcga = task_multiblock_breast_tcga(task_type = "classif")
-  tcga$block_names
+  tcga = try(task_multiblock_breast_tcga(task_type = "classif"), silent = TRUE)
+  if (!inherits(tcga, "try-error")) tcga$block_names
 }
 
 if (requireNamespace("multiblock", quietly = TRUE)) {
   pot = task_multiblock_potato(task_type = "regr")
   pot$block_names
+}
 }
 
 }

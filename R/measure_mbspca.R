@@ -1,4 +1,3 @@
-#' Internal helper to recover MB-sPCA prediction payload from a learner.
 #' @keywords internal
 #' @noRd
 .mbspca_payload = function(learner) {
@@ -12,27 +11,42 @@
   if (is.null(mbspca_id)) {
     return(NULL)
   }
-  po = learner$graph$pipeops[[mbspca_id]]
-  env = if (!is.null(po)) po$param_set$values$log_env else NULL
-  if (!inherits(env, "environment")) {
+
+  po_tpl = learner$graph$pipeops[[mbspca_id]]
+  po_fit = tryCatch(learner$model[[mbspca_id]], error = function(e) NULL)
+
+  envs = Filter(
+    function(x) inherits(x, "environment"),
+    list(
+      tryCatch(po_fit$param_set$values$log_env, error = function(e) NULL),
+      tryCatch(po_tpl$param_set$values$log_env, error = function(e) NULL)
+    )
+  )
+  if (!length(envs)) {
     return(NULL)
   }
 
-  run_id = NULL
-  if (is.list(learner$model) && is.list(learner$model[[mbspca_id]])) {
-    run_id = learner$model[[mbspca_id]]$run_id %||% NULL
-  }
-  if (is.null(run_id)) {
-    run_id = tryCatch(po$state$run_id %||% NULL, error = function(e) NULL)
-  }
-  if (!is.null(run_id) && nzchar(as.character(run_id))) {
-    by_id = env$mbspls_last[[as.character(run_id)]] %||% NULL
-    if (is.list(by_id)) {
-      return(by_id)
+  run_ids = unique(Filter(
+    function(x) !is.null(x) && nzchar(as.character(x)),
+    list(
+      tryCatch(po_fit$state$run_id %||% NULL, error = function(e) NULL),
+      tryCatch(po_tpl$state$run_id %||% NULL, error = function(e) NULL)
+    )
+  ))
+
+  for (env in envs) {
+    for (run_id in run_ids) {
+      by_id = env$mbspls_last[[as.character(run_id)]] %||% NULL
+      if (is.list(by_id)) {
+        return(by_id)
+      }
+    }
+    if (is.list(env$last)) {
+      return(env$last)
     }
   }
 
-  env$last %||% NULL
+  NULL
 }
 
 .mbspca_measure_key = function(measure) {

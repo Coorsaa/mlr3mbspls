@@ -48,27 +48,42 @@ NULL
   if (is.null(mbspls_id)) {
     return(NULL)
   }
-  po = learner$graph$pipeops[[mbspls_id]]
-  env = if (!is.null(po)) po$param_set$values$log_env else NULL
-  if (!inherits(env, "environment")) {
+
+  po_tpl = learner$graph$pipeops[[mbspls_id]]
+  po_fit = tryCatch(learner$model[[mbspls_id]], error = function(e) NULL)
+
+  envs = Filter(
+    function(x) inherits(x, "environment"),
+    list(
+      tryCatch(po_fit$param_set$values$log_env, error = function(e) NULL),
+      tryCatch(po_tpl$param_set$values$log_env, error = function(e) NULL)
+    )
+  )
+  if (!length(envs)) {
     return(NULL)
   }
 
-  run_id = NULL
-  if (is.list(learner$model) && is.list(learner$model[[mbspls_id]])) {
-    run_id = learner$model[[mbspls_id]]$run_id %||% NULL
-  }
-  if (is.null(run_id)) {
-    run_id = tryCatch(po$state$run_id %||% NULL, error = function(e) NULL)
-  }
-  if (!is.null(run_id) && nzchar(as.character(run_id))) {
-    by_id = env$mbspls_last[[as.character(run_id)]] %||% NULL
-    if (is.list(by_id)) {
-      return(by_id)
+  run_ids = unique(Filter(
+    function(x) !is.null(x) && nzchar(as.character(x)),
+    list(
+      tryCatch(po_fit$state$run_id %||% NULL, error = function(e) NULL),
+      tryCatch(po_tpl$state$run_id %||% NULL, error = function(e) NULL)
+    )
+  ))
+
+  for (env in envs) {
+    for (run_id in run_ids) {
+      by_id = env$mbspls_last[[as.character(run_id)]] %||% NULL
+      if (is.list(by_id)) {
+        return(by_id)
+      }
+    }
+    if (is.list(env$last)) {
+      return(env$last)
     }
   }
 
-  env$last %||% NULL
+  NULL
 }
 
 .mbspls_measure_key = function(measure) {
@@ -126,9 +141,10 @@ NULL
   pos = pmax(ev, 0)
   s = sum(pos, na.rm = TRUE)
   if (!is.finite(s) || s <= 1e-12) {
-    w = rep(0, length(ev))
-    w[keep] = 1 / sum(keep)
-    return(w)
+    stop(
+      "EV-weighted MAC is undefined because no component has positive finite prediction-side explained variance. Use 'mbspls.mac' or inspect the fitted model instead of relying on an arbitrary fallback weighting.",
+      call. = FALSE
+    )
   }
 
   pos / s
@@ -189,8 +205,8 @@ mbspls_measure_score_from_payload = function(payload, measure) {
 #' @description
 #' Aggregates per-component latent correlations (MAC or Frobenius) using the
 #' positive part of the prediction-side explained-variance weights from the same
-#' split. If all component EVs are non-positive, the measure falls back to equal
-#' component weights.
+#' split. If all component EVs are non-positive, the measure errors explicitly
+#' instead of substituting an arbitrary weighting scheme.
 #' @examples
 #' \dontrun{
 #' msr_evwt = MeasureMBsPLS_EVWeightedMAC$new()

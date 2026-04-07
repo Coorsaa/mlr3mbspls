@@ -6,7 +6,8 @@
 \value{
 \itemize{
 \item \strong{Training}: appends latent score columns and sets \verb{$state} as described.
-\item \strong{Prediction}: appends latent score columns computed from stored weights.
+\item \strong{Prediction}: appends latent score columns computed from stored weights and,
+if \code{log_env} is supplied, writes prediction-side EV payloads.
 \item \strong{Plot methods}: return a \code{ggplot} object.
 }
 }
@@ -25,8 +26,8 @@ The operator appends one column per \emph{block x component} (name:
 \details{
 Multi-Block Sparse PCA (MB-sPCA) PipeOp
 
-During training, non-numeric or constant features are silently removed from
-each block. If \code{c_matrix} is supplied, its number of columns determines the
+During training, non-numeric or constant features are removed from
+each block before fitting. If no usable block remains, training errors explicitly. If \code{c_matrix} is supplied, its number of columns determines the
 maximum number of components (overrides \code{ncomp}). Deflation is performed
 block-wise after each component.
 }
@@ -53,6 +54,8 @@ within each block.
 \item \code{ev_comp}: numeric vector of total variance explained by each PC.
 \item \code{T_mat}: numeric matrix of appended latent scores (column names match the
 appended features).
+\item \code{run_id}: optional identifier used to match prediction-side payloads to the
+trained fit when a shared \code{log_env} is used.
 }
 }
 
@@ -70,6 +73,9 @@ to character vectors of feature names.
 default \verb{sqrt(#features)}; tags \code{c("train","tune")}): sqrt(L1-budget) for that block.
 \item \code{c_matrix} (\code{uty}, default \code{NULL}; tags \code{c("train","tune")}): optional
 matrix (\verb{blocks x components}) overriding single-value \verb{c_<block>} parameters.
+\item \code{log_env} (\code{uty}, default \code{NULL}; tags \code{c("train","predict")}): optional
+environment that stores a training snapshot and prediction-side explained-
+variance payloads for measures and diagnostics.
 }
 }
 

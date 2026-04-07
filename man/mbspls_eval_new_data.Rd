@@ -14,9 +14,8 @@ mbspls_eval_new_data(gl, task, mbspls_id = NULL)
 The graph's preprocessing will be applied automatically.}
 
 \item{mbspls_id}{(\code{character(1)} | \code{NULL})\cr Optional id of the MB-sPLS node
-in the graph. If \code{NULL} (default), the first node inheriting from
-\code{PipeOpMBsPLS} is used. If multiple nodes are present, the first is chosen
-with a warning unless \code{mbspls_id} is supplied.}
+in the graph. If \code{NULL} (default), exactly one node inheriting from
+\code{PipeOpMBsPLS} must be present; otherwise an explicit id is required.}
 }
 \value{
 \code{list} with the following elements (all computed on the \strong{new} data):

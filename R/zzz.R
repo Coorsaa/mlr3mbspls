@@ -37,6 +37,20 @@
   add_or_replace(mlr3::mlr_tasks, "mbspls_synthetic_blocks", task_multiblock_synthetic(task_type = "clust"))
   add_or_replace(mlr3::mlr_tasks, "mbspls_synthetic_classif", task_multiblock_synthetic(task_type = "classif"))
   add_or_replace(mlr3::mlr_tasks, "mbspls_synthetic_regr", task_multiblock_synthetic(task_type = "regr"))
+
+  if (requireNamespace("mixOmics", quietly = TRUE)) {
+    tryCatch({
+      add_or_replace(mlr3::mlr_tasks, "mbspls_breast_tcga_classif", task_multiblock_breast_tcga(task_type = "classif"))
+      add_or_replace(mlr3::mlr_tasks, "mbspls_breast_tcga_clust", task_multiblock_breast_tcga(task_type = "clust"))
+    }, error = function(e) invisible(NULL))
+  }
+
+  if (requireNamespace("multiblock", quietly = TRUE)) {
+    tryCatch({
+      add_or_replace(mlr3::mlr_tasks, "mbspls_potato_regr", task_multiblock_potato(task_type = "regr"))
+      add_or_replace(mlr3::mlr_tasks, "mbspls_potato_clust", task_multiblock_potato(task_type = "clust"))
+    }, error = function(e) invisible(NULL))
+  }
 }
 .onUnload = function(libpath) {
   # Remove PipeOps from mlr3pipelines dictionary
@@ -87,7 +101,15 @@
 
   # Remove packaged tasks from mlr3 dictionary
   t = utils::getFromNamespace("mlr_tasks", ns = "mlr3")
-  tasks_to_remove = c("mbspls_synthetic_blocks", "mbspls_synthetic_classif", "mbspls_synthetic_regr")
+  tasks_to_remove = c(
+    "mbspls_synthetic_blocks",
+    "mbspls_synthetic_classif",
+    "mbspls_synthetic_regr",
+    "mbspls_breast_tcga_classif",
+    "mbspls_breast_tcga_clust",
+    "mbspls_potato_regr",
+    "mbspls_potato_clust"
+  )
   for (task in tasks_to_remove) {
     if (task %in% t$keys()) {
       t$remove(task)

@@ -97,3 +97,33 @@ test_that("TunerSeqMBsPCA can optimize mbspca.mean_ev on a tiny task", {
   expect_true(is.matrix(inst$result_learner_param_vals$c_matrix))
   expect_named(inst$result_y, "mbspca.mean_ev")
 })
+
+
+test_that("TunerSeqMBsPLS errors if its performance_metric disagrees with the learner", {
+  task = task_multiblock_synthetic(task_type = "clust", n = 18L, seed = 23L)
+  po_mb = PipeOpMBsPLS$new(
+    blocks = task$block_features(),
+    param_vals = list(ncomp = 1L, performance_metric = "frobenius", append = FALSE)
+  )
+  gl = mlr3::as_learner(
+    po_mb %>>% mlr3pipelines::po("learner", mlr3::lrn("clust.kmeans", centers = 2L))
+  )
+
+  inst = mlr3tuning::ti(
+    task = task,
+    learner = gl,
+    resampling = mlr3::rsmp("holdout"),
+    measure = mlr3::msr("mbspls.mac"),
+    terminator = bbotk::trm("none")
+  )
+
+  expect_error(
+    TunerSeqMBsPLS$new(
+      budget = 1L,
+      resampling = mlr3::rsmp("holdout"),
+      early_stopping = FALSE,
+      performance_metric = "mac"
+    )$optimize(inst),
+    "performance_metric .* must match"
+  )
+})

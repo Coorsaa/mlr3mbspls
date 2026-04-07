@@ -14,8 +14,8 @@
 #' \code{PipeOpEncode(method = "treatment" | "one-hot")}), you may keep using the
 #' **base names** in `blocks` (e.g., `"MINI_dx"`). At `$train()`, base names are
 #' expanded to the actual post-encoding columns via regex \code{^<base>(\\.|$)}.
-#' The resolved names are stored and reused at prediction; any missing columns are
-#' filled with zeros.
+#' The resolved names are stored and reused at prediction; missing trained columns
+#' now raise an explicit error instead of being synthesized as zeros.
 #'
 #' For classification tasks, Y is internally one-hot encoded (no intercept).
 #' You can replicate the target block via `y_rep` to increase its weight in the
@@ -35,9 +35,9 @@
 #'
 #' @section Prediction:
 #' During `$predict()`, X-scores are computed component-wise with deflation and
-#' returned as new columns \code{LVk_<block>}. The Y-block is not needed. Any
-#' columns that existed at training but are missing at prediction are created
-#' as all-zero columns.
+#' returned as new columns \code{LVk_<block>}. The Y-block is not needed. All
+#' trained X-columns must still be present at prediction time; otherwise the
+#' operator errors explicitly.
 #'
 #' @section Parameters:
 #' Hyperparameters are defined in the object's \code{param_set} and can be set
@@ -100,7 +100,7 @@ PipeOpMBsPLSXY = R6::R6Class(
       blocks,
       param_vals = list()) {
 
-      checkmate::assert_list(blocks, types = "character", min.len = 1L, names = "unique")
+      blocks = mb_normalize_blocks(blocks, .var.name = "blocks")
 
       base_params = list(
         blocks               = paradox::p_uty(tags = "train", default = blocks),
@@ -128,6 +128,54 @@ PipeOpMBsPLSXY = R6::R6Class(
         )
       }
       base_params[["c_target"]] = paradox::p_dbl(lower = 1, upper = 20, default = 5, tags = c("train", "tune"))
+
+      if (!is.null(param_vals$c_matrix)) {
+        cm = param_vals$c_matrix
+        checkmate::assert_matrix(cm, mode = "numeric", any.missing = FALSE)
+        target_c = as.numeric(param_vals$c_target %||% 5)
+
+        if (!is.null(rownames(cm))) {
+          missing_rows = setdiff(names(blocks), rownames(cm))
+          if (length(missing_rows)) {
+            stop(
+              sprintf(
+                "c_matrix rows must cover all X blocks. Missing: %s",
+                paste(missing_rows, collapse = ", ")
+              ),
+              call. = FALSE
+            )
+          }
+
+          cm = cm[names(blocks), , drop = FALSE]
+          target_row = matrix(
+            target_c,
+            nrow = 1L,
+            ncol = ncol(cm),
+            dimnames = list(".target", colnames(cm))
+          )
+
+          if (".target" %in% rownames(param_vals$c_matrix)) {
+            cm = rbind(cm, param_vals$c_matrix[".target", , drop = FALSE])
+          } else {
+            cm = rbind(cm, target_row)
+          }
+        } else if (nrow(cm) == length(blocks)) {
+          cm = rbind(cm, rep(target_c, ncol(cm)))
+        } else if (nrow(cm) != length(blocks) + 1L) {
+          stop(
+            sprintf(
+              "c_matrix must have %d rows (X blocks) or %d rows (X blocks + '.target'); got %d",
+              length(blocks),
+              length(blocks) + 1L,
+              nrow(cm)
+            ),
+            call. = FALSE
+          )
+        }
+
+        param_vals$c_matrix = cm
+        param_vals$ncomp = ncol(cm)
+      }
 
       super$initialize(
         id         = id,
@@ -185,8 +233,20 @@ PipeOpMBsPLSXY = R6::R6Class(
         }
       }
 
-      if (isTRUE(center)) y_mat <- scale(y_mat, center = TRUE, scale = FALSE)
-      if (isTRUE(scale)) y_mat <- scale(y_mat, center = FALSE, scale = TRUE)
+      y_mat = as.matrix(y_mat)
+      storage.mode(y_mat) = "double"
+
+      if (isTRUE(center) || isTRUE(scale)) {
+        center_vec = if (isTRUE(center)) colMeans(y_mat, na.rm = TRUE) else rep(0, ncol(y_mat))
+        y_mat = sweep(y_mat, 2L, center_vec, FUN = "-")
+
+        if (isTRUE(scale)) {
+          scale_vec = apply(y_mat, 2L, stats::sd, na.rm = TRUE)
+          scale_vec[!is.finite(scale_vec) | scale_vec < 1e-12] = 1
+          y_mat = sweep(y_mat, 2L, scale_vec, FUN = "/")
+        }
+      }
+
       as.matrix(y_mat)
     },
 
@@ -207,7 +267,7 @@ PipeOpMBsPLSXY = R6::R6Class(
         if (!length(resolved)) {
           return(character(0))
         }
-        keep = vapply(resolved, function(cl) stats::var(dt[[cl]], na.rm = TRUE) > 0, logical(1))
+        keep = vapply(resolved, function(cl) mb_has_finite_variance(dt[[cl]]), logical(1))
         resolved[keep]
       })
       Filter(length, out)
@@ -229,35 +289,87 @@ PipeOpMBsPLSXY = R6::R6Class(
         keep.null = TRUE)
 
       task = private$.get_task_safe()
-      y_mat = private$.build_y_matrix(task, target_vec = target, levs = levels(target),
+      y_mat = private$.build_y_matrix(task, target_vec = target, levs = base::levels(target),
         center = pv$center_y, scale = pv$scale_y)
 
+      y_fit = as.matrix(y_mat)
+      storage.mode(y_fit) = "double"
+      keep_var = apply(y_fit, 2L, stats::sd, na.rm = TRUE) > 1e-12
+      if (!all(keep_var)) {
+        y_fit = y_fit[, keep_var, drop = FALSE]
+      }
+      if (!ncol(y_fit)) {
+        stop("PipeOpMBsPLSXY: target matrix has zero variance after preprocessing; cannot fit MB-sPLS-XY.", call. = FALSE)
+      }
+
+      # cpp_mbspls_multi_lv currently fails for rank-1 target blocks; add a
+      # deterministic auxiliary target direction when needed.
+      rank_y = qr(y_fit)$rank
+      if (rank_y < 2L) {
+        y1 = as.numeric(y_fit[, 1L])
+        aux = as.numeric(seq_len(nrow(y_fit)))
+        aux = aux - mean(aux)
+
+        denom = sum(y1 * y1)
+        if (is.finite(denom) && denom > 1e-12) {
+          aux = aux - (sum(aux * y1) / denom) * y1
+        }
+
+        aux_sd = stats::sd(aux)
+        if (!is.finite(aux_sd) || aux_sd < 1e-12) {
+          stop("PipeOpMBsPLSXY: could not construct a stable target block for fitting.", call. = FALSE)
+        }
+        aux = aux / aux_sd
+
+        y_fit = cbind(y_fit, aux)
+        colnames(y_fit)[ncol(y_fit)] = ".Y_aux"
+      }
+
       if (pv$y_rep > 1L) {
-        base_names = colnames(y_mat)
-        y_mat = do.call(cbind, replicate(pv$y_rep, y_mat, simplify = FALSE))
+        base_names = colnames(y_fit)
+        y_fit = do.call(cbind, replicate(pv$y_rep, y_fit, simplify = FALSE))
         rep_id = rep(seq_len(pv$y_rep), each = length(base_names))
-        colnames(y_mat) = paste0(rep(base_names, pv$y_rep), "_rep", rep_id)
+        colnames(y_fit) = paste0(rep(base_names, pv$y_rep), "_rep", rep_id)
       }
 
       blocks = private$.clean_blocks(dt, pv$blocks)
       if (!length(blocks)) stop("PipeOpMBsPLSXY: no valid X blocks found.")
       X_list = private$.as_block_mats(dt, blocks)
 
-      X_list_all = c(X_list, list(.target = as.matrix(y_mat)))
+      X_list_all = c(X_list, list(.target = as.matrix(y_fit)))
       use_frob = identical(pv$performance_metric, "frobenius")
 
       if (!is.null(pv$c_matrix)) {
         cm = pv$c_matrix
         checkmate::assert_matrix(cm, mode = "numeric", any.missing = FALSE)
-        if (nrow(cm) == length(X_list)) cm <- rbind(cm, rep(pv$c_target, ncol(cm)))
+
         if (!is.null(rownames(cm))) {
-          want = c(names(blocks), ".target")
-          missing_rows = setdiff(want, rownames(cm))
+          missing_rows = setdiff(names(blocks), rownames(cm))
           if (length(missing_rows)) {
-            stop("c_matrix rows must cover all blocks and '.target'. Missing: ", paste(missing_rows, collapse = ", "))
+            stop("c_matrix rows must cover all retained X blocks. Missing: ", paste(missing_rows, collapse = ", "))
           }
-          cm = cm[want, , drop = FALSE]
+
+          cm = cm[names(blocks), , drop = FALSE]
+          if (".target" %in% rownames(pv$c_matrix)) {
+            cm = rbind(cm, pv$c_matrix[".target", , drop = FALSE])
+          } else {
+            cm = rbind(cm, rep(pv$c_target, ncol(cm)))
+            rownames(cm)[nrow(cm)] = ".target"
+          }
+        } else if (nrow(cm) == length(X_list)) {
+          cm = rbind(cm, rep(pv$c_target, ncol(cm)))
+        } else if (nrow(cm) != length(X_list) + 1L) {
+          stop(
+            sprintf(
+              "c_matrix must have %d rows (X blocks) or %d rows (X blocks + '.target'); got %d",
+              length(X_list),
+              length(X_list) + 1L,
+              nrow(cm)
+            ),
+            call. = FALSE
+          )
         }
+
         fit = cpp_mbspls_multi_lv_cmatrix(
           X_blocks = X_list_all,
           c_matrix = cm,
@@ -271,7 +383,7 @@ PipeOpMBsPLSXY = R6::R6Class(
         )
       } else {
         c_vec = vapply(names(blocks), function(bn) pv[[paste0("c_", bn)]], numeric(1))
-        c_vec = c(c_vec, min(pv$c_target, sqrt(ncol(y_mat))))
+        c_vec = c(c_vec, min(pv$c_target, sqrt(ncol(y_fit))))
         names(c_vec)[length(c_vec)] = ".target"
         fit = cpp_mbspls_multi_lv(
           X_blocks = X_list_all, c_constraints = c_vec,
@@ -287,16 +399,17 @@ PipeOpMBsPLSXY = R6::R6Class(
       K = length(fit$W)
       if (K < 1L) stop("PipeOpMBsPLSXY: no components extracted.")
 
+      y_cols = colnames(y_fit) %||% paste0(".Y_", seq_len(ncol(y_fit)))
       W_X = P_X = vector("list", K)
       W_Y = P_Y = vector("list", K)
       for (k in seq_len(K)) {
         W_X[[k]] = fit$W[[k]][seq_len(Bx)]
         P_X[[k]] = fit$P[[k]][seq_len(Bx)]
-        W_Y[[k]] = fit$W[[k]][[Bx + 1L]]
-        P_Y[[k]] = fit$P[[k]][[Bx + 1L]]
+        W_Y[[k]] = stats::setNames(as.numeric(fit$W[[k]][[Bx + 1L]]), y_cols)
+        P_Y[[k]] = stats::setNames(as.numeric(fit$P[[k]][[Bx + 1L]]), y_cols)
         names(W_X[[k]]) = names(P_X[[k]]) = names(blocks)
       }
-      names(W_X) = names(P_X) = sprintf("LC_%02d", seq_len(K))
+      names(W_X) = names(P_X) = names(W_Y) = names(P_Y) = sprintf("LC_%02d", seq_len(K))
 
       X_cur = X_list
       score_tables = vector("list", K)
@@ -317,7 +430,7 @@ PipeOpMBsPLSXY = R6::R6Class(
       dt_lat = do.call(cbind, score_tables)
 
       if (isTRUE(pv$emit_y_scores)) {
-        Y_cur = as.matrix(y_mat)
+        Y_cur = as.matrix(y_fit)
         score_tables_y = vector("list", K)
         for (k in seq_len(K)) {
           ty = drop(Y_cur %*% as.numeric(W_Y[[k]]))
@@ -332,10 +445,15 @@ PipeOpMBsPLSXY = R6::R6Class(
       }
 
       self$state$blocks_x = blocks
+      self$state$target_columns = y_cols
       self$state$ncomp = K
       self$state$weights_x = W_X
       self$state$loadings_x = P_X
+      self$state$weights_y = W_Y
+      self$state$loadings_y = P_Y
       self$state$performance_metric = pv$performance_metric
+      self$state$correlation_method = pv$correlation_method
+      self$state$emit_y_scores = isTRUE(pv$emit_y_scores)
 
       dt_lat
     },
@@ -350,8 +468,12 @@ PipeOpMBsPLSXY = R6::R6Class(
         return(data.table::data.table())
       }
 
-      missing_cols = setdiff(unlist(blocks), names(dt))
-      if (length(missing_cols)) data.table::set(dt, j = missing_cols, value = 0.0)
+      mb_assert_columns_present(
+        colnames_dt = names(dt),
+        required = unlist(blocks),
+        context = sprintf("[%s] Prediction task", self$id),
+        hint = "Apply the same preprocessing used during training and retain all trained predictor columns before PipeOpMBsPLSXY."
+      )
 
       X_cur = lapply(blocks, function(cols) {
         mat = as.matrix(dt[, ..cols])

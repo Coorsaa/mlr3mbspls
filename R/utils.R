@@ -11,6 +11,97 @@ NULL
 `%||%` = function(x, y) if (is.null(x) || length(x) == 0L) y else x
 
 
+
+
+#' Format a character vector for concise error messages.
+#' @keywords internal
+mb_format_truncated = function(x, max_items = 20L) {
+  x = as.character(x %||% character(0))
+  if (!length(x)) {
+    return("")
+  }
+  max_items = as.integer(max_items %||% 20L)
+  max_items = if (is.finite(max_items) && max_items >= 1L) max_items else 20L
+  shown = utils::head(x, max_items)
+  out = paste(shown, collapse = ", ")
+  if (length(x) > max_items) {
+    out = sprintf("%s, ... (+%d more)", out, length(x) - max_items)
+  }
+  out
+}
+
+#' Assert that a dataset contains all columns required by a trained model.
+#' @keywords internal
+mb_assert_columns_present = function(colnames_dt, required, context = "data", hint = NULL) {
+  checkmate::assert_character(colnames_dt, any.missing = FALSE, .var.name = "colnames_dt")
+  checkmate::assert_character(required, any.missing = FALSE, .var.name = "required")
+
+  required = unique(required)
+  missing = setdiff(required, colnames_dt)
+  if (length(missing)) {
+    msg = sprintf(
+      "%s is missing %d trained feature(s): %s",
+      context,
+      length(missing),
+      mb_format_truncated(missing)
+    )
+    if (!is.null(hint) && length(hint) == 1L && nzchar(as.character(hint))) {
+      msg = paste0(msg, "\nFix: ", as.character(hint))
+    }
+    stop(msg, call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
+#' Align a numeric vector to trained feature names.
+#' @keywords internal
+mb_align_named_numeric = function(v, cols, context = "vector", allow_null = FALSE, zero_if_null = FALSE) {
+  checkmate::assert_character(cols, any.missing = FALSE, .var.name = "cols")
+
+  if (is.null(v)) {
+    if (isTRUE(zero_if_null)) {
+      return(stats::setNames(numeric(length(cols)), cols))
+    }
+    if (isTRUE(allow_null)) {
+      return(NULL)
+    }
+    stop(sprintf("%s is NULL; the trained model does not contain coefficients for these features.", context), call. = FALSE)
+  }
+
+  if (!is.numeric(v)) {
+    stop(sprintf("%s must be numeric.", context), call. = FALSE)
+  }
+
+  if (!is.null(names(v))) {
+    missing = setdiff(cols, names(v))
+    if (length(missing)) {
+      stop(sprintf(
+        "%s is missing %d trained feature name(s): %s",
+        context,
+        length(missing),
+        mb_format_truncated(missing)
+      ), call. = FALSE)
+    }
+    out = as.numeric(v[cols])
+  } else {
+    out = as.numeric(v)
+    if (length(out) != length(cols)) {
+      stop(sprintf(
+        "%s has length %d but %d trained feature(s) are required.",
+        context,
+        length(out),
+        length(cols)
+      ), call. = FALSE)
+    }
+  }
+
+  if (anyNA(out) || any(!is.finite(out))) {
+    stop(sprintf("%s contains NA/Inf values after alignment.", context), call. = FALSE)
+  }
+
+  stats::setNames(out, cols)
+}
+
 # ------------------------------------------------------------------------------
 # Randomness helpers
 # ------------------------------------------------------------------------------
@@ -119,10 +210,7 @@ log_env_store_last = function(log_env, payload, run_id = NULL) {
     stop("log_env_store_last: 'payload' must be a list.", call. = FALSE)
   }
 
-  # Try to infer a run id from the current training snapshot
-  if (is.null(run_id) && is.list(log_env$mbspls_state) && !is.null(log_env$mbspls_state$run_id)) {
-    run_id = as.character(log_env$mbspls_state$run_id)
-  }
+  # Only persist run-indexed prediction payloads when run_id is explicit.
   if (!is.null(run_id) && nzchar(run_id)) {
     if (is.null(log_env$mbspls_last) || !is.list(log_env$mbspls_last)) {
       log_env$mbspls_last = list()
@@ -167,6 +255,43 @@ assert_mbspls_state = function(st, require_train_blocks = FALSE, where = "log_en
   invisible(TRUE)
 }
 
+#' Resolve an MB-sPLS state from a shared log_env, preferring a specific run_id.
+#' @keywords internal
+.mbspls_state_from_env = function(log_env, run_id = NULL, require_train_blocks = FALSE, where = "log_env") {
+  if (is.null(log_env) || !inherits(log_env, "environment")) {
+    stop(sprintf("%s must be an environment.", where), call. = FALSE)
+  }
+
+  requested = if (is.null(run_id) || !nzchar(as.character(run_id))) NULL else as.character(run_id)
+  hist = log_env$mbspls_states %||% NULL
+  st = NULL
+
+  if (!is.null(requested) && is.list(hist) && length(hist)) {
+    st = hist[[requested]] %||% NULL
+
+    if (is.null(st)) {
+      latest = log_env$mbspls_state %||% NULL
+      latest_id = if (is.list(latest)) latest$run_id %||% NULL else NULL
+      if (!is.null(latest) && identical(as.character(latest_id), requested)) {
+        st = latest
+      } else {
+        stop(sprintf("mbspls_state for run_id='%s' not found in %s$mbspls_states.", requested, where), call. = FALSE)
+      }
+    }
+  }
+
+  if (is.null(st)) {
+    st = log_env$mbspls_state %||% NULL
+  }
+
+  if (is.null(st)) {
+    stop(sprintf("mbspls_state not found in %s.", where), call. = FALSE)
+  }
+
+  assert_mbspls_state(st, require_train_blocks = require_train_blocks, where = paste0(where, "$mbspls_state"))
+  st
+}
+
 #' Assert that all block features are present in a data.table/data.frame.
 #' @keywords internal
 assert_blocks_present = function(colnames_dt, blocks_map, context = "task") {
@@ -185,6 +310,16 @@ assert_blocks_present = function(colnames_dt, blocks_map, context = "task") {
   invisible(TRUE)
 }
 
+#' Create a backend primary-key column name that does not collide.
+#' @keywords internal
+mb_make_backend_key_name = function(existing, key_name = "..row_id") {
+  key_name = key_name %||% "..row_id"
+  if (!(key_name %in% existing)) {
+    return(key_name)
+  }
+  make.unique(c(existing, key_name))[length(existing) + 1L]
+}
+
 # ------------------------------------------------------------------------------
 # Multi-block task helpers
 # ------------------------------------------------------------------------------
@@ -199,7 +334,34 @@ mb_normalize_blocks = function(blocks, .var.name = "blocks") {
     names = "unique",
     .var.name = .var.name
   )
-  lapply(blocks, function(cols) unique(as.character(cols)))
+
+  blocks = lapply(blocks, function(cols) unique(as.character(cols)))
+  flat = unlist(blocks, use.names = FALSE)
+  dup = unique(flat[duplicated(flat)])
+  if (length(dup)) {
+    stop(
+      sprintf(
+        "%s must be disjoint across blocks. Duplicated feature(s): %s",
+        .var.name,
+        paste(dup, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
+  blocks
+}
+
+
+#' Return TRUE only for numeric vectors with finite, positive variance.
+#' @keywords internal
+mb_has_finite_variance = function(x, tol = 1e-12) {
+  if (!is.numeric(x)) {
+    return(FALSE)
+  }
+
+  v = suppressWarnings(stats::var(x, na.rm = TRUE))
+  is.finite(v) && !is.na(v) && v > tol
 }
 
 
@@ -248,7 +410,7 @@ mb_resolve_blocks = function(
     }
 
     if (isTRUE(non_constant)) {
-      cand = cand[vapply(cand, function(cl) stats::var(dt[[cl]], na.rm = TRUE) > 0, logical(1))]
+      cand = cand[vapply(cand, function(cl) mb_has_finite_variance(dt[[cl]]), logical(1))]
     }
     cand
   })
@@ -264,12 +426,15 @@ mb_task_blocks = function(task, context = "task", allow_null = FALSE) {
 
   blocks = tryCatch(task$blocks, error = function(e) NULL)
   if (is.null(blocks)) {
+    blocks = tryCatch(task$extra_args$blocks, error = function(e) NULL)
+  }
+  if (is.null(blocks)) {
     if (isTRUE(allow_null)) {
       return(NULL)
     }
     stop(
       sprintf(
-        "%s: no 'blocks' supplied and the task does not carry multi-block metadata.",
+        "%s: no 'blocks' supplied and the task does not carry multi-block metadata in `task$blocks` or `task$extra_args$blocks`.",
         context
       ),
       call. = FALSE
@@ -293,4 +458,97 @@ mb_graph_blocks = function(blocks = NULL, task = NULL, context = "mbspls_graph")
     )
   }
   mb_task_blocks(task, context = context)
+}
+
+
+#' Validate that referenced site-correction columns exist on a task.
+#' @keywords internal
+mb_validate_site_correction = function(task, site_correction = list(), context = "mbspls_graph") {
+  if (is.null(task) || !length(site_correction)) {
+    return(invisible(TRUE))
+  }
+  checkmate::assert_class(task, "Task", .var.name = paste0(context, "$task"))
+  cols = unique(unlist(site_correction, recursive = TRUE, use.names = FALSE))
+  cols = cols[nzchar(cols)]
+  if (!length(cols)) {
+    return(invisible(TRUE))
+  }
+
+  available = unique(c(
+    task$feature_names,
+    tryCatch(task$target_names, error = function(e) character(0))
+  ))
+  missing = setdiff(cols, available)
+  if (length(missing)) {
+    stop(
+      sprintf(
+        "%s: site-correction columns not found on the task: %s.",
+        context,
+        paste(missing, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
+  invisible(TRUE)
+}
+
+
+#' Validate supervised TaskMultiBlock usage.
+#' @keywords internal
+mb_validate_supervised_task = function(task, context = "mbsplsxy_graph") {
+  if (is.null(task)) {
+    return(invisible(NULL))
+  }
+  checkmate::assert_class(task, "Task", .var.name = paste0(context, "$task"))
+  task_type = tryCatch(task$task_type, error = function(e) NA_character_)
+  if (!task_type %in% c("classif", "regr")) {
+    stop(
+      sprintf(
+        "%s: supervised MB-sPLS-XY requires a classification or regression task, not '%s'.",
+        context,
+        as.character(task_type)
+      ),
+      call. = FALSE
+    )
+  }
+  invisible(task_type)
+}
+
+
+#' Validate that a learner matches the expected supervised task type.
+#' @keywords internal
+mb_validate_supervised_learner = function(learner, expected_type, context = "mbsplsxy_graph_learner") {
+  checkmate::assert_class(learner, "Learner", .var.name = paste0(context, "$learner"))
+  checkmate::assert_choice(expected_type, c("classif", "regr"), .var.name = paste0(context, "$expected_type"))
+
+  learner_type = tryCatch(learner$task_type, error = function(e) NA_character_)
+  if (is.na(learner_type) || !nzchar(learner_type)) {
+    return(invisible(TRUE))
+  }
+  if (!learner_type %in% c("classif", "regr")) {
+    stop(
+      sprintf(
+        "%s: learner '%s' has task type '%s', but MB-sPLS-XY requires a classification or regression learner.",
+        context,
+        learner$id %||% "<unknown>",
+        as.character(learner_type)
+      ),
+      call. = FALSE
+    )
+  }
+  if (!identical(learner_type, expected_type)) {
+    stop(
+      sprintf(
+        "%s: learner '%s' has task type '%s', which does not match the expected task type '%s'.",
+        context,
+        learner$id %||% "<unknown>",
+        as.character(learner_type),
+        expected_type
+      ),
+      call. = FALSE
+    )
+  }
+
+  invisible(TRUE)
 }

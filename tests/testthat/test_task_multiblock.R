@@ -54,27 +54,141 @@ test_that("TaskMultiBlock factory flattens list-of-block input", {
 })
 
 
-test_that("task_multiblock_breast_tcga works when mixOmics is installed", {
-  testthat::skip_if_not_installed("mixOmics")
-
-  task_classif = task_multiblock_breast_tcga(task_type = "classif")
-  expect_true(inherits(task_classif, "TaskClassif"))
-  expect_setequal(task_classif$block_names, c("mRNA", "miRNA", "protein"))
-
-  task_clust = task_multiblock_breast_tcga(task_type = "clust")
-  expect_true(inherits(task_clust, "TaskClust"))
-  expect_setequal(task_clust$block_names, c("mRNA", "miRNA", "protein"))
+test_that("task_multiblock_synthetic preserves the caller RNG state", {
+  set.seed(42)
+  seed_before = get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  invisible(task_multiblock_synthetic(task_type = "clust", n = 24L, seed = 7L))
+  seed_after = get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  expect_equal(seed_after, seed_before)
 })
 
 
-test_that("task_multiblock_potato works when multiblock is installed", {
-  testthat::skip_if_not_installed("multiblock")
+test_that("TaskMultiBlock validates list-of-block row alignment", {
+  x_bad = list(
+    a = data.frame(x = rnorm(5)),
+    b = data.frame(y = rnorm(4))
+  )
 
-  task_regr = task_multiblock_potato(task_type = "regr", response = 1L)
-  expect_true(inherits(task_regr, "TaskRegr"))
-  expect_setequal(task_regr$block_names, c("Chemical", "Compression", "NIRraw"))
+  expect_error(
+    TaskMultiBlock(x_bad, task_type = "clust"),
+    "same number of rows"
+  )
+})
 
-  task_clust = task_multiblock_potato(task_type = "clust")
-  expect_true(inherits(task_clust, "TaskClust"))
-  expect_setequal(task_clust$block_names, c("Chemical", "Compression", "NIRraw"))
+
+test_that("TaskMultiBlock auto-infers task type and preserves classif positive class from source task", {
+  dt = data.table::data.table(
+    f1 = rnorm(20),
+    f2 = rnorm(20),
+    g1 = rnorm(20),
+    y = factor(sample(c("neg", "pos"), 20, TRUE), levels = c("neg", "pos"))
+  )
+  blocks = list(a = c("f1", "f2"), b = c("g1"))
+
+  task0 = TaskMultiBlock(dt, blocks = blocks, target = "y", task_type = "classif", id = "src")
+  task0$positive = "pos"
+
+  task1 = TaskMultiBlock(task0, task_type = "auto", id = "copy")
+  expect_true(inherits(task1, "TaskClassif"))
+  expect_equal(task1$target_names, "y")
+  expect_equal(task1$positive, "pos")
+  expect_setequal(task1$block_names, names(blocks))
+})
+
+
+test_that("TaskMultiBlock supports auto regression inference and block_data subset by block names", {
+  dt = data.table::data.table(
+    a1 = rnorm(30),
+    a2 = rnorm(30),
+    b1 = rnorm(30),
+    b2 = rnorm(30)
+  )
+  blocks = list(a = c("a1", "a2"), b = c("b1", "b2"))
+  y = rnorm(30)
+
+  task = TaskMultiBlock(dt, blocks = blocks, target = y, task_type = "auto", target_name = "y")
+  expect_true(inherits(task, "TaskRegr"))
+  expect_equal(task$target_names, "y")
+
+  sub = task$block_data(blocks = c("b"), as_matrix = TRUE)
+  expect_named(sub, "b")
+  expect_true(is.matrix(sub$b))
+  expect_equal(colnames(sub$b), blocks$b)
+})
+
+
+
+test_that("TaskMultiBlock preserves task views and stores blocks in extra_args", {
+  dt = data.table::data.table(
+    x1 = rnorm(12),
+    x2 = rnorm(12),
+    grp = factor(rep(c("A", "B", "C"), each = 4L)),
+    y = factor(sample(c("no", "yes"), 12L, replace = TRUE))
+  )
+
+  src = mlr3::TaskClassif$new(id = "src", backend = dt, target = "y")
+  src$set_col_roles("grp", add_to = "group", remove_from = "feature")
+  src$set_row_roles(src$row_ids[1:2], remove_from = "use")
+
+  blocks = list(a = "x1", b = "x2")
+  task = TaskMultiBlock(src, blocks = blocks, id = "mb")
+
+  expect_equal(task$feature_names, src$feature_names)
+  expect_equal(task$row_roles, src$row_roles)
+  expect_equal(task$col_roles$group, src$col_roles$group)
+  expect_equal(task$blocks, blocks)
+  expect_equal(task$extra_args$blocks, blocks)
+})
+
+
+test_that("TaskMultiBlock syncs block metadata on rename and keeps blocks read-only", {
+  dt = data.table::data.table(
+    a1 = rnorm(8),
+    a2 = rnorm(8),
+    b1 = rnorm(8),
+    y = factor(sample(c("a", "b"), 8L, replace = TRUE))
+  )
+  task = TaskMultiBlock(
+    dt,
+    blocks = list(a = c("a1", "a2"), b = "b1"),
+    target = "y",
+    task_type = "classif"
+  )
+
+  task$rename(c("a1", "b1"), c("a1_sfx", "b1_sfx"))
+
+  expect_equal(task$blocks, list(a = c("a1_sfx", "a2"), b = "b1_sfx"))
+  expect_equal(task$extra_args$blocks, list(a = c("a1_sfx", "a2"), b = "b1_sfx"))
+  expect_error(task$blocks <- list(a = "a1"), "read-only")
+})
+
+
+test_that("TaskMultiBlock auto-inference prefers an explicit target over the source task type", {
+  dt = data.table::data.table(
+    x1 = rnorm(20),
+    x2 = rnorm(20),
+    y_class = factor(sample(c("a", "b"), 20L, replace = TRUE)),
+    y_num = rnorm(20)
+  )
+  src = mlr3::TaskClassif$new(id = "src", backend = dt, target = "y_class")
+
+  task = TaskMultiBlock(src, blocks = list(main = c("x1", "x2")), target = "y_num", task_type = "auto")
+
+  expect_true(inherits(task, "TaskRegr"))
+  expect_equal(task$target_names, "y_num")
+})
+
+
+test_that("TaskMultiBlock matrix extraction fails loudly for non-numeric block features", {
+  dt = data.table::data.table(
+    x_num = rnorm(6),
+    x_fac = factor(c("a", "b", "a", "b", "a", "b")),
+    y = rnorm(6)
+  )
+  task = TaskMultiBlock(dt, blocks = list(mixed = c("x_num", "x_fac")), target = "y", task_type = "regr")
+
+  expect_error(
+    task$block_data(as_matrix = TRUE),
+    "requires numeric, integer, or logical"
+  )
 })

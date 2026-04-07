@@ -43,7 +43,7 @@
     learner     = gl_tune,
     resampling  = mlr3::rsmp("holdout"), # ignored by our tuner except for naming
     measure     = mlr3::msr("mbspls.mac_evwt"),
-    terminator  = mlr3tuning::trm("evals", n_evals = 1)
+    terminator  = bbotk::trm("evals", n_evals = 1)
   )
   tuner$optimize(inst)
 
@@ -61,10 +61,10 @@
   gl_eval = graphlearner$clone(deep = TRUE)
   mbspls_id_eval = .mbspls_pipeop_id(gl_eval$graph, where = "gl_eval$graph")
   po_eval = gl_eval$graph$pipeops[[mbspls_id_eval]]
-  po_eval$param_set$values$ncomp = ncol(c_star)
+  po_eval$param_set$values$ncomp = if (is.null(c_star)) as.integer(ncomp) else ncol(c_star)
   po_eval$param_set$values$performance_metric = performance_metric
   po_eval$param_set$values$c_matrix = c_star
-  po_eval$param_set$values$permutation_test = TRUE
+  po_eval$param_set$values$permutation_test = FALSE
   po_eval$param_set$values$val_test = val_test
   po_eval$param_set$values$val_test_n = as.integer(val_test_n)
   po_eval$param_set$values$val_test_alpha = val_test_alpha
