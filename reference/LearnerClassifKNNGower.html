@@ -22,7 +22,7 @@ skipped pairwise in the distance."><!-- mathjax --><script src="https://cdnjs.cl
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.0</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.2</span>
       </span>
     </div>
 
@@ -40,6 +40,9 @@ skipped pairwise in the distance."><!-- mathjax --><script src="https://cdnjs.cl
       <a href="../articles/quickstart.html">Quick Start with mlr3mbspls</a>
     </li>
   </ul></li>
+<li>
+  <a href="../news/index.html">Changelog</a>
+</li>
       </ul><ul class="nav navbar-nav navbar-right"><li>
   <a href="https://github.com/coorsaa/mlr3mbspls/" class="external-link">
     <span class="fab fa-github fa-lg"></span>
@@ -85,8 +88,8 @@ skipped pairwise in the distance.</p>
 and <code>-1 = unseen test level</code> (forces mismatch).</p></li>
 <li><p><strong>Ordered</strong>: integer codes <code>1..L</code> scaled to <code>[0, 1]</code> as
 <code>(code - 1)/(L - 1)</code>; <code>NA</code> skipped pairwise.</p></li>
-</ul><p>If no neighbour has sufficient comparable features, the prediction
-falls back to the <strong>training class priors</strong>.</p>
+</ul><p>If no neighbour has sufficient comparable features, prediction now errors
+explicitly instead of silently reverting to training class priors.</p>
     </div>
     <div id="parameters-in-param-set-">
     <h2>Parameters (in <code>param_set</code>)</h2>

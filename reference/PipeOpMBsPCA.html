@@ -25,7 +25,7 @@ PC&amp;lt;k&amp;gt;_&amp;lt;block&amp;gt;) to the feature table."><!-- mathjax -
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.0</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.2</span>
       </span>
     </div>
 
@@ -43,6 +43,9 @@ PC&amp;lt;k&amp;gt;_&amp;lt;block&amp;gt;) to the feature table."><!-- mathjax -
       <a href="../articles/quickstart.html">Quick Start with mlr3mbspls</a>
     </li>
   </ul></li>
+<li>
+  <a href="../news/index.html">Changelog</a>
+</li>
       </ul><ul class="nav navbar-nav navbar-right"><li>
   <a href="https://github.com/coorsaa/mlr3mbspls/" class="external-link">
     <span class="fab fa-github fa-lg"></span>
@@ -80,14 +83,15 @@ explains no more variance than expected under the null.</p>
     <h2>Value</h2>
 
 <ul><li><p><strong>Training</strong>: appends latent score columns and sets <code>$state</code> as described.</p></li>
-<li><p><strong>Prediction</strong>: appends latent score columns computed from stored weights.</p></li>
+<li><p><strong>Prediction</strong>: appends latent score columns computed from stored weights and,
+if <code>log_env</code> is supplied, writes prediction-side EV payloads.</p></li>
 <li><p><strong>Plot methods</strong>: return a <code>ggplot</code> object.</p></li>
 </ul></div>
     <div id="details">
     <h2>Details</h2>
     <p>Multi-Block Sparse PCA (MB-sPCA) PipeOp</p>
-<p>During training, non-numeric or constant features are silently removed from
-each block. If <code>c_matrix</code> is supplied, its number of columns determines the
+<p>During training, non-numeric or constant features are removed from
+each block before fitting. If no usable block remains, training errors explicitly. If <code>c_matrix</code> is supplied, its number of columns determines the
 maximum number of components (overrides <code>ncomp</code>). Deflation is performed
 block-wise after each component.</p>
     </div>
@@ -113,6 +117,8 @@ within each block.</p></li>
 <li><p><code>ev_comp</code>: numeric vector of total variance explained by each PC.</p></li>
 <li><p><code>T_mat</code>: numeric matrix of appended latent scores (column names match the
 appended features).</p></li>
+<li><p><code>run_id</code>: optional identifier used to match prediction-side payloads to the
+trained fit when a shared <code>log_env</code> is used.</p></li>
 </ul></div>
     <div id="parameters-paramset-">
     <h2>Parameters (ParamSet)</h2>
@@ -129,6 +135,9 @@ to character vectors of feature names.</p></li>
 default <code>sqrt(#features)</code>; tags <code>c("train","tune")</code>): sqrt(L1-budget) for that block.</p></li>
 <li><p><code>c_matrix</code> (<code>uty</code>, default <code>NULL</code>; tags <code>c("train","tune")</code>): optional
 matrix (<code>blocks x components</code>) overriding single-value <code>c_&lt;block&gt;</code> parameters.</p></li>
+<li><p><code>log_env</code> (<code>uty</code>, default <code>NULL</code>; tags <code>c("train","predict")</code>): optional
+environment that stores a training snapshot and prediction-side explained-
+variance payloads for measures and diagnostics.</p></li>
 </ul></div>
     <div id="methods">
     <h2>Methods</h2>

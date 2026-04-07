@@ -26,7 +26,7 @@ This ensures perfect parity with the training/prediction implementation
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.0</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.2</span>
       </span>
     </div>
 
@@ -44,6 +44,9 @@ This ensures perfect parity with the training/prediction implementation
       <a href="../articles/quickstart.html">Quick Start with mlr3mbspls</a>
     </li>
   </ul></li>
+<li>
+  <a href="../news/index.html">Changelog</a>
+</li>
       </ul><ul class="nav navbar-nav navbar-right"><li>
   <a href="https://github.com/coorsaa/mlr3mbspls/" class="external-link">
     <span class="fab fa-github fa-lg"></span>
@@ -97,9 +100,8 @@ The graph's preprocessing will be applied automatically.</p></dd>
 
 <dt id="arg-mbspls-id">mbspls_id<a class="anchor" aria-label="anchor" href="#arg-mbspls-id"></a></dt>
 <dd><p>(<code>character(1)</code> | <code>NULL</code>)<br> Optional id of the MB-sPLS node
-in the graph. If <code>NULL</code> (default), the first node inheriting from
-<code>PipeOpMBsPLS</code> is used. If multiple nodes are present, the first is chosen
-with a warning unless <code>mbspls_id</code> is supplied.</p></dd>
+in the graph. If <code>NULL</code> (default), exactly one node inheriting from
+<code>PipeOpMBsPLS</code> must be present; otherwise an explicit id is required.</p></dd>
 
 </dl></div>
     <div id="value">

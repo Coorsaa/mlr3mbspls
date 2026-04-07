@@ -9,8 +9,8 @@ into dummy columns like "base.level" (e.g., via
 PipeOpEncode(method = "treatment" | "one-hot")), you may keep using the
 base names in blocks (e.g., "MINI_dx"). At $train(), base names are
 expanded to the actual post-encoding columns via regex ^&amp;lt;base&amp;gt;(\.|$).
-The resolved names are stored and reused at prediction; any missing columns are
-filled with zeros.
+The resolved names are stored and reused at prediction; missing trained columns
+now raise an explicit error instead of being synthesized as zeros.
 For classification tasks, Y is internally one-hot encoded (no intercept).
 You can replicate the target block via y_rep to increase its weight in the
 objective.
@@ -34,7 +34,7 @@ parameters plus c_target for the target block.'><!-- mathjax --><script src="htt
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.0</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.2</span>
       </span>
     </div>
 
@@ -52,6 +52,9 @@ parameters plus c_target for the target block.'><!-- mathjax --><script src="htt
       <a href="../articles/quickstart.html">Quick Start with mlr3mbspls</a>
     </li>
   </ul></li>
+<li>
+  <a href="../news/index.html">Changelog</a>
+</li>
       </ul><ul class="nav navbar-nav navbar-right"><li>
   <a href="https://github.com/coorsaa/mlr3mbspls/" class="external-link">
     <span class="fab fa-github fa-lg"></span>
@@ -83,8 +86,8 @@ into dummy columns like <code>"base.level"</code> (e.g., via
 <code>PipeOpEncode(method = "treatment" | "one-hot")</code>), you may keep using the
 <strong>base names</strong> in <code>blocks</code> (e.g., <code>"MINI_dx"</code>). At <code>$train()</code>, base names are
 expanded to the actual post-encoding columns via regex <code>^&lt;base&gt;(\.|$)</code>.
-The resolved names are stored and reused at prediction; any missing columns are
-filled with zeros.</p>
+The resolved names are stored and reused at prediction; missing trained columns
+now raise an explicit error instead of being synthesized as zeros.</p>
 <p>For classification tasks, Y is internally one-hot encoded (no intercept).
 You can replicate the target block via <code>y_rep</code> to increase its weight in the
 objective.</p>
@@ -126,9 +129,9 @@ each X-block.</p>
 
 
 <p>During <code>$predict()</code>, X-scores are computed component-wise with deflation and
-returned as new columns <code>LVk_&lt;block&gt;</code>. The Y-block is not needed. Any
-columns that existed at training but are missing at prediction are created
-as all-zero columns.</p>
+returned as new columns <code>LVk_&lt;block&gt;</code>. The Y-block is not needed. All
+trained X-columns must still be present at prediction time; otherwise the
+operator errors explicitly.</p>
     </div>
     <div id="parameters">
     <h2>Parameters</h2>

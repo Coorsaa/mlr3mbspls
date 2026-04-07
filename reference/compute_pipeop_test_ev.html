@@ -20,7 +20,7 @@ latent correlation on a list of test blocks."><!-- mathjax --><script src="https
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.0</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.2</span>
       </span>
     </div>
 
@@ -38,6 +38,9 @@ latent correlation on a list of test blocks."><!-- mathjax --><script src="https
       <a href="../articles/quickstart.html">Quick Start with mlr3mbspls</a>
     </li>
   </ul></li>
+<li>
+  <a href="../news/index.html">Changelog</a>
+</li>
       </ul><ul class="nav navbar-nav navbar-right"><li>
   <a href="https://github.com/coorsaa/mlr3mbspls/" class="external-link">
     <span class="fab fa-github fa-lg"></span>
@@ -98,9 +101,9 @@ validity mask, and the test score matrix.</p>
 (component-wise) behavior used during training. The correlation method for
 MAC/Frobenius is taken from <code>state$correlation_method</code> when available;
 otherwise it defaults to <code>"pearson"</code>.</p>
-<p>If the state does not contain loadings (<code>state$loadings</code> is <code>NULL</code> or
-empty), <code><a href="compute_test_ev.html">compute_test_ev</a></code> will automatically fall back to
-<code>loading_source = "test_ls"</code> (least-squares loadings on test residuals).</p>
+<p>The wrapper now requires training loadings in <code>state$loadings</code>; if they are
+absent, it errors instead of silently switching to test-derived least-squares
+loadings.</p>
     </div>
 
   </div>

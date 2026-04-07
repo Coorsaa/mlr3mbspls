@@ -4,8 +4,8 @@
 ordered factors with the same encodings as the classification learner.
 Predictions are (optionally inverse-distance) weighted means of the
 neighbour responses; the (weighted) variance provides an approximate
-se when requested. If no eligible neighbours exist, prediction falls
-back to the training mean/variance."><!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js" integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/config/TeX-AMS-MML_HTMLorMML.js" integrity="sha256-84DKXVJXs0/F8OTMzX4UR909+jtl4G7SPypPavF+GfA=" crossorigin="anonymous"></script><!--[if lt IE 9]>
+se when requested. If no eligible neighbours exist, prediction now errors
+explicitly instead of silently reverting to the training mean/variance."><!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js" integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/config/TeX-AMS-MML_HTMLorMML.js" integrity="sha256-84DKXVJXs0/F8OTMzX4UR909+jtl4G7SPypPavF+GfA=" crossorigin="anonymous"></script><!--[if lt IE 9]>
 <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
 <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
 <![endif]--></head><body data-spy="scroll" data-target="#toc">
@@ -23,7 +23,7 @@ back to the training mean/variance."><!-- mathjax --><script src="https://cdnjs.
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.0</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.2</span>
       </span>
     </div>
 
@@ -41,6 +41,9 @@ back to the training mean/variance."><!-- mathjax --><script src="https://cdnjs.
       <a href="../articles/quickstart.html">Quick Start with mlr3mbspls</a>
     </li>
   </ul></li>
+<li>
+  <a href="../news/index.html">Changelog</a>
+</li>
       </ul><ul class="nav navbar-nav navbar-right"><li>
   <a href="https://github.com/coorsaa/mlr3mbspls/" class="external-link">
     <span class="fab fa-github fa-lg"></span>
@@ -67,8 +70,8 @@ back to the training mean/variance."><!-- mathjax --><script src="https://cdnjs.
 ordered factors with the same encodings as the classification learner.
 Predictions are (optionally inverse-distance) <strong>weighted means</strong> of the
 neighbour responses; the (weighted) variance provides an approximate
-<code>se</code> when requested. If no eligible neighbours exist, prediction falls
-back to the training mean/variance.</p>
+<code>se</code> when requested. If no eligible neighbours exist, prediction now errors
+explicitly instead of silently reverting to the training mean/variance.</p>
     </div>
 
 

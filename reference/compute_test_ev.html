@@ -28,7 +28,7 @@ computes explained variance (EV) on test data as a sum-of-squares
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.0</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.2</span>
       </span>
     </div>
 
@@ -46,6 +46,9 @@ computes explained variance (EV) on test data as a sum-of-squares
       <a href="../articles/quickstart.html">Quick Start with mlr3mbspls</a>
     </li>
   </ul></li>
+<li>
+  <a href="../news/index.html">Changelog</a>
+</li>
       </ul><ul class="nav navbar-nav navbar-right"><li>
   <a href="https://github.com/coorsaa/mlr3mbspls/" class="external-link">
     <span class="fab fa-github fa-lg"></span>
@@ -105,14 +108,16 @@ number of rows (samples). Column names are used to align named weights/loadings.
 <dt id="arg-w-all">W_all<a class="anchor" aria-label="anchor" href="#arg-w-all"></a></dt>
 <dd><p><code>list</code>. Component-wise weight vectors learned in training.
 Must be a list of length <code>K</code>; each element is a block-wise list of length
-<code>B</code> containing weight vectors. If a weight vector is named, it is aligned
-to the corresponding block's column names; missing entries are set to zero.</p></dd>
+<code>B</code> containing weight vectors. Named vectors are aligned to the test
+block column names and must cover all trained features; missing entries now
+raise an error instead of being silently zero-filled.</p></dd>
 
 
 <dt id="arg-p-all">P_all<a class="anchor" aria-label="anchor" href="#arg-p-all"></a></dt>
 <dd><p><code>list</code> or <code>NULL</code>. Optional component-wise block loadings.
-Same nesting convention as <code>W_all</code>. If <code>NULL</code> or empty, loadings are
-computed from test data when <code>loading_source = "test_ls"</code>.</p></dd>
+Same nesting convention as <code>W_all</code>. Required when
+<code>loading_source = "train"</code>; otherwise callers must opt into
+<code>loading_source = "test_ls"</code> explicitly.</p></dd>
 
 
 <dt id="arg-deflate">deflate<a class="anchor" aria-label="anchor" href="#arg-deflate"></a></dt>
@@ -139,8 +144,8 @@ objective (and are set to zero).</p></dd>
 
 <dt id="arg-loading-source">loading_source<a class="anchor" aria-label="anchor" href="#arg-loading-source"></a></dt>
 <dd><p><code>character(1)</code> Source of loadings for the rank-1
-deflation step used in out-of-sample EV:</p><ul><li><p><code>"auto"</code> (default): use <code>"train"</code> if <code>P_all</code> is available,
-otherwise fall back to <code>"test_ls"</code>;</p></li>
+deflation step used in out-of-sample EV:</p><ul><li><p><code>"auto"</code> (default): use <code>"train"</code> if <code>P_all</code> is available;
+otherwise error and ask the caller to choose <code>"test_ls"</code> explicitly;</p></li>
 <li><p><code>"train"</code>: use training loadings <code>P_all</code> (strict application of the
 trained model; recommended when available);</p></li>
 <li><p><code>"test_ls"</code>: compute least-squares loadings on the current test residual
@@ -221,8 +226,9 @@ least squares,
 \(p = X^\top t / (t^\top t)\),
 yielding a "weights-only" EV diagnostic (note this uses test data to
 estimate \(p\)).</p></li>
-</ul><p>If <code>P_all</code> is <code>NULL</code> or empty, the function automatically falls back
-to <code>"test_ls"</code>.</p>
+</ul><p>If <code>P_all</code> is <code>NULL</code> or empty, callers must choose
+<code>loading_source = "test_ls"</code> explicitly; <code>"auto"</code> now errors
+instead of silently changing the diagnostic definition.</p>
 <p><strong>Latent correlation (MAC/Frobenius).</strong>
 For each component, the function computes pairwise correlations between block
 score vectors \(t_b^{(k)}\) using <code><a href="https://rdrr.io/r/stats/cor.html" class="external-link">stats::cor</a></code> with

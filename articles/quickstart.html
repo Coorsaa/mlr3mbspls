@@ -32,7 +32,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.0</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.2</span>
       </span>
     </div>
 
@@ -52,6 +52,9 @@
       <a href="../articles/quickstart.html">Quick Start with mlr3mbspls</a>
     </li>
   </ul>
+</li>
+<li>
+  <a href="../news/index.html">Changelog</a>
 </li>
       </ul>
 <ul class="nav navbar-nav navbar-right">
@@ -78,7 +81,7 @@
                         <h4 data-toc-skip class="author">Stefan Coors,
 Clara Vetter</h4>
             
-            <h4 data-toc-skip class="date">2026-03-30</h4>
+            <h4 data-toc-skip class="date">2026-04-07</h4>
       
       <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/vignettes/quickstart.Rmd" class="external-link"><code>vignettes/quickstart.Rmd</code></a></small>
       <div class="hidden name"><code>quickstart.Rmd</code></div>
@@ -116,6 +119,37 @@ session.</li>
 </div>
 <div class="section level2">
 <h2 id="setup">Setup<a class="anchor" aria-label="anchor" href="#setup"></a>
+</h2>
+</div>
+<div class="section level2">
+<h2 id="goal-1">Goal<a class="anchor" aria-label="anchor" href="#goal-1"></a>
+</h2>
+<p>This vignette shows a straightforward, script-style MB-sPLS
+workflow:</p>
+<ul>
+<li>Uses the packaged synthetic <code>TaskMultiBlock</code>
+<code>mbspls_synthetic_blocks</code>.</li>
+<li>Notes the matching supervised toy tasks
+<code>mbspls_synthetic_classif</code> and
+<code>mbspls_synthetic_regr</code>.</li>
+<li>Generic naming only.</li>
+<li>No helper function definitions.</li>
+<li>Sequential objects that are easy to inspect in an interactive R
+session.</li>
+</ul>
+<p>The sequence mirrors a typical analysis run:</p>
+<ol style="list-style-type: decimal">
+<li>Load the packaged synthetic multi-block task.</li>
+<li>Reuse its block mapping and define site correction.</li>
+<li>Clone the analysis task.</li>
+<li>Run nested CV.</li>
+<li>Retune <code>c_matrix</code> on all rows.</li>
+<li>Fit final raw/stability modes.</li>
+<li>Save outputs.</li>
+</ol>
+</div>
+<div class="section level2">
+<h2 id="setup-1">Setup<a class="anchor" aria-label="anchor" href="#setup-1"></a>
 </h2>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3.mlr-org.com" class="external-link">mlr3</a></span><span class="op">)</span></span>
@@ -161,23 +195,36 @@ stored block mapping.</p>
 <span><span class="va">blocks</span></span></code></pre></div>
 </div>
 <div class="section level2">
-<h2 id="define-site-correction">2) Define Site Correction<a class="anchor" aria-label="anchor" href="#define-site-correction"></a>
+<h2 id="inspect-task-quality">2) Inspect Task Quality<a class="anchor" aria-label="anchor" href="#inspect-task-quality"></a>
+</h2>
+<p>Before fitting any model, run a quick QC summary once. This is
+especially helpful in multi-omics, clinical, neuroimaging, and
+socioeconomic workflows where block imbalance or missingness may drive
+downstream results.</p>
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">qc</span> <span class="op">=</span> <span class="va">task_source</span><span class="op">$</span><span class="fu">overview</span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="va">qc</span><span class="op">$</span><span class="va">overview</span></span>
+<span><span class="va">qc</span><span class="op">$</span><span class="va">blocks</span></span>
+<span><span class="va">qc</span><span class="op">$</span><span class="va">issues</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="define-site-correction">3) Define Site Correction<a class="anchor" aria-label="anchor" href="#define-site-correction"></a>
 </h2>
 <p>The block assignment already lives on the task, so only the
 site-correction policy needs to be declared here.</p>
-<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">site_correction</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>block_a <span class="op">=</span> <span class="st">"site_batch"</span>, block_b <span class="op">=</span> <span class="st">"site_batch"</span>, block_c <span class="op">=</span> <span class="st">"site_batch"</span><span class="op">)</span></span>
 <span><span class="va">site_correction_methods</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>block_a <span class="op">=</span> <span class="st">"partial_corr"</span>, block_b <span class="op">=</span> <span class="st">"partial_corr"</span>, block_c <span class="op">=</span> <span class="st">"partial_corr"</span><span class="op">)</span></span>
 <span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/lengths.html" class="external-link">lengths</a></span><span class="op">(</span><span class="va">blocks</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
-<h2 id="clone-the-clustering-task">3) Clone the Clustering Task<a class="anchor" aria-label="anchor" href="#clone-the-clustering-task"></a>
+<h2 id="clone-the-clustering-task">4) Clone the Clustering Task<a class="anchor" aria-label="anchor" href="#clone-the-clustering-task"></a>
 </h2>
 <p>The packaged synthetic object is already a
 <code>TaskMultiBlock</code>, so for analysis you can usually just clone
 it.</p>
-<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">task_train</span> <span class="op">=</span> <span class="fu"><a href="../reference/as_task_multiblock.html">TaskMultiBlock</a></span><span class="op">(</span></span>
 <span>  <span class="va">task_source</span>,</span>
 <span>  id <span class="op">=</span> <span class="st">"mbspls_synthetic_blocks_analysis"</span></span>
@@ -187,12 +234,12 @@ it.</p>
 <span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">task_train</span><span class="op">$</span><span class="va">feature_names</span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
-<h2 id="nested-cv-primary-validation">4) Nested CV (Primary Validation)<a class="anchor" aria-label="anchor" href="#nested-cv-primary-validation"></a>
+<h2 id="nested-cv-primary-validation">5) Nested CV (Primary Validation)<a class="anchor" aria-label="anchor" href="#nested-cv-primary-validation"></a>
 </h2>
 <p>This stage performs the primary inferential validation. Bootstrap
 selection is intentionally disabled here to evaluate core model
 generalization under nested resampling.</p>
-<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">gl_nested</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3pipelines.mlr-org.com/reference/ppl.html" class="external-link">ppl</a></span><span class="op">(</span></span>
 <span>  <span class="st">"mbspls_graph_learner"</span>,</span>
 <span>  learner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"clust.kmeans"</span>, centers <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">centers</span><span class="op">)</span>,</span>
@@ -234,12 +281,12 @@ generalization under nested resampling.</p>
 inspected before any final-model interpretation.</p>
 </div>
 <div class="section level2">
-<h2 id="retune-c_matrix-on-all-rows">5) Retune c_matrix on All Rows<a class="anchor" aria-label="anchor" href="#retune-c_matrix-on-all-rows"></a>
+<h2 id="retune-c_matrix-on-all-rows">6) Retune c_matrix on All Rows<a class="anchor" aria-label="anchor" href="#retune-c_matrix-on-all-rows"></a>
 </h2>
 <p>After nested validation, retune on the full training task to obtain a
 single final sparsity pattern (<code>c_matrix_final</code>). This matrix
 is then reused across all final modes for comparability.</p>
-<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">gl_tune</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3pipelines.mlr-org.com/reference/ppl.html" class="external-link">ppl</a></span><span class="op">(</span></span>
 <span>  <span class="st">"mbspls_graph_learner"</span>,</span>
 <span>  learner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"clust.kmeans"</span>, centers <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">centers</span><span class="op">)</span>,</span>
@@ -280,9 +327,12 @@ is then reused across all final modes for comparability.</p>
 <p>At this point, <code>c_matrix_final</code> is the most important
 object to inspect. It controls feature sparsity per block and per
 component in the final fits.</p>
+<p>For supervised analyses, the package also provides
+<code><a href="../reference/mbspls_model_summary.html">mbspls_model_summary()</a></code> to extract compact reporting tables
+from fitted MB-sPLS, MB-sPLS-XY, or MB-sPCA models.</p>
 </div>
 <div class="section level2">
-<h2 id="final-fits-raw-stable_ci-stable_frequency">6) Final Fits (raw / stable_ci / stable_frequency)<a class="anchor" aria-label="anchor" href="#final-fits-raw-stable_ci-stable_frequency"></a>
+<h2 id="final-fits-raw-stable_ci-stable_frequency">7) Final Fits (raw / stable_ci / stable_frequency)<a class="anchor" aria-label="anchor" href="#final-fits-raw-stable_ci-stable_frequency"></a>
 </h2>
 <p>Final fitting creates three representations:</p>
 <ul>
@@ -296,7 +346,7 @@ weights</li>
 </ul>
 <p>Bootstrap selection is only activated here, where stability-oriented
 reporting is expected.</p>
-<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">output_dir</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span></span>
 <span>  <span class="st">"analysis_results"</span>,</span>
 <span>  <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/format.html" class="external-link">format</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/Sys.time.html" class="external-link">Sys.time</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"%Y%m%d_%H%M%S"</span><span class="op">)</span>, <span class="st">"_MBSPLS_SYNTHETIC_BLOCKS"</span><span class="op">)</span></span>
@@ -379,7 +429,7 @@ clustering.</p>
 reproducibility and downstream reporting. Saving
 <code>session_info.txt</code> helps track package versions and runtime
 context.</p>
-<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">nested_dir</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">output_dir</span>, <span class="st">"nested_cv"</span><span class="op">)</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/files2.html" class="external-link">dir.create</a></span><span class="op">(</span><span class="va">nested_dir</span>, recursive <span class="op">=</span> <span class="cn">TRUE</span>, showWarnings <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
 <span></span>
