@@ -56,6 +56,42 @@ test_that("mbspls_model_summary formats MB-sPCA states", {
 })
 
 
+test_that("mb_named_ev_block aligns named matrices and rejects unknown names", {
+  ev_block = matrix(
+    c(1, 2, 3, 4),
+    nrow = 2L,
+    byrow = TRUE,
+    dimnames = list(c("LC_02", "LC_01"), c("block_b", "block_a"))
+  )
+
+  aligned = mb_named_ev_block(
+    ev_block = ev_block,
+    component_names = c("LC_01", "LC_02"),
+    block_names = c("block_a", "block_b")
+  )
+
+  expect_equal(unname(aligned["LC_01", "block_a"]), 4)
+  expect_equal(unname(aligned["LC_01", "block_b"]), 3)
+  expect_equal(unname(aligned["LC_02", "block_a"]), 2)
+  expect_equal(unname(aligned["LC_02", "block_b"]), 1)
+
+  bad_ev_block = matrix(
+    1,
+    nrow = 1L,
+    dimnames = list("LC_01", "block_c")
+  )
+
+  expect_error(
+    mb_named_ev_block(
+      ev_block = bad_ev_block,
+      component_names = c("LC_01"),
+      block_names = c("block_a")
+    ),
+    "unknown block names"
+  )
+})
+
+
 test_that("mbspls_model_summary formats MB-sPLS-XY states including target weights", {
   blocks = list(block_a = c("a1", "a2"), block_b = c("b1"))
   po = PipeOpMBsPLSXY$new(blocks = blocks, param_vals = list(ncomp = 1L))

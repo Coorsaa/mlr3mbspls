@@ -2,6 +2,8 @@ utils::globalVariables(
   c(
     ".",
     ".data",
+    "mbspls_metric_summary_row",
+    "mbspls_nested_cv_result_row",
     "abs_m",
     "alpha_freq",
     "alpha_plot",

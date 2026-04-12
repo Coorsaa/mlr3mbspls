@@ -173,6 +173,12 @@ log_env_store_state = function(log_env, payload, warn_overwrite = TRUE) {
     stop("log_env_store_state: 'payload' must be a list.", call. = FALSE)
   }
 
+  env_warn_overwrite = log_env$warn_overwrite
+  if (is.null(env_warn_overwrite)) {
+    env_warn_overwrite = TRUE
+  }
+  warn_overwrite = isTRUE(warn_overwrite) && isTRUE(env_warn_overwrite)
+
   if (is.null(payload$run_id) || !nzchar(as.character(payload$run_id))) {
     payload$run_id = make_run_id("mbspls", log_env)
   }

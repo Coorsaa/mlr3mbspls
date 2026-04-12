@@ -50,6 +50,22 @@ test_that("MB-sPLS EV-weighted MAC uses positive-part EV weights and errors with
     mbspls_measure_score_from_payload(payload_all_nonpos, "mbspls.mac_evwt"),
     "no component has positive finite prediction-side explained variance"
   )
+
+  err = tryCatch(
+    mbspls_measure_score_from_payload(payload_all_nonpos, "mbspls.mac_evwt"),
+    error = function(e) e
+  )
+  expect_s3_class(err, "mbspls_undefined_measure_score")
+
+  diag = mbspls_measure_score_diagnostics(payload_all_nonpos, "mbspls.mac_evwt")
+  expect_true(is.na(diag$score))
+  expect_false(diag$defined)
+  expect_identical(diag$reason, "nonpositive_ev")
+  expect_match(diag$message, "undefined")
+
+  diag_ok = mbspls_measure_score_diagnostics(payload_pos, "mbspls.mac_evwt")
+  expect_true(diag_ok$defined)
+  expect_equal(diag_ok$score, 0.8)
 })
 
 

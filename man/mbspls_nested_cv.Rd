@@ -56,11 +56,13 @@ mbspls_nested_cv(
 \value{
 list with:
 \itemize{
-\item results: data.table with per-outer-split summary (inner_score, test MACs, etc.)
+\item results: data.table with per-outer-split summary (inner_score, test MACs,
+and EV-weighted-MAC status columns \code{mac_evwt_defined} / \code{mac_evwt_status})
 \item c_mats: list of tuned C* matrices per outer split
 \item inner_scores: numeric vector of best inner-CV scores (one per outer split)
 \item payloads: (optional) list of PipeOp logging payloads for each outer test
-\item summary_table: data.table with aggregated metrics across outer splits
+\item summary_table: data.table with aggregated metrics across outer splits,
+including \code{n_total}, \code{n_defined}, and \code{n_failed}
 }
 }
 \description{

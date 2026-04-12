@@ -2,6 +2,88 @@
 # Batchtools: run each OUTER fold of mbspls_nested_cv() as a separate job
 # -----------------------------------------------------------------------------
 
+.mbspls_nested_cv_result_row_batch = function(split_id, inner_score, payload, performance_metric, c_star = NULL) {
+  if (is.null(payload)) {
+    return(data.table::data.table(
+      split = split_id,
+      inner_score = inner_score,
+      mac_lv1_test = NA_real_,
+      mac_evwt_test = NA_real_,
+      mac_evwt_defined = FALSE,
+      mac_evwt_status = "Prediction payload is missing.",
+      ncomp_kept = if (is.null(c_star)) NA_integer_ else ncol(c_star),
+      perf_metric = performance_metric,
+      val_p_last = NA_real_
+    ))
+  }
+
+  mac = as.numeric(payload$mac_comp %||% numeric())
+  vp = payload$val_test_p %||% payload$val_perm_p
+  vs = payload$val_test_stat %||% NULL
+  score_info = mbspls_measure_score_diagnostics(payload, "mbspls.mac_evwt")
+
+  data.table::data.table(
+    split = split_id,
+    inner_score = inner_score,
+    mac_lv1_test = if (length(mac)) mac[1L] else NA_real_,
+    mac_evwt_test = score_info$score,
+    mac_evwt_defined = isTRUE(score_info$defined),
+    mac_evwt_status = if (isTRUE(score_info$defined)) NA_character_ else as.character(score_info$message %||% "Measure 'mbspls.mac_evwt' returned a non-finite score."),
+    ncomp_kept = if (length(mac)) length(mac) else if (is.null(c_star)) NA_integer_ else ncol(c_star),
+    perf_metric = payload$perf_metric %||% performance_metric,
+    val_p_last = if (!is.null(vp)) as.numeric(utils::tail(vp, 1L)) else NA_real_,
+    val_p_all = list(vp),
+    val_stat_all = list(vs)
+  )
+}
+
+
+.mbspls_metric_summary_batch = function(x) {
+  x = as.numeric(x)
+  n_total = length(x)
+  finite = x[is.finite(x)]
+  n_defined = length(finite)
+  n_failed = n_total - n_defined
+
+  if (!n_defined) {
+    return(data.table::data.table(
+      mean = NA_real_,
+      sd = NA_real_,
+      median = NA_real_,
+      q05 = NA_real_,
+      q95 = NA_real_,
+      min = NA_real_,
+      max = NA_real_,
+      n = 0L,
+      n_total = n_total,
+      n_defined = n_defined,
+      n_failed = n_failed
+    ))
+  }
+
+  data.table::data.table(
+    mean = mean(finite),
+    sd = stats::sd(finite),
+    median = stats::median(finite),
+    q05 = as.numeric(stats::quantile(finite, 0.05)),
+    q95 = as.numeric(stats::quantile(finite, 0.95)),
+    min = min(finite),
+    max = max(finite),
+    n = n_defined,
+    n_total = n_total,
+    n_defined = n_defined,
+    n_failed = n_failed
+  )
+}
+
+
+.mbspls_metric_summary_row_batch = function(label, x) {
+  cbind(
+    data.table::data.table(metric = label),
+    .mbspls_metric_summary_batch(x)
+  )
+}
+
 # internal job function (one OUTER fold)
 .mbspls_outer_job = function(
   train_idx, test_idx, split_id,
@@ -79,33 +161,13 @@
   payload = log_env_te$last
 
   # fold summary row (identical fields to your function)
-  if (is.null(payload)) {
-    res_row = data.table::data.table(
-      split          = split_id,
-      inner_score    = inner_score,
-      mac_lv1_test   = NA_real_,
-      mac_evwt_test  = NA_real_,
-      ncomp_kept     = if (is.null(c_star)) NA_integer_ else ncol(c_star),
-      perf_metric    = performance_metric,
-      val_p_last     = NA_real_
-    )
-  } else {
-    mac = as.numeric(or_null(payload$mac_comp, NA_real_))
-    vp = or_null(payload$val_test_p, payload$val_perm_p) # backward compat
-    vs = or_null(payload$val_test_stat, NULL)
-
-    res_row = data.table::data.table(
-      split          = split_id,
-      inner_score    = inner_score,
-      mac_lv1_test   = mac[1],
-      mac_evwt_test  = mbspls_measure_score_from_payload(payload, "mbspls.mac_evwt"),
-      ncomp_kept     = length(mac),
-      perf_metric    = or_null(payload$perf_metric, performance_metric),
-      val_p_last     = if (!is.null(vp)) as.numeric(utils::tail(vp, 1L)) else NA_real_,
-      val_p_all      = list(vp),
-      val_stat_all   = list(vs)
-    )
-  }
+  res_row = .mbspls_nested_cv_result_row_batch(
+    split_id = split_id,
+    inner_score = inner_score,
+    payload = payload,
+    performance_metric = performance_metric,
+    c_star = c_star
+  )
 
   list(
     result_row  = res_row,
@@ -240,13 +302,15 @@ mbspls_nested_cv_batchtools = function(
 #' @param reg A `batchtools` registry object returned by
 #'   `mbspls_nested_cv_batchtools()`.
 #' @return A list containing:
-#'   - `results`: A data.table with the results from each outer fold.
+#'   - `results`: A data.table with the results from each outer fold, including
+#'     `mac_evwt_defined` and `mac_evwt_status`.
 #'   - `c_mats`: A list of the tuned C* matrices from each outer fold.
 #'   - `inner_scores`: A numeric vector of the best inner cross-validation
 #'     scores from each outer fold.
 #'   - `payloads`: (optional) A list of the full payloads from each outer fold
 #'     (if `store_payload = TRUE` was set).
-#'   - `summary_table`: A data.table with summary statistics across all outer folds.
+#'   - `summary_table`: A data.table with summary statistics across all outer folds,
+#'     including `n_total`, `n_defined`, and `n_failed`.
 #' @seealso `mbspls_nested_cv_batchtools()`
 #' @import data.table
 #' @importFrom lgr lgr
@@ -269,25 +333,10 @@ collect_mbspls_nested_cv = function(ids = NULL, reg) {
   payloads = lapply(res_list, `[[`, "payload")
 
   # pretty summary table (same schema you used)
-  .summ = function(x) {
-    x = as.numeric(x)
-    data.table::data.table(
-      mean   = mean(x, na.rm = TRUE),
-      sd     = stats::sd(x, na.rm = TRUE),
-      median = stats::median(x, na.rm = TRUE),
-      q05    = as.numeric(stats::quantile(x, 0.05, na.rm = TRUE)),
-      q95    = as.numeric(stats::quantile(x, 0.95, na.rm = TRUE)),
-      min    = suppressWarnings(min(x, na.rm = TRUE)),
-      max    = suppressWarnings(max(x, na.rm = TRUE)),
-      n      = sum(is.finite(x))
-    )
-  }
-  row = function(label, x) cbind(data.table::data.table(metric = label), .summ(x))
-
   summary_table = data.table::rbindlist(list(
-    row("MAC (LV1)", results$mac_lv1_test),
-    row("EV-weighted MAC (all LCs)", results$mac_evwt_test),
-    row("# components retained", results$ncomp_kept)
+    .mbspls_metric_summary_row_batch("MAC (LV1)", results$mac_lv1_test),
+    .mbspls_metric_summary_row_batch("EV-weighted MAC (all LCs)", results$mac_evwt_test),
+    .mbspls_metric_summary_row_batch("# components retained", results$ncomp_kept)
   ), use.names = TRUE, fill = TRUE)
 
   out = list(

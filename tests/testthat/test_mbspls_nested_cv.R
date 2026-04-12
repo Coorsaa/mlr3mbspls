@@ -13,8 +13,9 @@ test_that("mbspls_nested_cv does not mutate the supplied GraphLearner", {
   expect_null(gl$model)
   expect_null(gl$graph$pipeops[[mbspls_id]]$param_set$values$c_matrix)
 
+  res = NULL
   expect_no_error(
-    mbspls_nested_cv(
+    res <- mbspls_nested_cv(
       task = task,
       graphlearner = gl,
       rs_outer = mlr3::rsmp("holdout"),
@@ -27,6 +28,10 @@ test_that("mbspls_nested_cv does not mutate the supplied GraphLearner", {
       store_payload = FALSE
     )
   )
+
+  expect_true(all(c("mac_evwt_defined", "mac_evwt_status") %in% names(res$results)))
+  expect_true(all(c("n_total", "n_defined", "n_failed") %in% names(res$summary_table)))
+  expect_equal(unique(res$summary_table$n_total), 1L)
 
   expect_null(gl$model)
   expect_null(gl$graph$pipeops[[mbspls_id]]$param_set$values$c_matrix)
