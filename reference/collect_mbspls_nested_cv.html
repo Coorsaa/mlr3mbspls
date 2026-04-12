@@ -21,7 +21,7 @@ results. It also computes summary statistics across all outer folds."><!-- mathj
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.2</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.3</span>
       </span>
     </div>
 
@@ -58,7 +58,7 @@ results. It also computes summary statistics across all outer folds."><!-- mathj
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>Collect and summarize results from MB-sPLS nested CV Batchtools jobs</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.3.2/R/mbspls_nested_cv_batch.R" class="external-link"><code>R/mbspls_nested_cv_batch.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/mbspls_nested_cv_batch.R" class="external-link"><code>R/mbspls_nested_cv_batch.R</code></a></small>
     <div class="hidden name"><code>collect_mbspls_nested_cv.Rd</code></div>
     </div>
 
@@ -89,13 +89,15 @@ results. It also computes summary statistics across all outer folds.</p>
 </dl></div>
     <div id="value">
     <h2>Value</h2>
-    <p>A list containing:</p><ul><li><p><code>results</code>: A data.table with the results from each outer fold.</p></li>
+    <p>A list containing:</p><ul><li><p><code>results</code>: A data.table with the results from each outer fold, including
+<code>mac_evwt_defined</code> and <code>mac_evwt_status</code>.</p></li>
 <li><p><code>c_mats</code>: A list of the tuned C* matrices from each outer fold.</p></li>
 <li><p><code>inner_scores</code>: A numeric vector of the best inner cross-validation
 scores from each outer fold.</p></li>
 <li><p><code>payloads</code>: (optional) A list of the full payloads from each outer fold
 (if <code>store_payload = TRUE</code> was set).</p></li>
-<li><p><code>summary_table</code>: A data.table with summary statistics across all outer folds.</p></li>
+<li><p><code>summary_table</code>: A data.table with summary statistics across all outer folds,
+including <code>n_total</code>, <code>n_defined</code>, and <code>n_failed</code>.</p></li>
 </ul></div>
     <div id="see-also">
     <h2>See also</h2>
