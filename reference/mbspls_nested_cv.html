@@ -57,7 +57,7 @@ returning a summary of results."><!-- mathjax --><script src="https://cdnjs.clou
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>Nested CV for unsupervised MB-sPLS</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.3.3/R/mbspls_nested_cv.R" class="external-link"><code>R/mbspls_nested_cv.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/mbspls_nested_cv.R" class="external-link"><code>R/mbspls_nested_cv.R</code></a></small>
     <div class="hidden name"><code>mbspls_nested_cv.Rd</code></div>
     </div>
 
@@ -78,6 +78,7 @@ returning a summary of results.</p>
 <span>  <span class="va">tuner_budget</span>,</span>
 <span>  tuning_early_stop <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  performance_metric <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"mac"</span>, <span class="st">"frobenius"</span><span class="op">)</span>,</span>
+<span>  measure <span class="op">=</span> <span class="fu">mlr3</span><span class="fu">::</span><span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">msr</a></span><span class="op">(</span><span class="st">"mbspls.mac_evwt"</span><span class="op">)</span>,</span>
 <span>  val_test <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"none"</span>, <span class="st">"permutation"</span>, <span class="st">"bootstrap"</span><span class="op">)</span>,</span>
 <span>  val_test_n <span class="op">=</span> <span class="fl">1000L</span>,</span>
 <span>  val_test_alpha <span class="op">=</span> <span class="fl">0.05</span>,</span>
@@ -124,6 +125,13 @@ returning a summary of results.</p>
 <dd><p>"mac" or "frobenius" for the latent correlation.</p></dd>
 
 
+<dt id="arg-measure">measure<a class="anchor" aria-label="anchor" href="#arg-measure"></a></dt>
+<dd><p><a href="https://mlr3.mlr-org.com/reference/Measure.html" class="external-link">mlr3::Measure</a> or character(1). The package MB-sPLS measure
+used for inner tuning and aligned outer-fold scoring. Must resolve to one of
+<code>mbspls.mac_evwt</code>, <code>mbspls.mac</code>, <code>mbspls.ev</code>, or <code>mbspls.block_ev</code>.
+<code>mbspls.mac_evwt</code> remains the default for backward compatibility.</p></dd>
+
+
 <dt id="arg-val-test">val_test<a class="anchor" aria-label="anchor" href="#arg-val-test"></a></dt>
 <dd><p>"none", "permutation", or "bootstrap" - run on OUTER test.</p></dd>
 
@@ -154,14 +162,36 @@ returning a summary of results.</p>
 </dl></div>
     <div id="value">
     <h2>Value</h2>
-    <p>list with:</p><ul><li><p>results: data.table with per-outer-split summary (inner_score, test MACs,
-and EV-weighted-MAC status columns <code>mac_evwt_defined</code> / <code>mac_evwt_status</code>)</p></li>
+    <p>list with:</p><ul><li><p>results: data.table with per-outer-split summary, including the selected
+objective (<code>measure_id</code>, <code>measure_key</code>, <code>measure_test</code>,
+<code>measure_test_defined</code>, <code>measure_test_status</code>) plus secondary diagnostics
+such as <code>mac_lv1_test</code> and <code>mac_evwt_test</code></p></li>
 <li><p>c_mats: list of tuned C* matrices per outer split</p></li>
 <li><p>inner_scores: numeric vector of best inner-CV scores (one per outer split)</p></li>
 <li><p>payloads: (optional) list of PipeOp logging payloads for each outer test</p></li>
 <li><p>summary_table: data.table with aggregated metrics across outer splits,
 including <code>n_total</code>, <code>n_defined</code>, and <code>n_failed</code></p></li>
 </ul></div>
+    <div id="details">
+    <h2>Details</h2>
+    <p><code>performance_metric</code> and <code>measure</code> operate at different layers of the
+procedure.</p>
+<p><code>performance_metric</code> controls the direct objective optimized inside the
+MB-sPLS C++ fitting routine when each latent component is estimated. It
+therefore changes how the component weights are fitted (<code>"mac"</code> or
+<code>"frobenius"</code>).</p>
+<p><code>measure</code> controls model selection across candidate sparsity settings and
+across resampling folds on held-out data. It therefore acts as an indirect
+outer optimization criterion for tuning and evaluation.</p>
+<p>Choosing <code>measure = "mbspls.ev"</code> or <code>measure = "mbspls.block_ev"</code> does not
+make the underlying MB-sPLS algorithm optimize explained variance directly.
+It selects among models that were still fitted with the chosen
+<code>performance_metric</code>, using an EV-based validation criterion.</p>
+<p>For most analyses, <code>performance_metric = "mac"</code> with
+<code>measure = "mbspls.mac_evwt"</code> remains the most natural default because it
+combines direct latent-correlation fitting with held-out selection that also
+downweights components lacking positive prediction-side explained variance.</p>
+    </div>
 
   </div>
   <div class="col-md-3 hidden-xs hidden-sm" id="pkgdown-sidebar">
