@@ -240,6 +240,14 @@ rs_outer$instantiate(task_train)
 
 This is the primary inferential validation stage.
 
+Important: `performance_metric` and `measure` are not the same thing.
+`performance_metric` controls the direct objective used inside the MB-sPLS
+fitting routine for each component (`"mac"` or `"frobenius"`). `measure`
+controls the indirect held-out selection criterion used by tuning and nested CV.
+For example, `measure = msr("mbspls.ev")` selects among MAC/Frobenius-fitted
+models using validation EV; it does not make the underlying C++ fitting routine
+optimize EV directly.
+
 ```r
 res_nested <- mbspls_nested_cv(
   task = task_train,
@@ -540,6 +548,12 @@ rr$aggregate(ms)
 
 
 ## Nested Cross-Validation
+
+`performance_metric` defines the direct component-fitting objective inside the
+MB-sPLS algorithm. `measure` defines the outer model-selection criterion on
+held-out data. They can be chosen separately. For most analyses,
+`performance_metric = "mac"` with the default `measure = msr("mbspls.mac_evwt")`
+is the most natural choice.
 
 ```r
 library(mlr3tuning)

@@ -12,6 +12,7 @@ mbspls_nested_cv_batchtools(
   ncomp,
   tuner_budget,
   tuning_early_stop = TRUE,
+  measure = mlr3::msr("mbspls.mac_evwt"),
   performance_metric = c("mac", "frobenius"),
   val_test = c("none", "permutation", "bootstrap"),
   val_test_n = 1000L,
@@ -42,6 +43,11 @@ mbspls_nested_cv_batchtools(
 
 \item{tuning_early_stop}{Logical, whether to stop tuning early if
 non-significant components are found.}
+
+\item{measure}{\link[mlr3:Measure]{mlr3::Measure} or character(1). The package MB-sPLS measure
+used for inner tuning and aligned outer-fold scoring. Must resolve to one of
+\code{mbspls.mac_evwt}, \code{mbspls.mac}, \code{mbspls.ev}, or \code{mbspls.block_ev}.
+\code{mbspls.mac_evwt} remains the default for backward compatibility.}
 
 \item{performance_metric}{Character, performance metric to optimize
 ("mac" or "frobenius").}
@@ -88,4 +94,22 @@ This function performs nested cross-validation for MB-sPLS using the
 Each outer fold is processed in a separate job, which tunes the MB-sPLS
 model on the inner folds and evaluates it on the outer test fold.
 The results are collected and summarized after all jobs are completed.
+}
+\details{
+\code{performance_metric} and \code{measure} operate at different layers of the
+procedure.
+
+\code{performance_metric} controls the direct objective optimized inside the
+MB-sPLS C++ fitting routine when each latent component is estimated. It
+therefore changes how the component weights are fitted (\code{"mac"} or
+\code{"frobenius"}).
+
+\code{measure} controls model selection across candidate sparsity settings and
+across resampling folds on held-out data. It therefore acts as an indirect
+outer optimization criterion for tuning and evaluation.
+
+Choosing \code{measure = "mbspls.ev"} or \code{measure = "mbspls.block_ev"} does not
+make the underlying MB-sPLS algorithm optimize explained variance directly.
+It selects among models that were still fitted with the chosen
+\code{performance_metric}, using an EV-based validation criterion.
 }

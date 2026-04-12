@@ -13,6 +13,7 @@ mbspls_nested_cv(
   tuner_budget,
   tuning_early_stop = TRUE,
   performance_metric = c("mac", "frobenius"),
+  measure = mlr3::msr("mbspls.mac_evwt"),
   val_test = c("none", "permutation", "bootstrap"),
   val_test_n = 1000L,
   val_test_alpha = 0.05,
@@ -39,6 +40,11 @@ mbspls_nested_cv(
 
 \item{performance_metric}{"mac" or "frobenius" for the latent correlation.}
 
+\item{measure}{\link[mlr3:Measure]{mlr3::Measure} or character(1). The package MB-sPLS measure
+used for inner tuning and aligned outer-fold scoring. Must resolve to one of
+\code{mbspls.mac_evwt}, \code{mbspls.mac}, \code{mbspls.ev}, or \code{mbspls.block_ev}.
+\code{mbspls.mac_evwt} remains the default for backward compatibility.}
+
 \item{val_test}{"none", "permutation", or "bootstrap" - run on OUTER test.}
 
 \item{val_test_n}{integer, permutations/boot reps on OUTER test.}
@@ -56,8 +62,10 @@ mbspls_nested_cv(
 \value{
 list with:
 \itemize{
-\item results: data.table with per-outer-split summary (inner_score, test MACs,
-and EV-weighted-MAC status columns \code{mac_evwt_defined} / \code{mac_evwt_status})
+\item results: data.table with per-outer-split summary, including the selected
+objective (\code{measure_id}, \code{measure_key}, \code{measure_test},
+\code{measure_test_defined}, \code{measure_test_status}) plus secondary diagnostics
+such as \code{mac_lv1_test} and \code{mac_evwt_test}
 \item c_mats: list of tuned C* matrices per outer split
 \item inner_scores: numeric vector of best inner-CV scores (one per outer split)
 \item payloads: (optional) list of PipeOp logging payloads for each outer test
@@ -70,4 +78,27 @@ Perform nested cross-validation for unsupervised multi-block sparse PLS
 (MB-sPLS) using a specified resampling strategy.
 This function tunes the model on inner folds and evaluates it on outer folds,
 returning a summary of results.
+}
+\details{
+\code{performance_metric} and \code{measure} operate at different layers of the
+procedure.
+
+\code{performance_metric} controls the direct objective optimized inside the
+MB-sPLS C++ fitting routine when each latent component is estimated. It
+therefore changes how the component weights are fitted (\code{"mac"} or
+\code{"frobenius"}).
+
+\code{measure} controls model selection across candidate sparsity settings and
+across resampling folds on held-out data. It therefore acts as an indirect
+outer optimization criterion for tuning and evaluation.
+
+Choosing \code{measure = "mbspls.ev"} or \code{measure = "mbspls.block_ev"} does not
+make the underlying MB-sPLS algorithm optimize explained variance directly.
+It selects among models that were still fitted with the chosen
+\code{performance_metric}, using an EV-based validation criterion.
+
+For most analyses, \code{performance_metric = "mac"} with
+\code{measure = "mbspls.mac_evwt"} remains the most natural default because it
+combines direct latent-correlation fitting with held-out selection that also
+downweights components lacking positive prediction-side explained variance.
 }

@@ -16,7 +16,9 @@ collect_mbspls_nested_cv(ids = NULL, reg)
 A list containing:
 \itemize{
 \item \code{results}: A data.table with the results from each outer fold, including
-\code{mac_evwt_defined} and \code{mac_evwt_status}.
+the selected objective (\code{measure_id}, \code{measure_key}, \code{measure_test},
+\code{measure_test_defined}, \code{measure_test_status}) plus secondary diagnostics
+such as \code{mac_lv1_test} and \code{mac_evwt_test}.
 \item \code{c_mats}: A list of the tuned C* matrices from each outer fold.
 \item \code{inner_scores}: A numeric vector of the best inner cross-validation
 scores from each outer fold.
