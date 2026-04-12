@@ -58,7 +58,7 @@ The results are collected and summarized after all jobs are completed."><!-- mat
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>Perform nested cross-validation for MB-sPLS using batchtools</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/mbspls_nested_cv_batch.R" class="external-link"><code>R/mbspls_nested_cv_batch.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.3.3/R/mbspls_nested_cv_batch.R" class="external-link"><code>R/mbspls_nested_cv_batch.R</code></a></small>
     <div class="hidden name"><code>mbspls_nested_cv_batchtools.Rd</code></div>
     </div>
 
@@ -79,7 +79,6 @@ The results are collected and summarized after all jobs are completed.</p>
 <span>  <span class="va">ncomp</span>,</span>
 <span>  <span class="va">tuner_budget</span>,</span>
 <span>  tuning_early_stop <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  measure <span class="op">=</span> <span class="fu">mlr3</span><span class="fu">::</span><span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">msr</a></span><span class="op">(</span><span class="st">"mbspls.mac_evwt"</span><span class="op">)</span>,</span>
 <span>  performance_metric <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"mac"</span>, <span class="st">"frobenius"</span><span class="op">)</span>,</span>
 <span>  val_test <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"none"</span>, <span class="st">"permutation"</span>, <span class="st">"bootstrap"</span><span class="op">)</span>,</span>
 <span>  val_test_n <span class="op">=</span> <span class="fl">1000L</span>,</span>
@@ -127,13 +126,6 @@ The results are collected and summarized after all jobs are completed.</p>
 <dt id="arg-tuning-early-stop">tuning_early_stop<a class="anchor" aria-label="anchor" href="#arg-tuning-early-stop"></a></dt>
 <dd><p>Logical, whether to stop tuning early if
 non-significant components are found.</p></dd>
-
-
-<dt id="arg-measure">measure<a class="anchor" aria-label="anchor" href="#arg-measure"></a></dt>
-<dd><p><a href="https://mlr3.mlr-org.com/reference/Measure.html" class="external-link">mlr3::Measure</a> or character(1). The package MB-sPLS measure
-used for inner tuning and aligned outer-fold scoring. Must resolve to one of
-<code>mbspls.mac_evwt</code>, <code>mbspls.mac</code>, <code>mbspls.ev</code>, or <code>mbspls.block_ev</code>.
-<code>mbspls.mac_evwt</code> remains the default for backward compatibility.</p></dd>
 
 
 <dt id="arg-performance-metric">performance_metric<a class="anchor" aria-label="anchor" href="#arg-performance-metric"></a></dt>
@@ -199,22 +191,6 @@ after creating the registry (default is FALSE).</p></dd>
     <h2>Value</h2>
     <p>A <code>batchtools</code> registry object. Use <code><a href="collect_mbspls_nested_cv.html">collect_mbspls_nested_cv()</a></code>
 to gather and summarize the results after all jobs are completed.</p>
-    </div>
-    <div id="details">
-    <h2>Details</h2>
-    <p><code>performance_metric</code> and <code>measure</code> operate at different layers of the
-procedure.</p>
-<p><code>performance_metric</code> controls the direct objective optimized inside the
-MB-sPLS C++ fitting routine when each latent component is estimated. It
-therefore changes how the component weights are fitted (<code>"mac"</code> or
-<code>"frobenius"</code>).</p>
-<p><code>measure</code> controls model selection across candidate sparsity settings and
-across resampling folds on held-out data. It therefore acts as an indirect
-outer optimization criterion for tuning and evaluation.</p>
-<p>Choosing <code>measure = "mbspls.ev"</code> or <code>measure = "mbspls.block_ev"</code> does not
-make the underlying MB-sPLS algorithm optimize explained variance directly.
-It selects among models that were still fitted with the chosen
-<code>performance_metric</code>, using an EV-based validation criterion.</p>
     </div>
 
   </div>
