@@ -1,31 +1,82 @@
 # Internal helpers shared by the direct and batchtools nested-CV paths.
-mbspls_nested_cv_result_row = function(split_id, inner_score, payload, performance_metric, c_star = NULL) {
+mbspls_nested_cv_resolve_measure = function(measure) {
+  if (is.character(measure)) {
+    if (length(measure) != 1L) {
+      stop("`measure` must be a single MB-sPLS measure id or an mlr3 Measure.", call. = FALSE)
+    }
+    measure = mlr3::msr(measure)
+  }
+
+  key = .mbspls_measure_key(measure)
+  if (is.null(key)) {
+    stop(
+      "`measure` must be one of the package MB-sPLS measures: mbspls.mac_evwt, mbspls.mac, mbspls.ev, mbspls.block_ev.",
+      call. = FALSE
+    )
+  }
+
+  list(
+    measure = measure,
+    key = key,
+    id = measure$id %||% key
+  )
+}
+
+mbspls_nested_cv_primary_metric_label = function(measure_spec) {
+  if (identical(measure_spec$key, "mbspls.mac_evwt")) {
+    return("EV-weighted MAC (all LCs)")
+  }
+  sprintf("Test score (%s)", measure_spec$id)
+}
+
+mbspls_nested_cv_result_row = function(split_id, inner_score, payload, performance_metric, measure_spec, c_star = NULL) {
+  missing_payload_status = sprintf(
+    "Prediction payload is missing; measure '%s' could not be computed.",
+    measure_spec$id
+  )
   if (is.null(payload)) {
     return(data.table::data.table(
       split = split_id,
+      measure_id = measure_spec$id,
+      measure_key = measure_spec$key,
       inner_score = inner_score,
+      measure_test = NA_real_,
+      measure_test_defined = FALSE,
+      measure_test_status = missing_payload_status,
       mac_lv1_test = NA_real_,
       mac_evwt_test = NA_real_,
       mac_evwt_defined = FALSE,
-      mac_evwt_status = "Prediction payload is missing.",
+      mac_evwt_status = "Prediction payload is missing; measure 'mbspls.mac_evwt' could not be computed.",
       ncomp_kept = if (is.null(c_star)) NA_integer_ else ncol(c_star),
       perf_metric = performance_metric,
-      val_p_last = NA_real_
+      val_p_last = NA_real_,
+      val_p_all = list(NULL),
+      val_stat_all = list(NULL)
     ))
   }
 
   mac = as.numeric(payload$mac_comp %||% numeric())
   vp = payload$val_test_p %||% payload$val_perm_p
   vs = payload$val_test_stat %||% NULL
-  score_info = mbspls_measure_score_diagnostics(payload, "mbspls.mac_evwt")
+  measure_info = mbspls_measure_score_diagnostics(payload, measure_spec$measure)
+  mac_evwt_info = if (identical(measure_spec$key, "mbspls.mac_evwt")) {
+    measure_info
+  } else {
+    mbspls_measure_score_diagnostics(payload, "mbspls.mac_evwt")
+  }
 
   data.table::data.table(
     split = split_id,
+    measure_id = measure_spec$id,
+    measure_key = measure_spec$key,
     inner_score = inner_score,
+    measure_test = measure_info$score,
+    measure_test_defined = isTRUE(measure_info$defined),
+    measure_test_status = if (isTRUE(measure_info$defined)) NA_character_ else as.character(measure_info$message %||% sprintf("Measure '%s' returned a non-finite score.", measure_spec$id)),
     mac_lv1_test = if (length(mac)) mac[1L] else NA_real_,
-    mac_evwt_test = score_info$score,
-    mac_evwt_defined = isTRUE(score_info$defined),
-    mac_evwt_status = if (isTRUE(score_info$defined)) NA_character_ else as.character(score_info$message %||% "Measure 'mbspls.mac_evwt' returned a non-finite score."),
+    mac_evwt_test = mac_evwt_info$score,
+    mac_evwt_defined = isTRUE(mac_evwt_info$defined),
+    mac_evwt_status = if (isTRUE(mac_evwt_info$defined)) NA_character_ else as.character(mac_evwt_info$message %||% "Measure 'mbspls.mac_evwt' returned a non-finite score."),
     ncomp_kept = if (length(mac)) length(mac) else if (is.null(c_star)) NA_integer_ else ncol(c_star),
     perf_metric = payload$perf_metric %||% performance_metric,
     val_p_last = if (!is.null(vp)) as.numeric(utils::tail(vp, 1L)) else NA_real_,
@@ -87,6 +138,29 @@ mbspls_metric_summary_row = function(label, x) {
 #' This function tunes the model on inner folds and evaluates it on outer folds,
 #' returning a summary of results.
 #'
+#' @details
+#' `performance_metric` and `measure` operate at different layers of the
+#' procedure.
+#'
+#' `performance_metric` controls the direct objective optimized inside the
+#' MB-sPLS C++ fitting routine when each latent component is estimated. It
+#' therefore changes how the component weights are fitted (`"mac"` or
+#' `"frobenius"`).
+#'
+#' `measure` controls model selection across candidate sparsity settings and
+#' across resampling folds on held-out data. It therefore acts as an indirect
+#' outer optimization criterion for tuning and evaluation.
+#'
+#' Choosing `measure = "mbspls.ev"` or `measure = "mbspls.block_ev"` does not
+#' make the underlying MB-sPLS algorithm optimize explained variance directly.
+#' It selects among models that were still fitted with the chosen
+#' `performance_metric`, using an EV-based validation criterion.
+#'
+#' For most analyses, `performance_metric = "mac"` with
+#' `measure = "mbspls.mac_evwt"` remains the most natural default because it
+#' combines direct latent-correlation fitting with held-out selection that also
+#' downweights components lacking positive prediction-side explained variance.
+#'
 #' @param task [mlr3::Task] with all pre-MBsPLS features.
 #' @param graphlearner [mlr3pipelines::GraphLearner] with a PipeOpMBsPLS node.
 #' @param rs_outer [mlr3::Resampling] instantiated (outer) resampling.
@@ -95,6 +169,10 @@ mbspls_metric_summary_row = function(label, x) {
 #' @param tuner_budget integer, #candidate evaluations per component.
 #' @param tuning_early_stop logical, stop tuning early if no sig. components.
 #' @param performance_metric "mac" or "frobenius" for the latent correlation.
+#' @param measure [mlr3::Measure] or character(1). The package MB-sPLS measure
+#'   used for inner tuning and aligned outer-fold scoring. Must resolve to one of
+#'   `mbspls.mac_evwt`, `mbspls.mac`, `mbspls.ev`, or `mbspls.block_ev`.
+#'   `mbspls.mac_evwt` remains the default for backward compatibility.
 #' @param val_test "none", "permutation", or "bootstrap" - run on OUTER test.
 #' @param val_test_n integer, permutations/boot reps on OUTER test.
 #' @param val_test_alpha numeric, early-stop / CI level param for validation tests.
@@ -104,8 +182,10 @@ mbspls_metric_summary_row = function(label, x) {
 #' @param store_payload logical, keep the full PipeOpMBsPLS predict payload.
 #'
 #' @return list with:
-#'   - results: data.table with per-outer-split summary (inner_score, test MACs,
-#'     and EV-weighted-MAC status columns `mac_evwt_defined` / `mac_evwt_status`)
+#'   - results: data.table with per-outer-split summary, including the selected
+#'     objective (`measure_id`, `measure_key`, `measure_test`,
+#'     `measure_test_defined`, `measure_test_status`) plus secondary diagnostics
+#'     such as `mac_lv1_test` and `mac_evwt_test`
 #'   - c_mats: list of tuned C* matrices per outer split
 #'   - inner_scores: numeric vector of best inner-CV scores (one per outer split)
 #'   - payloads: (optional) list of PipeOp logging payloads for each outer test
@@ -123,6 +203,7 @@ mbspls_nested_cv = function(
   tuner_budget,
   tuning_early_stop = TRUE,
   performance_metric = c("mac", "frobenius"),
+  measure = mlr3::msr("mbspls.mac_evwt"),
   val_test = c("none", "permutation", "bootstrap"),
   val_test_n = 1000L,
   val_test_alpha = 0.05,
@@ -134,6 +215,7 @@ mbspls_nested_cv = function(
 
   performance_metric = match.arg(performance_metric)
   val_test = match.arg(val_test)
+  measure_spec = mbspls_nested_cv_resolve_measure(measure)
 
   if (!rs_outer$is_instantiated) {
     rs_outer$instantiate(task)
@@ -173,7 +255,7 @@ mbspls_nested_cv = function(
       task        = task_tr,
       learner     = gl_tune,
       resampling  = rsmp("holdout"),
-      measure     = msr("mbspls.mac_evwt"),
+      measure     = measure_spec$measure,
       terminator  = bbotk::trm("evals", n_evals = 1)
     )
 
@@ -217,6 +299,7 @@ mbspls_nested_cv = function(
       inner_score = inner_scores[i],
       payload = payload,
       performance_metric = performance_metric,
+      measure_spec = measure_spec,
       c_star = c_star
     )
 
@@ -226,17 +309,23 @@ mbspls_nested_cv = function(
     lgr$info(paste0("  Completed outer fold ", i, "/", outer_iters, "."))
   }
 
-  summary_table = data.table::rbindlist(list(
-    mbspls_metric_summary_row("MAC (LV1)", res_tbl$mac_lv1_test),
-    mbspls_metric_summary_row("EV-weighted MAC (all LCs)", res_tbl$mac_evwt_test),
-    mbspls_metric_summary_row("# components retained", res_tbl$ncomp_kept)
-  ), use.names = TRUE, fill = TRUE)
+  summary_rows = list(
+    mbspls_metric_summary_row(mbspls_nested_cv_primary_metric_label(measure_spec), res_tbl$measure_test),
+    mbspls_metric_summary_row("MAC (LV1)", res_tbl$mac_lv1_test)
+  )
+  if (!identical(measure_spec$key, "mbspls.mac_evwt")) {
+    summary_rows[[length(summary_rows) + 1L]] = mbspls_metric_summary_row("EV-weighted MAC (all LCs)", res_tbl$mac_evwt_test)
+  }
+  summary_rows[[length(summary_rows) + 1L]] = mbspls_metric_summary_row("# components retained", res_tbl$ncomp_kept)
+  summary_table = data.table::rbindlist(summary_rows, use.names = TRUE, fill = TRUE)
 
   out = list(
     results       = res_tbl[],
     c_mats        = c_mats,
     inner_scores  = inner_scores,
-    summary_table = summary_table
+    summary_table = summary_table,
+    measure_id    = measure_spec$id,
+    measure_key   = measure_spec$key
   )
   if (store_payload) out$payloads <- payloads
   out
