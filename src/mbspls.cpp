@@ -1790,11 +1790,14 @@ Rcpp::List cpp_bootstrap_test_oos(
   const double boot_mean = arma::mean(vals);
   const double boot_se = (valid_reps > 1) ? arma::stddev(vals) : 0.0;
 
-  int le_count = 0;
+  // p-value: fraction of bootstrap replicates with stat <= 0, testing H0: MAC <= 0.
+  // Small p means the MAC is reliably positive (most bootstrap samples > 0),
+  // consistent with the permutation test convention where small p = significant.
+  int le_zero_count = 0;
   for (int i = 0; i < valid_reps; ++i) {
-    if (vals(i) <= stat_obs) ++le_count;
+    if (vals(i) <= 0.0) ++le_zero_count;
   }
-  const double p_value = static_cast<double>(le_count) / static_cast<double>(valid_reps);
+  const double p_value = (static_cast<double>(le_zero_count) + 1.0) / (static_cast<double>(valid_reps) + 1.0);
 
   const double conf = 1.0 - alpha;
   const double zval = R::qnorm5(1.0 - (1.0 - conf) / 2.0, 0.0, 1.0, 1, 0);

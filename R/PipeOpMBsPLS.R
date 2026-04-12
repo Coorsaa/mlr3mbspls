@@ -703,7 +703,9 @@ PipeOpMBsPLS = R6::R6Class(
             if (is.null(pb)) {
               stop(sprintf("Prediction loadings are missing for component %d, block '%s'.", k, bn), call. = FALSE)
             }
-            X_cur[[bn]] = X_cur[[bn]] - as.matrix(score_tables[[k]][[bi]]) %*% t(as.matrix(pb))
+            # Use named column access (not positional) for robustness
+            t_bn = score_tables[[k]][[paste0("LV", k, "_", bn)]]
+            X_cur[[bn]] = X_cur[[bn]] - matrix(t_bn, ncol = 1L) %*% t(as.matrix(pb))
           }
         }
       }

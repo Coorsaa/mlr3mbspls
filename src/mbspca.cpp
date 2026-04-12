@@ -137,17 +137,14 @@ double perm_test_component_mbspca(const Rcpp::List   &X_blocks,
   double var_obs = arma::dot(t_global, t_global) / ss_tot;
 
   /* permutation loop */
-  arma::uvec idx(n);
   int ge = 0;
   for (int p = 0; p < n_perm; ++p) {
-    /* permute each column of every block independently */
-    std::vector<mat> Xp = X;
+    /* permute rows of each block independently (preserving within-block covariance
+     * while destroying cross-block alignment - the correct null for MB-sPCA) */
+    std::vector<mat> Xp(B);
     for (int b = 0; b < B; ++b) {
-      for (size_t j = 0; j < Xp[b].n_cols; ++j) {
-        idx = arma::randperm(n);
-        vec temp_col = Xp[b].col(j);  // Extract column as vector
-        Xp[b].col(j) = temp_col(idx); // Permute and assign back
-      }
+      arma::uvec row_idx = arma::randperm(n);
+      Xp[b] = X[b].rows(row_idx);
     }
     /* refit component on permuted data */
     Rcpp::List Xp_R(B); for (int b = 0; b < B; ++b) Xp_R[b] = Xp[b];
