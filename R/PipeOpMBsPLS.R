@@ -528,6 +528,9 @@ PipeOpMBsPLS = R6::R6Class(
           P_active = st_env$loadings_stable %||% NULL
           K_active = length(W_active)
           used_source = paste0("stable_", st_env$selection_method %||% "ci")
+          lgr$info("[%s] predict_weights='auto': using '%s' from log_env.", self$id, used_source)
+        } else {
+          lgr$info("[%s] predict_weights='auto': no stable weights found in log_env; falling back to 'raw'.", self$id)
         }
       } else if (identical(pick, "stable_ci")) {
         if (!use_env_weights(ci = TRUE, freq = FALSE)) {
@@ -608,6 +611,7 @@ PipeOpMBsPLS = R6::R6Class(
 
       val_test_p = rep(NA_real_, K_active)
       val_test_stat = rep(NA_real_, K_active)
+      val_bootstrap_results = NULL  # pre-initialize; populated below if val_test="bootstrap"
 
       score_tables = vector("list", K_active)
       for (k in seq_len(K_active)) {
@@ -675,22 +679,17 @@ PipeOpMBsPLS = R6::R6Class(
           conf = 1 - (if (is.null(pv$val_test_alpha)) 0.05 else pv$val_test_alpha)
           val_test_p[k] = boot_p_value
           val_test_stat[k] = observed_correlation
-          if (k == 1L) {
-            val_bootstrap_results = data.table::data.table(
-              component = k, observed_correlation = observed_correlation,
-              boot_mean = boot_mean, boot_se = boot_se,
-              boot_p_value = boot_p_value,
-              boot_ci_lower = ci_lower, boot_ci_upper = ci_upper,
-              confidence_level = conf, n_boot = n_boot_done
-            )
+          row_k = data.table::data.table(
+            component = k, observed_correlation = observed_correlation,
+            boot_mean = boot_mean, boot_se = boot_se,
+            boot_p_value = boot_p_value,
+            boot_ci_lower = ci_lower, boot_ci_upper = ci_upper,
+            confidence_level = conf, n_boot = n_boot_done
+          )
+          val_bootstrap_results = if (is.null(val_bootstrap_results)) {
+            row_k
           } else {
-            val_bootstrap_results = rbind(val_bootstrap_results, data.table::data.table(
-              component = k, observed_correlation = observed_correlation,
-              boot_mean = boot_mean, boot_se = boot_se,
-              boot_p_value = boot_p_value,
-              boot_ci_lower = ci_lower, boot_ci_upper = ci_upper,
-              confidence_level = conf, n_boot = n_boot_done
-            ), fill = TRUE)
+            rbind(val_bootstrap_results, row_k, fill = TRUE)
           }
         }
 

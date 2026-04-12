@@ -328,8 +328,12 @@ PipeOpMBsPCA = R6::R6Class(
     #' @param method character(1). Correlation method, e.g. "spearman" (default) or "pearson".
     #' @return A ggplot object.
     plot_score_network = function(cutoff = 0.3, method = "spearman") {
-      requireNamespace("igraph")
-      requireNamespace("ggraph")
+      if (!requireNamespace("igraph", quietly = TRUE)) {
+        stop("Package 'igraph' is required for plot_score_network(). Install it with install.packages('igraph').")
+      }
+      if (!requireNamespace("ggraph", quietly = TRUE)) {
+        stop("Package 'ggraph' is required for plot_score_network(). Install it with install.packages('ggraph').")
+      }
       st = self$state
       if (is.null(st$T_mat) || ncol(st$T_mat) < 2) {
         stop("Need at least two PCs to draw a network.")

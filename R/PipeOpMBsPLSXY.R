@@ -336,6 +336,16 @@ PipeOpMBsPLSXY = R6::R6Class(
       if (!length(blocks)) stop("PipeOpMBsPLSXY: no valid X blocks found.")
       X_list = private$.as_block_mats(dt, blocks)
 
+      # Verify row counts are consistent between X blocks and Y matrix
+      n_rows_x = nrow(dt)
+      n_rows_y = nrow(y_fit)
+      if (n_rows_x != n_rows_y) {
+        stop(sprintf(
+          "PipeOpMBsPLSXY: X blocks have %d rows but the target matrix has %d rows. Ensure the task data and target are aligned.",
+          n_rows_x, n_rows_y
+        ), call. = FALSE)
+      }
+
       X_list_all = c(X_list, list(.target = as.matrix(y_fit)))
       use_frob = identical(pv$performance_metric, "frobenius")
 

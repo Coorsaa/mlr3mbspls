@@ -241,6 +241,11 @@ assert_mbspls_state = function(st, require_train_blocks = FALSE, where = "log_en
   checkmate::assert_list(st$blocks, min.len = 1L, names = "strict", .var.name = paste0(where, "$blocks"))
   checkmate::assert_list(st$weights, names = "strict", .var.name = paste0(where, "$weights"))
 
+  # loadings must also be present (required for deflation in prediction)
+  if (!is.null(st$loadings) && length(st$loadings)) {
+    checkmate::assert_list(st$loadings, names = "strict", .var.name = paste0(where, "$loadings"))
+  }
+
   # optional but common
   if (!is.null(st$ncomp)) {
     checkmate::assert_integerish(st$ncomp, len = 1L, lower = 0L, .var.name = paste0(where, "$ncomp"))

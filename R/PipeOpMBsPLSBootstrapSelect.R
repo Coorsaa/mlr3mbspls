@@ -44,6 +44,11 @@
 #'   In all cases, selection is driven by the bootstrap summaries; this parameter
 #'   only controls the *magnitude* of the non-zero coefficients.
 #' @param stratify_by_block Optional dummy-encoded block name for stratified bootstrap (e.g., "Studygroup").
+#' @param min_score_cor Numeric in `[0, 1]`. Minimum mean absolute score correlation
+#'   between a bootstrap replicate component and the corresponding training reference
+#'   component required for the replicate to be accepted into the summary statistics.
+#'   Replicates below this threshold are excluded to reduce noise from uninformative
+#'   fits. Default `0.10`. Increase for high-noise data.
 #' @param workers Integer. Requested number of parallel workers for the bootstrap loop.
 #'   Requires \pkg{future} and \pkg{future.apply} when set to a value larger than 1; otherwise an explicit error is raised. Default 1L.
 #'
@@ -88,6 +93,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         ),
 
         stratify_by_block = paradox::p_uty(default = NULL, tags = "train"),
+        min_score_cor = paradox::p_dbl(lower = 0, upper = 1, default = 0.10, tags = "train"),
         seed_bootstrap = paradox::p_int(lower = 1L, default = 20250921L, tags = "train", special_vals = list(NULL)),
         workers = paradox::p_int(lower = 1L, default = 1L, tags = "train")
       )
@@ -308,9 +314,10 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       X_list, W_ref, blocks, ncomp,
       sparsity, corr_method = "pearson", perf_metric = "mac",
       B = 500L, alpha = 0.05, align = "block_sign",
-      workers = 1L, stratify_block = NULL
+      workers = 1L, stratify_block = NULL,
+      min_score_cor = 0.10
     ) {
-      MIN_SCORE_COR = 0.10 # acceptance gate
+      MIN_SCORE_COR = as.numeric(min_score_cor %||% 0.10) # acceptance gate
 
       # match blocks
       bn = intersect(names(X_list), names(W_ref[[1]]))
@@ -712,7 +719,8 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
           alpha = as.numeric(pv$alpha),
           align = pv$align,
           workers = as.integer(pv$workers),
-          stratify_block = pv$stratify_by_block
+          stratify_block = pv$stratify_by_block,
+          min_score_cor = as.numeric(pv$min_score_cor %||% 0.10)
         )
       })
 

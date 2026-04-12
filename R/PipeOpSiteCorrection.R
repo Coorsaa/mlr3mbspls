@@ -475,6 +475,12 @@ PipeOpSiteCorrection = R6::R6Class(
           }
 
           prot_vec = factor(dt[[site_cols]])
+          if (nlevels(prot_vec) < 2L) {
+            stop(sprintf(
+              "Block '%s' (dir): protected attribute '%s' must have at least 2 levels, but only %d level(s) found in the data.",
+              bn, site_cols, nlevels(prot_vec)
+            ), call. = FALSE)
+          }
           dat = data.frame(dt[, .SD, .SDcols = Xcols], protected = prot_vec)
           repaired = fairmodels::disparate_impact_remover(
             data                  = dat,
@@ -675,6 +681,17 @@ PipeOpSiteCorrection = R6::R6Class(
 
         } else if (identical(info$method, "combat")) {
           if (!requireNamespace("neuroCombat", quietly = TRUE)) stop("ComBat predict requires 'neuroCombat'.")
+
+          # Warn if training used covariates: neuroCombatFromTraining does not apply
+          # the covariate model to new data, so predict-time covariate effects are
+          # approximated from training estimates only.
+          if (length(info$covariates) > 0L) {
+            warning(sprintf(
+              "Block '%s' (combat): model was trained with covariate(s) [%s], but neuroCombatFromTraining() does not re-apply the covariate model at predict time. Batch effect removal at prediction may differ from training.",
+              bn, paste(info$covariates, collapse = ", ")
+            ), call. = FALSE)
+          }
+
           valid = private$.combat_valid_batches(info$estimates)
           if (!length(valid)) next
 
