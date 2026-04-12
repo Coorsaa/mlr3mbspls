@@ -314,7 +314,7 @@ as_task_multiblock = function(
     if (!is.null(target) && !(length(target) == 1L && is.character(target) && target %in% x$col_info$id)) {
       stop(
         paste0("When `x` is an mlr3 Task, `target` must be NULL or the name of an existing backend column.",
-        "\nFix: for an external target vector, call `TaskMultiBlock()` on raw tabular or list-of-block input instead of an existing Task so that the original task backend, view, and metadata remain intact."),
+          "\nFix: for an external target vector, call `TaskMultiBlock()` on raw tabular or list-of-block input instead of an existing Task so that the original task backend, view, and metadata remain intact."),
         call. = FALSE
       )
     }
@@ -811,7 +811,7 @@ Fix: use block names from `task$block_names` / `task$block_features(materialize 
         stop(
           sprintf(
             paste0("`task$block_data(as_matrix = TRUE)` requires numeric, integer, or logical features only. Block columns with unsupported storage types: %s",
-            "\nFix: encode factor/character features before requesting matrix output, or call `task$block_data(as_matrix = FALSE)`."),
+              "\nFix: encode factor/character features before requesting matrix output, or call `task$block_data(as_matrix = FALSE)`."),
             mb_format_truncated(bad)
           ),
           call. = FALSE
