@@ -216,6 +216,81 @@ mb_feature_weights_table = function(weights, loadings = NULL, blocks, component_
 }
 
 
+mb_match_ev_block_axis = function(actual_names, expected_names, actual_size, axis_label, value_label) {
+  if (!actual_size) {
+    return(integer())
+  }
+
+  if (is.null(actual_names) || !length(actual_names) || all(!nzchar(actual_names))) {
+    if (actual_size > length(expected_names)) {
+      stop(sprintf(
+        "`state$ev_block` has %d %ss but only %d %s were expected.",
+        actual_size,
+        axis_label,
+        length(expected_names),
+        value_label
+      ), call. = FALSE)
+    }
+    return(seq_len(actual_size))
+  }
+
+  if (length(actual_names) != actual_size || any(is.na(actual_names)) || any(!nzchar(actual_names))) {
+    stop(sprintf("`state$ev_block` %s names must be complete and non-empty when provided.", axis_label), call. = FALSE)
+  }
+  if (anyDuplicated(actual_names)) {
+    stop(sprintf("`state$ev_block` %s names must be unique.", axis_label), call. = FALSE)
+  }
+
+  unknown = setdiff(actual_names, expected_names)
+  if (length(unknown)) {
+    stop(sprintf(
+      "`state$ev_block` contains unknown %s names: %s",
+      value_label,
+      paste(unknown, collapse = ", ")
+    ), call. = FALSE)
+  }
+
+  match(actual_names, expected_names)
+}
+
+
+mb_named_ev_block = function(ev_block, component_names, block_names) {
+  out = matrix(
+    NA_real_,
+    nrow = length(component_names),
+    ncol = length(block_names),
+    dimnames = list(component_names, block_names)
+  )
+
+  if (is.null(ev_block)) {
+    return(out)
+  }
+
+  ev_mat = as.matrix(ev_block)
+  if (!length(ev_mat)) {
+    return(out)
+  }
+
+  row_idx = mb_match_ev_block_axis(
+    actual_names = rownames(ev_mat),
+    expected_names = component_names,
+    actual_size = nrow(ev_mat),
+    axis_label = "row",
+    value_label = "component"
+  )
+  col_idx = mb_match_ev_block_axis(
+    actual_names = colnames(ev_mat),
+    expected_names = block_names,
+    actual_size = ncol(ev_mat),
+    axis_label = "column",
+    value_label = "block"
+  )
+
+  out[row_idx, col_idx] = ev_mat
+  out
+}
+
+
 mb_summary_from_mbspls = function(state, pipeop_id, source, selection_state = NULL, include_weights = TRUE, include_stability = TRUE) {
   blocks = mb_normalize_blocks(state$blocks, .var.name = "state$blocks")
   weights = state$weights
@@ -224,7 +299,7 @@ mb_summary_from_mbspls = function(state, pipeop_id, source, selection_state = NU
   ev_comp = as.numeric(state$ev_comp %||% rep(NA_real_, length(component_names)))
   obj_vec = as.numeric(state$obj_vec %||% rep(NA_real_, length(component_names)))
   p_values = as.numeric(state$p_values %||% rep(NA_real_, length(component_names)))
-  ev_block = state$ev_block %||% matrix(NA_real_, nrow = length(component_names), ncol = length(blocks), dimnames = list(component_names, names(blocks)))
+  ev_block = mb_named_ev_block(state$ev_block %||% NULL, component_names = component_names, block_names = names(blocks))
 
   overview = data.table::data.table(
     source = source,
@@ -339,7 +414,7 @@ mb_summary_from_mbspca = function(state, pipeop_id, source, include_weights = TR
   loadings = state$loadings
   component_names = mb_component_names(weights, "PC%d")
   ev_comp = as.numeric(state$ev_comp %||% rep(NA_real_, length(component_names)))
-  ev_block = state$ev_block %||% matrix(NA_real_, nrow = length(component_names), ncol = length(blocks), dimnames = list(component_names, names(blocks)))
+  ev_block = mb_named_ev_block(state$ev_block %||% NULL, component_names = component_names, block_names = names(blocks))
 
   overview = data.table::data.table(
     source = source,

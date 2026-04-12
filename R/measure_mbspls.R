@@ -131,6 +131,22 @@ NULL
   values
 }
 
+.mbspls_undefined_measure_condition = function(message, measure, reason) {
+  structure(
+    list(
+      message = message,
+      call = NULL,
+      measure = measure,
+      reason = reason
+    ),
+    class = c("mbspls_undefined_measure_score", "error", "condition")
+  )
+}
+
+.mbspls_abort_undefined_measure = function(message, measure, reason) {
+  stop(.mbspls_undefined_measure_condition(message, measure, reason))
+}
+
 .mbspls_positive_ev_weights = function(ev) {
   ev = as.numeric(ev)
   keep = is.finite(ev)
@@ -141,9 +157,10 @@ NULL
   pos = pmax(ev, 0)
   s = sum(pos, na.rm = TRUE)
   if (!is.finite(s) || s <= 1e-12) {
-    stop(
+    .mbspls_abort_undefined_measure(
       "EV-weighted MAC is undefined because no component has positive finite prediction-side explained variance. Use 'mbspls.mac' or inspect the fitted model instead of relying on an arbitrary fallback weighting.",
-      call. = FALSE
+      measure = "mbspls.mac_evwt",
+      reason = "nonpositive_ev"
     )
   }
 
@@ -197,6 +214,51 @@ mbspls_measure_score_from_payload = function(payload, measure) {
     return(NA_real_)
   }
   mean(as.numeric(evb), na.rm = TRUE)
+}
+
+mbspls_measure_score_diagnostics = function(payload, measure) {
+  key = .mbspls_measure_key(measure)
+  if (is.null(key)) {
+    stop("Unsupported MB-sPLS measure. Supported measures are: mbspls.mac_evwt, mbspls.mac, mbspls.ev, mbspls.block_ev.", call. = FALSE)
+  }
+
+  if (is.null(payload) || !is.list(payload)) {
+    return(list(
+      score = NA_real_,
+      defined = FALSE,
+      reason = "missing_payload",
+      message = sprintf("Measure '%s' could not be computed because the payload is missing.", key)
+    ))
+  }
+
+  tryCatch(
+    {
+      score = as.numeric(mbspls_measure_score_from_payload(payload, key))[1L]
+      if (is.finite(score)) {
+        return(list(
+          score = score,
+          defined = TRUE,
+          reason = NA_character_,
+          message = NA_character_
+        ))
+      }
+
+      list(
+        score = score,
+        defined = FALSE,
+        reason = "non_finite_score",
+        message = sprintf("Measure '%s' returned a non-finite score.", key)
+      )
+    },
+    mbspls_undefined_measure_score = function(e) {
+      list(
+        score = NA_real_,
+        defined = FALSE,
+        reason = as.character(e$reason %||% "undefined_measure_score"),
+        message = conditionMessage(e)
+      )
+    }
+  )
 }
 
 # 1) EV-weighted latent correlation -------------------------------------------

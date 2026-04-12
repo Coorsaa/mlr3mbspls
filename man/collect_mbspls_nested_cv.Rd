@@ -15,13 +15,15 @@ collect_mbspls_nested_cv(ids = NULL, reg)
 \value{
 A list containing:
 \itemize{
-\item \code{results}: A data.table with the results from each outer fold.
+\item \code{results}: A data.table with the results from each outer fold, including
+\code{mac_evwt_defined} and \code{mac_evwt_status}.
 \item \code{c_mats}: A list of the tuned C* matrices from each outer fold.
 \item \code{inner_scores}: A numeric vector of the best inner cross-validation
 scores from each outer fold.
 \item \code{payloads}: (optional) A list of the full payloads from each outer fold
 (if \code{store_payload = TRUE} was set).
-\item \code{summary_table}: A data.table with summary statistics across all outer folds.
+\item \code{summary_table}: A data.table with summary statistics across all outer folds,
+including \code{n_total}, \code{n_defined}, and \code{n_failed}.
 }
 }
 \description{

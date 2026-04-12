@@ -166,6 +166,10 @@ TunerSeqMBsPLS = R6::R6Class(
       aggr(scores)
     },
 
+    .score_payload = function(payload, measure) {
+      mbspls_measure_score_diagnostics(payload, measure)
+    },
+
     .empty_fold_payload = function(block_names) {
       list(
         mac_comp = numeric(),
@@ -471,9 +475,9 @@ TunerSeqMBsPLS = R6::R6Class(
         }
         future::plan("multisession", workers = max(1L, future::availableCores() - 1L))
         on.exit(future::plan("sequential"), add = TRUE)
-        fold_apply = function(X, FUN) future.apply::future_sapply(X, FUN, future.seed = TRUE)
+        fold_map = function(X, FUN) future.apply::future_lapply(X, FUN, future.seed = TRUE)
       } else {
-        fold_apply = function(X, FUN) sapply(X, FUN)
+        fold_map = function(X, FUN) lapply(X, FUN)
       }
 
       C_star = matrix(
@@ -495,6 +499,7 @@ TunerSeqMBsPLS = R6::R6Class(
         )
 
         obj_env = new.env(parent = emptyenv())
+        obj_diag_env = new.env(parent = emptyenv())
         obj_fun = bbotk::ObjectiveRFun$new(
           fun = function(xs) {
             key = paste0(unlist(xs, use.names = FALSE), collapse = "_")
@@ -503,7 +508,7 @@ TunerSeqMBsPLS = R6::R6Class(
             }
 
             c_vec = sqrt(unlist(xs, use.names = FALSE))
-            fold_scores = fold_apply(seq_len(rs$iters), function(f) {
+            fold_results = fold_map(seq_len(rs$iters), function(f) {
               Xtr = fold_tr[[f]]
               Xva = fold_val[[f]]
               Xad = if (!is.null(fold_add)) fold_add[[f]] else NULL
@@ -517,11 +522,19 @@ TunerSeqMBsPLS = R6::R6Class(
                 spearman = use_spear
               )
               payload = private$.one_lv_payload(Xfit, Xva, fit$W, correlation_method = correlation_method)
-              mbspls_measure_score_from_payload(payload, measure)
+              private$.score_payload(payload, measure)
             })
-            score_raw = private$.aggregate_scores(fold_scores, measure, n_obs = n_val)
-            score_opt = if (isTRUE(measure$minimize)) -score_raw else score_raw
+            fold_scores = vapply(fold_results, function(res) as.numeric(res$score), numeric(1L))
+            failed_folds = sum(!vapply(fold_results, function(res) isTRUE(res$defined), logical(1L)))
+
+            score_opt = if (!failed_folds && all(is.finite(fold_scores))) {
+              score_raw = private$.aggregate_scores(fold_scores, measure, n_obs = n_val)
+              if (isTRUE(measure$minimize)) -score_raw else score_raw
+            } else {
+              -Inf
+            }
             obj_env[[key]] = score_opt
+            obj_diag_env[[key]] = list(score = score_opt, failed_folds = failed_folds)
             list(Score = score_opt)
           },
           domain = ps_k,
@@ -534,6 +547,29 @@ TunerSeqMBsPLS = R6::R6Class(
           terminator = bbotk::trm("evals", n_evals = private$.budget)
         )
         bbotk::opt(private$.tuner)$optimize(inst_k)
+
+        archive_data = tryCatch(inst_k$archive$data, error = function(e) NULL)
+        archive_scores = tryCatch(as.numeric(archive_data$Score %||% archive_data$y %||% numeric()), error = function(e) numeric())
+        if (!length(archive_scores) || all(!is.finite(archive_scores) | archive_scores == -Inf)) {
+          diag_keys = ls(obj_diag_env, all.names = TRUE)
+          failed_per_candidate = if (length(diag_keys)) {
+            vapply(diag_keys, function(key) as.integer(obj_diag_env[[key]]$failed_folds %||% 0L), integer(1L))
+          } else {
+            integer()
+          }
+          failed_range = if (length(failed_per_candidate)) {
+            sprintf("failed folds per candidate ranged from %d to %d of %d", min(failed_per_candidate), max(failed_per_candidate), rs$iters)
+          } else {
+            sprintf("failed fold counts are unavailable for the %d attempted candidate(s)", length(diag_keys))
+          }
+          stop(sprintf(
+            "All %d candidate c-vectors produced an undefined '%s' score for component %d (%s). Increase data support for the requested objective or choose a different MB-sPLS measure for tuning.",
+            max(length(diag_keys), length(archive_scores)),
+            measure$id,
+            k,
+            failed_range
+          ), call. = FALSE)
+        }
 
         C_star[, k] = sqrt(unlist(inst_k$result_x_domain, use.names = FALSE))
         lgr$info("   chosen c-vector: %s", paste(round(C_star[, k], 4), collapse = ", "))
@@ -631,9 +667,19 @@ TunerSeqMBsPLS = R6::R6Class(
         X_blocks_residual = private$.deflate_blocks(X_blocks_residual, fit_full$W)
       }
 
-      fold_scores_final = vapply(fold_payloads, function(pl) {
-        mbspls_measure_score_from_payload(pl, measure)
-      }, numeric(1L))
+      fold_results_final = lapply(fold_payloads, function(pl) {
+        private$.score_payload(pl, measure)
+      })
+      fold_scores_final = vapply(fold_results_final, function(res) as.numeric(res$score), numeric(1L))
+      failed_final_folds = sum(!vapply(fold_results_final, function(res) isTRUE(res$defined), logical(1L)))
+      if (failed_final_folds) {
+        stop(sprintf(
+          "The selected c-matrix produced an undefined '%s' score in %d/%d inner validation folds. Increase data support for the requested objective or choose a different MB-sPLS measure for tuning.",
+          measure$id,
+          failed_final_folds,
+          length(fold_results_final)
+        ), call. = FALSE)
+      }
       y_raw = private$.aggregate_scores(fold_scores_final, measure, n_obs = n_val)
 
       inst$assign_result(
