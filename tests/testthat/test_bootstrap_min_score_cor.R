@@ -168,13 +168,15 @@ test_that("PipeOpMBsPLSBootstrapSelect - magnitude_threshold is accepted and sto
 test_that("PipeOpMBsPLSBootstrapSelect - magnitude_threshold=0 keeps all CI-selected features", {
   skip_on_cran()
   set.seed(9)
-  n = 50; p = 6
+  n = 50
+  p = 6
   latent = rnorm(n)
   b1 = cbind(latent + rnorm(n, 0, 0.1), rnorm(n), latent + rnorm(n, 0, 0.2),
     rnorm(n), latent + rnorm(n, 0, 0.3), rnorm(n))
   b2 = cbind(latent + rnorm(n, 0, 0.1), rnorm(n), latent + rnorm(n, 0, 0.2),
     rnorm(n), latent + rnorm(n, 0, 0.2), rnorm(n))
-  colnames(b1) = paste0("x", seq_len(p)); colnames(b2) = paste0("z", seq_len(p))
+  colnames(b1) = paste0("x", seq_len(p))
+  colnames(b2) = paste0("z", seq_len(p))
   df = data.frame(b1, b2, y = latent + rnorm(n, 0, 0.2))
   task = mlr3::TaskRegr$new(id = "mb_mt0", backend = df, target = "y")
   blocks = list(b1 = colnames(b1), b2 = colnames(b2))
@@ -203,25 +205,33 @@ test_that("PipeOpMBsPLSBootstrapSelect - magnitude_threshold=0 keeps all CI-sele
       B = 20L, min_score_cor = 0, selection_method = "ci",
       magnitude_threshold = 0.999, workers = 1L))
 
-  with_seed_local(42L, function() { po_zero$train(list(task_lv)) })
-  with_seed_local(42L, function() { po_strict$train(list(task_lv)) })
+  with_seed_local(42L, function() {
+    po_zero$train(list(task_lv))
+  })
+  with_seed_local(42L, function() {
+    po_strict$train(list(task_lv))
+  })
 
-  st_zero   = po_zero$state
+  st_zero = po_zero$state
   st_strict = po_strict$state
 
   # The zero-threshold model should record well-defined stable weights
   expect_true(!is.null(st_zero$weights_stable))
   # The strict model should keep fewer (or equal) features than the lenient one
-  n_kept_zero   = sum(vapply(st_zero$weights_stable, function(wk) sum(vapply(wk, function(wb) sum(wb != 0), integer(1))), integer(1)))
+  n_kept_zero = sum(vapply(st_zero$weights_stable, function(wk) sum(vapply(wk, function(wb) sum(wb != 0), integer(1))), integer(1)))
   n_kept_strict = sum(vapply(st_strict$weights_stable, function(wk) sum(vapply(wk, function(wb) sum(wb != 0), integer(1))), integer(1)))
   expect_lte(n_kept_strict, n_kept_zero)
 })
 
 test_that("PipeOpMBsPLSBootstrapSelect - warns when all reps rejected by min_score_cor", {
   set.seed(42)
-  n = 50; p1 = 6; p2 = 6
-  b1 = matrix(rnorm(n * p1), n); b2 = matrix(rnorm(n * p2), n)
-  colnames(b1) = paste0("x", seq_len(p1)); colnames(b2) = paste0("z", seq_len(p2))
+  n = 50
+  p1 = 6
+  p2 = 6
+  b1 = matrix(rnorm(n * p1), n)
+  b2 = matrix(rnorm(n * p2), n)
+  colnames(b1) = paste0("x", seq_len(p1))
+  colnames(b2) = paste0("z", seq_len(p2))
   df = data.frame(b1, b2, y = rnorm(n))
   task = mlr3::TaskRegr$new(id = "mb_warn", backend = df, target = "y")
   blocks = list(b1 = colnames(b1), b2 = colnames(b2))

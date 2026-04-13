@@ -4,7 +4,7 @@ test_that("mac_comp is NaN (not 0) when all test block scores have zero variance
   # na.rm=TRUE summaries exclude it rather than treating missing correlation as 0.
   x_const = matrix(1, nrow = 5, ncol = 2)
   colnames(x_const) = c("a1", "a2")
-  colnames(x_const) = c("a1", "a2")   # both blocks constant
+  colnames(x_const) = c("a1", "a2") # both blocks constant
 
   W_all = list(list(
     block_a = c(a1 = 0.5, a2 = 0.5),

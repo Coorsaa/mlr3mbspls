@@ -230,8 +230,8 @@ LearnerRegrKNNGower = R6::R6Class("LearnerRegrKNNGower",
         as.integer(pv$k),
         pv$weights,
         as.numeric(pv$min_feature_frac),
-        as.numeric(st$y_mean),  # fallback_mean: passed for API compatibility; currently unused by C++ (always errors on no neighbors)
-        as.numeric(st$y_var)    # fallback_var:  passed for API compatibility; currently unused by C++ (always errors on no neighbors)
+        as.numeric(st$y_mean), # fallback_mean: passed for API compatibility; currently unused by C++ (always errors on no neighbors)
+        as.numeric(st$y_var) # fallback_var:  passed for API compatibility; currently unused by C++ (always errors on no neighbors)
       )
 
       response = as.numeric(out$mean)

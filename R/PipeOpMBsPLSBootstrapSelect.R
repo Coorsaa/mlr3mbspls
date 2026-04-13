@@ -519,7 +519,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
                   "bootstrap_select: sign ambiguous for block '%s' component %d (dot-product near zero or non-finite); defaulting to +1.",
                   b, k
                 )
-                s_b <- +1L
+                s_b = +1L
               }
               T_boot[[i]][[bi]] = s_b * T_boot[[i]][[bi]]
               W_r[[i]][[b]] = s_b * pad_to_order(w_boot_b, w_ref_b)
