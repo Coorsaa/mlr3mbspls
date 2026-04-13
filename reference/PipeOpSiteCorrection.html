@@ -33,7 +33,7 @@ Blocks absent from site_correction are left unchanged."><!-- mathjax --><script 
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.3</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
       </span>
     </div>
 
@@ -70,7 +70,7 @@ Blocks absent from site_correction are left unchanged."><!-- mathjax --><script 
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>Site-/Batch-Effect Correction PipeOp (block-specific, lean)</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.3.3/R/PipeOpSiteCorrection.R" class="external-link"><code>R/PipeOpSiteCorrection.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/PipeOpSiteCorrection.R" class="external-link"><code>R/PipeOpSiteCorrection.R</code></a></small>
     <div class="hidden name"><code>PipeOpSiteCorrection.Rd</code></div>
     </div>
 
@@ -118,8 +118,13 @@ We store the returned <code>estimates</code>, the valid batch levels, the <code>
 and the list of <code>covariates</code>.</p></li>
 <li><p>At predict, we apply <code>neuroCombatFromTraining(dat, batch, estimates)</code>.
 The upstream function <strong>does not support</strong> supplying <code>mod</code> for new data;
-if estimates were trained with <code>mod</code>, it uses an internal mean-imputation
-of the training covariate effects. Unseen batches can be handled with
+if estimates were trained with <code>mod</code> (i.e., <code>covariates</code> is non-empty),
+the batch-effect removal at predict-time uses the training covariate-effect
+estimates only and does NOT re-apply the covariate model to new observations.
+<strong>A <code><a href="https://rdrr.io/r/base/warning.html" class="external-link">warning()</a></code> is emitted at predict-time</strong> whenever <code>covariates</code> is non-empty
+to alert users of this limitation. If predict-time covariate correction matters,
+consider using <code>"partial_corr"</code> instead.
+Unseen batches can be handled with
 <code>combat_unknown = "noop"</code> (skip) or <code>"baseline"</code> (map to <code>ref_batch</code>).</p></li>
 </ul><p><strong>DIR (<code>"dir"</code>, via <span class="pkg">fairmodels</span>)</strong></p><ul><li><p>Applies distribution repair per block with the given <code>lambda</code>.</p></li>
 </ul><p>The operator preserves targets, reconstructs a backend with stable row ids,

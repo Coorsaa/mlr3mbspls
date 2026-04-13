@@ -17,7 +17,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.3</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
       </span>
     </div>
 
@@ -54,9 +54,51 @@
   <div class="col-md-9 contents">
     <div class="page-header">
       <h1 data-toc-skip>Changelog <small></small></h1>
-      <small>Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.3.3/NEWS.md" class="external-link"><code>NEWS.md</code></a></small>
+      <small>Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/NEWS.md" class="external-link"><code>NEWS.md</code></a></small>
     </div>
 
+    <div class="section level2">
+<h2 class="page-header" data-toc-text="0.3.4" id="mlr3mbspls-034">mlr3mbspls 0.3.4<a class="anchor" aria-label="anchor" href="#mlr3mbspls-034"></a></h2>
+<div class="section level3">
+<h3 id="bug-fixes-0-3-4">Bug fixes<a class="anchor" aria-label="anchor" href="#bug-fixes-0-3-4"></a></h3>
+<ul><li>
+<code>src/mbspca.cpp</code>: <code>perm_test_component_mbspca()</code> no longer uses hardcoded <code>max_iter=40, tol=1e-4</code> for permutation refits; these now forward the same solver settings as the main fit (exposed as <code>max_iter</code> / <code>tol</code> in <code>PipeOpMBsPCA</code>). Added guard for non-positive <code>c_vec</code> entries.</li>
+<li>
+<code>src/sitecorr.cpp</code>: replaced diagonal-ratio condition estimate in <code>cpp_lm_coeff_ridge()</code> with <code>arma::rcond(R)</code> for accurate ill-conditioning detection. Added explicit guard for negative or non-finite <code>lambda</code>.</li>
+<li>
+<code>R/LearnerClassifKNNGower</code>, <code>R/LearnerRegrKNNGower</code>: emit a warning (rather than silently continuing) when <code>k</code> exceeds the training-set size.</li>
+</ul></div>
+<div class="section level3">
+<h3 id="improvements-0-3-4">Improvements<a class="anchor" aria-label="anchor" href="#improvements-0-3-4"></a></h3>
+<ul><li>
+<code>PipeOpMBsPCA</code>: <code>max_iter</code> (default <code>60</code>) and <code>tol</code> (default <code>1e-4</code>) are now tunable parameters forwarded to both the main solver and the permutation-test refits.</li>
+<li>
+<code>PipeOpMBsPLSBootstrapSelect</code>: <code>magnitude_threshold</code> (default <code>1e-3</code>) is now an exposed parameter controlling the minimum absolute bootstrap-mean weight required for a feature to pass the CI selection gate (previously hardcoded). A warning is now emitted for each component whose bootstrap replicates are all rejected by the score-correlation gate. <code>n_eff_by_component</code> is now stored in <code>$state</code> on both success and all-rejected paths.</li>
+</ul></div>
+</div>
+    <div class="section level2">
+<h2 class="page-header" data-toc-text="0.3.3" id="mlr3mbspls-033">mlr3mbspls 0.3.3<a class="anchor" aria-label="anchor" href="#mlr3mbspls-033"></a></h2>
+<div class="section level3">
+<h3 id="bug-fixes-0-3-3">Bug fixes<a class="anchor" aria-label="anchor" href="#bug-fixes-0-3-3"></a></h3>
+<ul><li>
+<code>R/measure_mbspls.R</code>: introduced a typed condition class <code>mbspls_undefined_measure_score</code> so that undefined measure scores (e.g. non-positive EV denominator in <code>mbspls.mac_evwt</code>) are surfaced as catchable conditions rather than propagating as opaque <code>NA</code> or <code>-Inf</code> values. Added <code>mbspls_measure_score_diagnostics()</code> as an inspectable helper that reports whether a score is defined and, if not, the precise reason.</li>
+<li>
+<code>R/TunerSeqMBsPLS.R</code>: the inner-fold scoring loop now uses <code>mbspls_measure_score_diagnostics()</code> in place of direct score extraction; candidates where all folds returned undefined scores are assigned <code>-Inf</code> and a structured diagnostic message is attached to the archive, replacing silent score suppression.</li>
+<li>
+<code>R/mbspls_nested_cv.R</code>, <code>R/mbspls_nested_cv_batch.R</code>: outer-fold result rows now carry structured score diagnostics (<code>measure_test_defined</code>, <code>measure_test_status</code>) so downstream <code><a href="../reference/collect_mbspls_nested_cv.html">collect_mbspls_nested_cv()</a></code> can distinguish truly missing signals from scored-but-undefined results. Introduced shared helper <code>mbspls_nested_cv_result_row()</code> to eliminate duplicated logic between the direct and batchtools paths.</li>
+<li>
+<code>R/mbspls_model_summary.R</code>: model summary no longer errors when the log-env is missing bootstrap-selection state; affected fields degrade gracefully to <code>NA</code>.</li>
+</ul></div>
+<div class="section level3">
+<h3 id="improvements-0-3-3">Improvements<a class="anchor" aria-label="anchor" href="#improvements-0-3-3"></a></h3>
+<ul><li>
+<code><a href="../reference/mbspls_nested_cv.html">mbspls_nested_cv()</a></code> and <code><a href="../reference/mbspls_nested_cv_batchtools.html">mbspls_nested_cv_batchtools()</a></code>: the outer-evaluation measure is now configurable via a new <code>measure</code> argument (accepts an MB-sPLS measure id string or an <code>mlr3</code> <code>Measure</code> object; default remains <code>"mbspls.mac_evwt"</code>). A resolver helper <code>mbspls_nested_cv_resolve_measure()</code> validates the supplied measure and binds its payload key.</li>
+<li>
+<code><a href="../reference/collect_mbspls_nested_cv.html">collect_mbspls_nested_cv()</a></code>: result table now includes <code>measure_id</code>, <code>measure_key</code>, <code>measure_test</code>, <code>measure_test_defined</code>, and <code>measure_test_status</code> columns in place of the single implicit <code>mac_evwt_test</code> field, making multi-measure comparisons straightforward.</li>
+<li>
+<code>R/utils.R</code>: added <code>mbspls_metric_summary()</code> for consistent finite-only mean/SD/range summaries used internally by nested CV reporting.</li>
+</ul></div>
+</div>
     <div class="section level2">
 <h2 class="page-header" data-toc-text="0.3.2" id="mlr3mbspls-032">mlr3mbspls 0.3.2<a class="anchor" aria-label="anchor" href="#mlr3mbspls-032"></a></h2>
 <ul><li>Minor release with stricter validation and guardrails across task handling, pipeops, tuners, evaluation helpers, and native numerical routines.</li>
