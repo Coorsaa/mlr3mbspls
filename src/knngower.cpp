@@ -184,11 +184,8 @@ Rcpp::List knn_predict_regr_gower_cpp(
     const arma::rowvec& ranges_num,
     const arma::vec&  y_train,
     const int k,
-    const std::string& weight_scheme,   // "uniform" or "inverse"
+    const std::string& weight_scheme,
     const double min_feature_frac,
-    // NOTE: fallback_mean and fallback_var are accepted for API-forward-compatibility
-    // but are currently unused: the function always errors when no eligible neighbors
-    // are found rather than falling back to a constant prediction.
     const double fallback_mean,
     const double fallback_var
 ) {
