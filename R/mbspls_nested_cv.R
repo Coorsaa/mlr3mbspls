@@ -268,8 +268,9 @@ mbspls_nested_cv = function(
 
     inner_scores[i] = tryCatch(
       {
-        as.numeric(inst$objective_result_y %||% inst$result_y %||%
-          inst$archive$best()$y)
+        # $result_y is the documented public accessor in mlr3tuning (OptimInstanceBatchSingleCrit).
+        # Fall back to $archive$best()$y for robustness across mlr3tuning versions.
+        as.numeric(inst$result_y %||% inst$archive$best()$y)
       },
       error = function(e) NA_real_
     )

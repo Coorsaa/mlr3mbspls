@@ -54,6 +54,14 @@ arma::mat cpp_lm_coeff_ridge(const arma::mat& X,
   if (!arma::qr_econ(Q, R, Xa)) {
     Rcpp::stop("cpp_lm_coeff_ridge: QR decomposition failed; cannot compute coefficients without changing the estimation method.");
   }
+  // Condition number check: flag ill-conditioned systems from large lambda
+  if (R.n_rows > 0 && R.n_cols > 0) {
+    const double r_diag_max = std::abs(R(0, 0));
+    const double r_diag_min = std::abs(R(R.n_rows - 1, R.n_rows - 1));
+    if (r_diag_max > 0.0 && (r_diag_min / r_diag_max) < 1e-10) {
+      Rcpp::warning("cpp_lm_coeff_ridge: augmented system appears ill-conditioned (condition estimate > 1e10). Coefficients may be unreliable. Consider reducing the ridge penalty (lambda).");
+    }
+  }
   const arma::mat QtY = Q.t() * Ya;
   arma::mat coef;
   const bool ok = arma::solve(coef, arma::trimatu(R), QtY, arma::solve_opts::fast);

@@ -371,6 +371,7 @@ PipeOpMBsPLS = R6::R6Class(
       self$state$latent_cor_train = utils::tail(obj, 1)
       self$state$performance_metric = pv$performance_metric
       self$state$correlation_method = pv$correlation_method
+      self$state$pkg_version = as.character(utils::packageVersion("mlr3mbspls"))
 
       if (!is.null(pv$log_env) && inherits(pv$log_env, "environment")) {
         sparsity = if (is.null(c_matrix)) {
@@ -528,7 +529,20 @@ PipeOpMBsPLS = R6::R6Class(
           P_active = st_env$loadings_stable %||% NULL
           K_active = length(W_active)
           used_source = paste0("stable_", st_env$selection_method %||% "ci")
-          lgr$info("[%s] predict_weights='auto': using '%s' from log_env.", self$id, used_source)
+          # Guard: if all components have empty block weights, fall back to raw
+          all_populated = K_active > 0L && all(vapply(seq_len(K_active), function(ki) {
+            is.list(W_active[[ki]]) && length(W_active[[ki]]) > 0L &&
+              all(vapply(W_active[[ki]], function(w) length(w) > 0L, logical(1L)))
+          }, logical(1L)))
+          if (all_populated) {
+            lgr$info("[%s] predict_weights='auto': using '%s' from log_env.", self$id, used_source)
+          } else {
+            lgr$warn("[%s] predict_weights='auto': stable weights exist but have 0 components or empty block weights; falling back to 'raw'.", self$id)
+            W_active = st$weights
+            P_active = st$loadings
+            K_active = length(W_active)
+            used_source = "raw"
+          }
         } else {
           lgr$info("[%s] predict_weights='auto': no stable weights found in log_env; falling back to 'raw'.", self$id)
         }

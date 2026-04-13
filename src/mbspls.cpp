@@ -424,7 +424,7 @@ Rcpp::List cpp_mbspls_one_lv(const Rcpp::List&  X_blocks,
 
   const int B = X_blocks.size();
 
-  if (B == 0) Rcpp::stop("Empty X_blocks list");
+  if (B < 2) Rcpp::stop("cpp_mbspls_one_lv: at least 2 blocks are required to define a cross-block latent variable; got " + std::to_string(B) + ".");
   if (c_constraints.n_elem != B) Rcpp::stop("c_constraints length must match number of blocks");
 
   std::vector<arma::mat> X;
@@ -696,6 +696,8 @@ Rcpp::List cpp_mbspls_multi_lv(const Rcpp::List&  X_blocks,
   if (K < 1) Rcpp::stop("K must be >= 1");
 
   const int B = X_blocks.size();
+  if (B < 2) Rcpp::stop("cpp_mbspls_multi_lv: at least 2 blocks are required; got " + std::to_string(B) + ".");
+
   std::vector<arma::mat> X(B);
   for (int b = 0; b < B; ++b) {
     arma::mat Xi = Rcpp::as<arma::mat>(X_blocks[b]); // may be an external view

@@ -249,6 +249,19 @@ assert_mbspls_state = function(st, require_train_blocks = FALSE, where = "log_en
   # optional but common
   if (!is.null(st$ncomp)) {
     checkmate::assert_integerish(st$ncomp, len = 1L, lower = 0L, .var.name = paste0(where, "$ncomp"))
+
+    # ev_comp must have exactly ncomp entries if present
+    if (!is.null(st$ev_comp) && st$ncomp > 0L) {
+      checkmate::assert_numeric(st$ev_comp, len = st$ncomp,
+        .var.name = paste0(where, "$ev_comp"))
+    }
+
+    # ev_block must have ncomp rows and one column per block if present
+    B = length(st$blocks)
+    if (!is.null(st$ev_block) && st$ncomp > 0L && B > 0L) {
+      checkmate::assert_matrix(st$ev_block, nrows = st$ncomp, ncols = B,
+        .var.name = paste0(where, "$ev_block"))
+    }
   }
 
   # blocks entries should be character vectors
@@ -410,13 +423,18 @@ mb_resolve_blocks = function(
   dt = data.table::as.data.table(dt)
   dt_names = names(dt)
 
-  out = lapply(blocks, function(cols) {
+  out = lapply(names(blocks), function(bn) {
+    cols = blocks[[bn]]
     cand = mb_expand_block_cols(dt_names, cols)
 
     if (isTRUE(numeric_only)) {
       cand = cand[vapply(cand, function(cl) is.numeric(dt[[cl]]), logical(1))]
     }
     if (!length(cand)) {
+      warning(sprintf(
+        "mb_resolve_blocks: block '%s' matched 0 columns in the data (requested: %s). Check that column names and any encoding suffixes match exactly.",
+        bn, mb_format_truncated(cols)
+      ), call. = FALSE)
       return(character(0))
     }
 
@@ -425,6 +443,7 @@ mb_resolve_blocks = function(
     }
     cand
   })
+  names(out) = names(blocks)
 
   Filter(length, out)
 }

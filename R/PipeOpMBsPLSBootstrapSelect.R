@@ -484,12 +484,12 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
             }, numeric(1))
             cs = cs[is.finite(cs)]
             if (length(cs)) {
-              s_all = sign(sum(cs))
-              if (!is.finite(s_all) || s_all == 0) {
-                j = which.max(abs(cs))
-                s_all = sign(cs[j])
-                if (!is.finite(s_all) || s_all == 0) s_all <- +1L
-              }
+              # Use the sign of the block with the maximum absolute correlation
+              # as the primary alignment signal; this is more robust than sign(sum(cs))
+              # when one strongly anti-correlated block can dominate the sum.
+              j = which.max(abs(cs))
+              s_all = sign(cs[j])
+              if (!is.finite(s_all) || s_all == 0L) s_all <- +1L
             } else {
               s_all = +1L
             }
@@ -570,12 +570,23 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
             future::nbrOfWorkers(), workers)
         }
 
-        future.apply::future_lapply(
-          rep_idx, one_rep,
-          future.seed = TRUE,
-          future.packages = c("mlr3mbspls")
+        lgr$info("bootstrap_select: launching %d bootstrap replicates across %d workers.", B, workers)
+        raw_res = tryCatch(
+          future.apply::future_lapply(
+            rep_idx, one_rep,
+            future.seed = TRUE,
+            future.packages = c("mlr3mbspls")
+          ),
+          error = function(e) {
+            stop(sprintf(
+              "bootstrap_select: parallel bootstrap failed. Consider setting workers=1 to diagnose. Original error: %s",
+              conditionMessage(e)
+            ), call. = FALSE)
+          }
         )
+        raw_res
       } else {
+        lgr$info("bootstrap_select: running %d bootstrap replicates sequentially.", B)
         lapply(rep_idx, one_rep)
       }
 

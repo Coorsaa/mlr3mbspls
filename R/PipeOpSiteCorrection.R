@@ -41,8 +41,13 @@
 #'   and the list of `covariates`.
 #' - At predict, we apply `neuroCombatFromTraining(dat, batch, estimates)`.
 #'   The upstream function **does not support** supplying `mod` for new data;
-#'   if estimates were trained with `mod`, it uses an internal mean-imputation
-#'   of the training covariate effects. Unseen batches can be handled with
+#'   if estimates were trained with `mod` (i.e., `covariates` is non-empty),
+#'   the batch-effect removal at predict-time uses the training covariate-effect
+#'   estimates only and does NOT re-apply the covariate model to new observations.
+#'   **A `warning()` is emitted at predict-time** whenever `covariates` is non-empty
+#'   to alert users of this limitation. If predict-time covariate correction matters,
+#'   consider using `"partial_corr"` instead.
+#'   Unseen batches can be handled with
 #'   `combat_unknown = "noop"` (skip) or `"baseline"` (map to `ref_batch`).
 #'
 #' **DIR (`"dir"`, via \pkg{fairmodels})**
@@ -345,6 +350,11 @@ PipeOpSiteCorrection = R6::R6Class(
             combat_covs = as.character(xspec$covariates %||% character(0))
           } else {
             # backward compat: single string is the site
+            # Emit a one-time warning so users know to update to list() format
+            warning(sprintf(
+              "Block '%s' (combat): passing a bare character string as site specification is deprecated. Use list(site = \"%s\", covariates = character(0)) for explicit and unambiguous specification.",
+              bn, xspec[1L]
+            ), call. = FALSE)
             xs = as.character(xspec)
             if (!length(xs)) next
             combat_site = xs[1L]
