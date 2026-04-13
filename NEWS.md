@@ -1,4 +1,4 @@
-# mlr3mbspls 0.3.3
+# mlr3mbspls 0.3.4
 
 ## Bug fixes
 
