@@ -1209,7 +1209,10 @@ Rcpp::List cpp_compute_test_ev_core(const Rcpp::List& X_blocks_test,
         }
       }
     }
-    mac_comp(k) = (n_pairs > 0) ? (frobenius ? std::sqrt(acc) : acc / n_pairs) : 0.0;
+    // n_pairs == 0 means all block score pairs had degenerate (zero-variance) scores;
+    // return NaN so the R layer (na.rm=TRUE) can exclude this component rather than
+    // silently treating missing correlation as zero correlation.
+    mac_comp(k) = (n_pairs > 0) ? (frobenius ? std::sqrt(acc) : acc / n_pairs) : arma::datum::nan;
 
     double ss_exp_total_k = 0.0;
     for (int b = 0; b < B; ++b) {

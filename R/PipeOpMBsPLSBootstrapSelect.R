@@ -514,7 +514,13 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
                 names(w_boot_b) = names(w_ref_b)
               }
               s_b = sign(sum(pad_to_order(w_boot_b, w_ref_b) * as.numeric(w_ref_b)))
-              if (!is.finite(s_b) || s_b == 0) s_b <- +1L
+              if (!is.finite(s_b) || s_b == 0) {
+                lgr$debug(
+                  "bootstrap_select: sign ambiguous for block '%s' component %d (dot-product near zero or non-finite); defaulting to +1.",
+                  b, k
+                )
+                s_b <- +1L
+              }
               T_boot[[i]][[bi]] = s_b * T_boot[[i]][[bi]]
               W_r[[i]][[b]] = s_b * pad_to_order(w_boot_b, w_ref_b)
             }
