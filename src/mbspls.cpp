@@ -424,7 +424,7 @@ Rcpp::List cpp_mbspls_one_lv(const Rcpp::List&  X_blocks,
 
   const int B = X_blocks.size();
 
-  if (B == 0) Rcpp::stop("Empty X_blocks list");
+  if (B < 2) Rcpp::stop("cpp_mbspls_one_lv: at least 2 blocks are required to define a cross-block latent variable; got " + std::to_string(B) + ".");
   if (c_constraints.n_elem != B) Rcpp::stop("c_constraints length must match number of blocks");
 
   std::vector<arma::mat> X;
@@ -696,6 +696,8 @@ Rcpp::List cpp_mbspls_multi_lv(const Rcpp::List&  X_blocks,
   if (K < 1) Rcpp::stop("K must be >= 1");
 
   const int B = X_blocks.size();
+  if (B < 2) Rcpp::stop("cpp_mbspls_multi_lv: at least 2 blocks are required; got " + std::to_string(B) + ".");
+
   std::vector<arma::mat> X(B);
   for (int b = 0; b < B; ++b) {
     arma::mat Xi = Rcpp::as<arma::mat>(X_blocks[b]); // may be an external view
@@ -1207,7 +1209,10 @@ Rcpp::List cpp_compute_test_ev_core(const Rcpp::List& X_blocks_test,
         }
       }
     }
-    mac_comp(k) = (n_pairs > 0) ? (frobenius ? std::sqrt(acc) : acc / n_pairs) : 0.0;
+    // n_pairs == 0 means all block score pairs had degenerate (zero-variance) scores;
+    // return NaN so the R layer (na.rm=TRUE) can exclude this component rather than
+    // silently treating missing correlation as zero correlation.
+    mac_comp(k) = (n_pairs > 0) ? (frobenius ? std::sqrt(acc) : acc / n_pairs) : arma::datum::nan;
 
     double ss_exp_total_k = 0.0;
     for (int b = 0; b < B; ++b) {
@@ -1790,11 +1795,14 @@ Rcpp::List cpp_bootstrap_test_oos(
   const double boot_mean = arma::mean(vals);
   const double boot_se = (valid_reps > 1) ? arma::stddev(vals) : 0.0;
 
-  int le_count = 0;
+  // p-value: fraction of bootstrap replicates with stat <= 0, testing H0: MAC <= 0.
+  // Small p means the MAC is reliably positive (most bootstrap samples > 0),
+  // consistent with the permutation test convention where small p = significant.
+  int le_zero_count = 0;
   for (int i = 0; i < valid_reps; ++i) {
-    if (vals(i) <= stat_obs) ++le_count;
+    if (vals(i) <= 0.0) ++le_zero_count;
   }
-  const double p_value = static_cast<double>(le_count) / static_cast<double>(valid_reps);
+  const double p_value = (static_cast<double>(le_zero_count) + 1.0) / (static_cast<double>(valid_reps) + 1.0);
 
   const double conf = 1.0 - alpha;
   const double zval = R::qnorm5(1.0 - (1.0 - conf) / 2.0, 0.0, 1.0, 1, 0);

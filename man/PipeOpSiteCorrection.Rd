@@ -54,8 +54,13 @@ We store the returned \code{estimates}, the valid batch levels, the \code{site_v
 and the list of \code{covariates}.
 \item At predict, we apply \code{neuroCombatFromTraining(dat, batch, estimates)}.
 The upstream function \strong{does not support} supplying \code{mod} for new data;
-if estimates were trained with \code{mod}, it uses an internal mean-imputation
-of the training covariate effects. Unseen batches can be handled with
+if estimates were trained with \code{mod} (i.e., \code{covariates} is non-empty),
+the batch-effect removal at predict-time uses the training covariate-effect
+estimates only and does NOT re-apply the covariate model to new observations.
+\strong{A \code{warning()} is emitted at predict-time} whenever \code{covariates} is non-empty
+to alert users of this limitation. If predict-time covariate correction matters,
+consider using \code{"partial_corr"} instead.
+Unseen batches can be handled with
 \code{combat_unknown = "noop"} (skip) or \code{"baseline"} (map to \code{ref_batch}).
 }
 

@@ -371,6 +371,7 @@ PipeOpMBsPLS = R6::R6Class(
       self$state$latent_cor_train = utils::tail(obj, 1)
       self$state$performance_metric = pv$performance_metric
       self$state$correlation_method = pv$correlation_method
+      self$state$pkg_version = as.character(utils::packageVersion("mlr3mbspls"))
 
       if (!is.null(pv$log_env) && inherits(pv$log_env, "environment")) {
         sparsity = if (is.null(c_matrix)) {
@@ -528,6 +529,22 @@ PipeOpMBsPLS = R6::R6Class(
           P_active = st_env$loadings_stable %||% NULL
           K_active = length(W_active)
           used_source = paste0("stable_", st_env$selection_method %||% "ci")
+          # Guard: if all components have empty block weights, fall back to raw
+          all_populated = K_active > 0L && all(vapply(seq_len(K_active), function(ki) {
+            is.list(W_active[[ki]]) && length(W_active[[ki]]) > 0L &&
+              all(vapply(W_active[[ki]], function(w) length(w) > 0L, logical(1L)))
+          }, logical(1L)))
+          if (all_populated) {
+            lgr$info("[%s] predict_weights='auto': using '%s' from log_env.", self$id, used_source)
+          } else {
+            lgr$warn("[%s] predict_weights='auto': stable weights exist but have 0 components or empty block weights; falling back to 'raw'.", self$id)
+            W_active = st$weights
+            P_active = st$loadings
+            K_active = length(W_active)
+            used_source = "raw"
+          }
+        } else {
+          lgr$info("[%s] predict_weights='auto': no stable weights found in log_env; falling back to 'raw'.", self$id)
         }
       } else if (identical(pick, "stable_ci")) {
         if (!use_env_weights(ci = TRUE, freq = FALSE)) {
@@ -608,6 +625,7 @@ PipeOpMBsPLS = R6::R6Class(
 
       val_test_p = rep(NA_real_, K_active)
       val_test_stat = rep(NA_real_, K_active)
+      val_bootstrap_results = NULL # pre-initialize; populated below if val_test="bootstrap"
 
       score_tables = vector("list", K_active)
       for (k in seq_len(K_active)) {
@@ -675,22 +693,17 @@ PipeOpMBsPLS = R6::R6Class(
           conf = 1 - (if (is.null(pv$val_test_alpha)) 0.05 else pv$val_test_alpha)
           val_test_p[k] = boot_p_value
           val_test_stat[k] = observed_correlation
-          if (k == 1L) {
-            val_bootstrap_results = data.table::data.table(
-              component = k, observed_correlation = observed_correlation,
-              boot_mean = boot_mean, boot_se = boot_se,
-              boot_p_value = boot_p_value,
-              boot_ci_lower = ci_lower, boot_ci_upper = ci_upper,
-              confidence_level = conf, n_boot = n_boot_done
-            )
+          row_k = data.table::data.table(
+            component = k, observed_correlation = observed_correlation,
+            boot_mean = boot_mean, boot_se = boot_se,
+            boot_p_value = boot_p_value,
+            boot_ci_lower = ci_lower, boot_ci_upper = ci_upper,
+            confidence_level = conf, n_boot = n_boot_done
+          )
+          val_bootstrap_results = if (is.null(val_bootstrap_results)) {
+            row_k
           } else {
-            val_bootstrap_results = rbind(val_bootstrap_results, data.table::data.table(
-              component = k, observed_correlation = observed_correlation,
-              boot_mean = boot_mean, boot_se = boot_se,
-              boot_p_value = boot_p_value,
-              boot_ci_lower = ci_lower, boot_ci_upper = ci_upper,
-              confidence_level = conf, n_boot = n_boot_done
-            ), fill = TRUE)
+            rbind(val_bootstrap_results, row_k, fill = TRUE)
           }
         }
 
@@ -703,7 +716,9 @@ PipeOpMBsPLS = R6::R6Class(
             if (is.null(pb)) {
               stop(sprintf("Prediction loadings are missing for component %d, block '%s'.", k, bn), call. = FALSE)
             }
-            X_cur[[bn]] = X_cur[[bn]] - as.matrix(score_tables[[k]][[bi]]) %*% t(as.matrix(pb))
+            # Use named column access (not positional) for robustness
+            t_bn = score_tables[[k]][[paste0("LV", k, "_", bn)]]
+            X_cur[[bn]] = X_cur[[bn]] - matrix(t_bn, ncol = 1L) %*% t(as.matrix(pb))
           }
         }
       }

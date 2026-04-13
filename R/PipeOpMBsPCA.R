@@ -122,6 +122,8 @@ PipeOpMBsPCA = R6::R6Class(
         n_perm = paradox::p_int(lower = 1L, default = 500L, tags = "train"),
         perm_alpha = paradox::p_dbl(lower = 0, upper = 1,
           default = 0.05, tags = "train"),
+        max_iter = paradox::p_int(lower = 1L, default = 60L, tags = "train"),
+        tol = paradox::p_dbl(lower = 0, default = 1e-4, tags = "train"),
         c_matrix = paradox::p_uty(tags = c("train", "tune"),
           default = NULL),
         log_env = paradox::p_uty(tags = c("train", "predict"), default = NULL)
@@ -328,8 +330,12 @@ PipeOpMBsPCA = R6::R6Class(
     #' @param method character(1). Correlation method, e.g. "spearman" (default) or "pearson".
     #' @return A ggplot object.
     plot_score_network = function(cutoff = 0.3, method = "spearman") {
-      requireNamespace("igraph")
-      requireNamespace("ggraph")
+      if (!requireNamespace("igraph", quietly = TRUE)) {
+        stop("Package 'igraph' is required for plot_score_network(). Install it with install.packages('igraph').")
+      }
+      if (!requireNamespace("ggraph", quietly = TRUE)) {
+        stop("Package 'ggraph' is required for plot_score_network(). Install it with install.packages('ggraph').")
+      }
       st = self$state
       if (is.null(st$T_mat) || ncol(st$T_mat) < 2) {
         stop("Need at least two PCs to draw a network.")
@@ -454,7 +460,7 @@ PipeOpMBsPCA = R6::R6Class(
 
         ## fit one component ------------------------------------------
         fit = cpp_mbspca_one_lv(X_res, c_k,
-          max_iter = 60L, tol = 1e-4)
+          max_iter = pv$max_iter, tol = pv$tol)
         Wk = fit$W
 
         ## block scores & loadings
@@ -483,8 +489,10 @@ PipeOpMBsPCA = R6::R6Class(
         ## permutation early-stop? ------------------------------------
         if (isTRUE(pv$permutation_test)) {
           p_val = perm_test_component_mbspca(X_res, Wk, c_k,
-            n_perm = pv$n_perm,
-            alpha = pv$perm_alpha)
+            n_perm    = pv$n_perm,
+            alpha     = pv$perm_alpha,
+            max_iter  = pv$max_iter,
+            tol       = pv$tol)
           if (p_val > pv$perm_alpha && k != 1L) { # always keep PC-1
             W_all = W_all[seq_len(k - 1)]
             P_all = P_all[seq_len(k - 1)]

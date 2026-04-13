@@ -179,7 +179,15 @@ mbspls_graph = function(
   selection_method = match.arg(selection_method)
   stable_weight_source = match.arg(stable_weight_source)
 
-  log_env = if (is.null(log_env)) new.env(parent = emptyenv()) else log_env
+  if (is.null(log_env)) {
+    log_env = new.env(parent = emptyenv())
+    # suppress overwrite warnings in typical resampling/tuning workflows
+    log_env$warn_overwrite = FALSE
+  }
+
+  if (isTRUE(stability_only) && !isTRUE(bootstrap_selection)) {
+    stop("`stability_only = TRUE` has no effect when `bootstrap_selection = FALSE` because there is no PipeOpMBsPLSBootstrapSelect in the graph. Set `bootstrap_selection = TRUE` or remove `stability_only`.", call. = FALSE)
+  }
 
   if (isTRUE(bootstrap_selection)) {
     po_bootstrap_select = po("mbspls_bootstrap_select",

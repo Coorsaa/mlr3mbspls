@@ -152,7 +152,8 @@ Rcpp::List knn_predict_classif_gower_cpp(
       double w = 1.0;
       if (inv) {
         const double dj = d[j];
-        w = (std::isfinite(dj) && dj > 1e-12) ? (1.0 / dj) : 1e12; // large weight for near-identical
+        // Use 1/(d+eps) to avoid branch and ensure smooth large-weight for near-identical rows
+        w = std::isfinite(dj) ? (1.0 / (dj + 1e-12)) : 1e12;
       }
       scores[cls] += w;
     }
@@ -185,6 +186,9 @@ Rcpp::List knn_predict_regr_gower_cpp(
     const int k,
     const std::string& weight_scheme,   // "uniform" or "inverse"
     const double min_feature_frac,
+    // NOTE: fallback_mean and fallback_var are accepted for API-forward-compatibility
+    // but are currently unused: the function always errors when no eligible neighbors
+    // are found rather than falling back to a constant prediction.
     const double fallback_mean,
     const double fallback_var
 ) {
@@ -236,7 +240,7 @@ Rcpp::List knn_predict_regr_gower_cpp(
       ys[t] = y_train[j];
       if (inv) {
         const double dj = d[j];
-        ws[t] = (std::isfinite(dj) && dj > 1e-12) ? (1.0 / dj) : 1e12;
+        ws[t] = std::isfinite(dj) ? (1.0 / (dj + 1e-12)) : 1e12;
       }
     }
 

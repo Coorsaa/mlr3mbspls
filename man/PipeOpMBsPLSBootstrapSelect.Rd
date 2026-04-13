@@ -12,7 +12,7 @@ Stores \code{weights_ci}, \code{weights_selectfreq}, \code{weights_stable},
 Performs post-hoc \strong{bootstrap}, aligns replicate components (two alignment modes),
 summarises per-feature weights, then \strong{selects features} via:
 \itemize{
-\item \code{selection_method = "ci"} (default): keep if CI excludes 0 AND |mean| > 1e-3;
+\item \code{selection_method = "ci"} (default): keep if CI excludes 0 AND |mean| > \code{magnitude_threshold} (default 1e-3);
 \item \code{selection_method = "frequency"}: keep if non-zero frequency >= \code{frequency_threshold}.
 }
 Blocks with no kept features \strong{vanish} for that component; components with no

@@ -110,9 +110,14 @@ Rcpp::List cpp_mbspca_one_lv(const Rcpp::List   &X_blocks,
 double perm_test_component_mbspca(const Rcpp::List   &X_blocks,
                                   const Rcpp::List   &W_list,
                                   const arma::vec    &c_vec,
-                                  int                 n_perm = 999,
-                                  double              alpha  = 0.05)
+                                  int                 n_perm    = 999,
+                                  double              alpha     = 0.05,
+                                  int                 max_iter  = 50,
+                                  double              tol       = 1e-4)
 {
+  if (arma::any(c_vec <= 0.0))
+    Rcpp::stop("perm_test_component_mbspca: all entries of c_vec must be strictly positive.");
+
   const int B = X_blocks.size();
   if (!B) Rcpp::stop("perm_test_component_mbspca: X_blocks is empty.");
 
@@ -137,22 +142,19 @@ double perm_test_component_mbspca(const Rcpp::List   &X_blocks,
   double var_obs = arma::dot(t_global, t_global) / ss_tot;
 
   /* permutation loop */
-  arma::uvec idx(n);
   int ge = 0;
   for (int p = 0; p < n_perm; ++p) {
-    /* permute each column of every block independently */
-    std::vector<mat> Xp = X;
+    /* permute rows of each block independently (preserving within-block covariance
+     * while destroying cross-block alignment - the correct null for MB-sPCA) */
+    std::vector<mat> Xp(B);
     for (int b = 0; b < B; ++b) {
-      for (size_t j = 0; j < Xp[b].n_cols; ++j) {
-        idx = arma::randperm(n);
-        vec temp_col = Xp[b].col(j);  // Extract column as vector
-        Xp[b].col(j) = temp_col(idx); // Permute and assign back
-      }
+      arma::uvec row_idx = arma::randperm(n);
+      Xp[b] = X[b].rows(row_idx);
     }
     /* refit component on permuted data */
     Rcpp::List Xp_R(B); for (int b = 0; b < B; ++b) Xp_R[b] = Xp[b];
     Rcpp::List fit = cpp_mbspca_one_lv(Xp_R, c_vec,
-                                       40, 1e-4);
+                                       max_iter, tol);
     vec t_perm(n, arma::fill::zeros);
     Rcpp::List Wp_R = fit["W"];
     for (int b = 0; b < B; ++b)
