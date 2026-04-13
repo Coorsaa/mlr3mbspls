@@ -6,7 +6,7 @@
 #' Performs post-hoc **bootstrap**, aligns replicate components (two alignment modes),
 #' summarises per-feature weights, then **selects features** via:
 #' \itemize{
-#'   \item \code{selection_method = "ci"} (default): keep if CI excludes 0 AND |mean| > 1e-3;
+#'   \item \code{selection_method = "ci"} (default): keep if CI excludes 0 AND |mean| > \code{magnitude_threshold} (default 1e-3);
 #'   \item \code{selection_method = "frequency"}: keep if non-zero frequency >= \code{frequency_threshold}.
 #' }
 #' Blocks with no kept features **vanish** for that component; components with no
@@ -85,6 +85,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
 
         selection_method = paradox::p_fct(levels = c("ci", "frequency"), default = "ci", tags = "train"),
         frequency_threshold = paradox::p_dbl(lower = 0, upper = 1, default = 0.60, tags = "train"),
+        magnitude_threshold = paradox::p_dbl(lower = 0, default = 1e-3, tags = "train"),
 
         stable_weight_source = paradox::p_fct(
           levels  = c("training", "bootstrap_mean"),
@@ -156,7 +157,8 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
     # helper to construct stable weights & kept blocks from summaries
     .build_stable_from = function(
       method, K, bn, blocks_map, sum_df, freq_df, frequency_threshold,
-      W_train, weight_source = c("training", "bootstrap_mean")
+      W_train, weight_source = c("training", "bootstrap_mean"),
+      magnitude_threshold = 1e-3
     ) {
       weight_source = match.arg(weight_source)
       W_stable_local = list()
@@ -195,7 +197,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
           hi[is.na(hi)] = 0
 
           if (identical(method, "ci")) {
-            keep = ((lo >= 0) | (hi <= 0)) & (abs(mu) > 1e-3)
+            keep = ((lo >= 0) | (hi <= 0)) & (abs(mu) > magnitude_threshold)
           } else {
             fb = freq_df[freq_df$component == k_lab & freq_df$block == b,
               c("feature", "freq"), drop = FALSE]
@@ -595,6 +597,16 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         component = comp_lab, n_eff = as.integer(n_eff)
       )
 
+      # Warn when all replicates were rejected by the score-correlation gate
+      for (ki in seq_along(comp_lab)) {
+        if (n_eff[ki] == 0L) {
+          lgr$warn(
+            "bootstrap_select: all %d bootstrap replicates for component %s were rejected (min_score_cor=%.2f). Bootstrap summaries will be empty for this component. Consider lowering min_score_cor.",
+            B, comp_lab[ki], MIN_SCORE_COR
+          )
+        }
+      }
+
       # gather draws
       dlist = Filter(Negate(is.null), lapply(rep_res, `[[`, "draws"))
       draws = if (length(dlist)) {
@@ -738,25 +750,29 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       bn = bt$blocks_order
       sum_df = as.data.frame(bt$summary)
       freq_df = as.data.frame(bt$select_freq)
+      n_eff_by_component = bt$n_eff_by_component
       K = length(st_env$weights)
 
       # Iterate over the full block set so all components have all blocks (zero-padded if filtered)
       bn_full = names(blocks_map)
 
       # ---- Build BOTH stable variants for env storage
+      mag_thr = as.numeric(pv$magnitude_threshold %||% 1e-3)
       built_ci = private$.build_stable_from(
         method = "ci", K = K, bn = bn_full,
         blocks_map = blocks_map, sum_df = sum_df,
         freq_df = freq_df, frequency_threshold = pv$frequency_threshold,
         W_train = st_env$weights,
-        weight_source = pv$stable_weight_source
+        weight_source = pv$stable_weight_source,
+        magnitude_threshold = mag_thr
       )
       built_freq = private$.build_stable_from(
         method = "frequency", K = K, bn = bn_full,
         blocks_map = blocks_map, sum_df = sum_df,
         freq_df = freq_df, frequency_threshold = pv$frequency_threshold,
         W_train = st_env$weights,
-        weight_source = pv$stable_weight_source
+        weight_source = pv$stable_weight_source,
+        magnitude_threshold = mag_thr
       )
 
       # ---- Choose which set governs the graph output (according to selection_method)
@@ -787,6 +803,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         self$state$weights_ci = sum_df
         self$state$weights_selectfreq = freq_df
         self$state$weights_stable = W_stable
+        self$state$n_eff_by_component = n_eff_by_component
 
         st_env$weights_stable = W_stable
         st_env$weights_stable_ci = built_ci$W
@@ -865,6 +882,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       self$state$weights_selectfreq = freq_df
       self$state$weights_stable = W_stable
       self$state$loadings_stable = P_all
+      self$state$n_eff_by_component = n_eff_by_component
       self$state$alignment_method = pv$align
       self$state$selection_method = pv$selection_method
       self$state$frequency_threshold = pv$frequency_threshold

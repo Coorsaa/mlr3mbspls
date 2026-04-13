@@ -1,3 +1,16 @@
+# mlr3mbspls 0.3.3
+
+## Bug fixes
+
+- `src/mbspca.cpp`: `perm_test_component_mbspca()` no longer uses hardcoded `max_iter=40, tol=1e-4` for permutation refits; these now forward the same solver settings as the main fit (exposed as `max_iter` / `tol` in `PipeOpMBsPCA`).  Added guard for non-positive `c_vec` entries.
+- `src/sitecorr.cpp`: replaced diagonal-ratio condition estimate in `cpp_lm_coeff_ridge()` with `arma::rcond(R)` for accurate ill-conditioning detection. Added explicit guard for negative or non-finite `lambda`.
+- `R/LearnerClassifKNNGower`, `R/LearnerRegrKNNGower`: emit a warning (rather than silently continuing) when `k` exceeds the training-set size.
+
+## Improvements
+
+- `PipeOpMBsPCA`: `max_iter` (default `60`) and `tol` (default `1e-4`) are now tunable parameters forwarded to both the main solver and the permutation-test refits.
+- `PipeOpMBsPLSBootstrapSelect`: `magnitude_threshold` (default `1e-3`) is now an exposed parameter controlling the minimum absolute bootstrap-mean weight required for a feature to pass the CI selection gate (previously hardcoded). A warning is now emitted for each component whose bootstrap replicates are all rejected by the score-correlation gate.
+
 # mlr3mbspls 0.3.2
 
 - Minor release with stricter validation and guardrails across task handling, pipeops, tuners, evaluation helpers, and native numerical routines.
