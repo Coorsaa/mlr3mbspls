@@ -181,10 +181,11 @@ LearnerClassifKNNGower = R6::R6Class("LearnerClassifKNNGower",
       }
 
       df = task$data(cols = task$feature_names)
-      if (pv$k > nrow(df))
+      if (pv$k > nrow(df)) {
         warning(sprintf(
           "classif.knngower: k (%d) exceeds the number of training observations (%d); all training points will be used as neighbors.",
           pv$k, nrow(df)))
+      }
 
       types = task$feature_types
       num_cols = types[type %in% c("numeric", "integer"), id]

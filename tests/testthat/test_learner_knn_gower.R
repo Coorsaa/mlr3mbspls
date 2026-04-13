@@ -30,10 +30,10 @@ test_that("LearnerClassifKNNGower - predicts when a factor level is absent from 
   df_test = data.frame(
     x1  = rnorm(20),
     cat = factor(c(rep("a", 10), rep("c", 10)), levels = c("a", "b", "c")),
-    y   = factor(c(rep("neg", 10), rep("pos", 10)))  # both levels must be present
+    y   = factor(c(rep("neg", 10), rep("pos", 10))) # both levels must be present
   )
   task_train = mlr3::TaskClassif$new(id = "knn_rare", backend = df_train, target = "y")
-  task_test  = mlr3::TaskClassif$new(id = "knn_rare_te", backend = df_test, target = "y")
+  task_test = mlr3::TaskClassif$new(id = "knn_rare_te", backend = df_test, target = "y")
 
   lrn = mlr3::lrn("classif.knngower", k = 3L, predict_type = "prob")
   lrn$train(task_train)
@@ -50,7 +50,7 @@ test_that("LearnerClassifKNNGower - inverse weighting handles near-duplicate row
   # Create near-duplicate rows to exercise the small-distance path
   x_base = rnorm(n)
   df = data.frame(
-    x1 = c(x_base, x_base + 1e-14),  # near-identical pairs
+    x1 = c(x_base, x_base + 1e-14), # near-identical pairs
     y  = factor(sample(c("neg", "pos"), 2 * n, replace = TRUE))
   )
   task = mlr3::TaskClassif$new(id = "knn_dup", backend = df, target = "y")
@@ -97,7 +97,7 @@ test_that("LearnerRegrKNNGower - predicts when a factor level is absent from tra
     y   = rnorm(10)
   )
   task_train = mlr3::TaskRegr$new(id = "knn_ru_tr", backend = df_train, target = "y")
-  task_test  = mlr3::TaskRegr$new(id = "knn_ru_te", backend = df_test,  target = "y")
+  task_test = mlr3::TaskRegr$new(id = "knn_ru_te", backend = df_test, target = "y")
 
   lrn = mlr3::lrn("regr.knngower", k = 3L, predict_type = "se")
   lrn$train(task_train)
@@ -128,7 +128,7 @@ test_that("LearnerClassifKNNGower - all-NA feature column handled via min_featur
   n = 40
   df_train = data.frame(
     x1  = rnorm(n),
-    x2  = NA_real_,   # all-NA column
+    x2  = NA_real_, # all-NA column
     y   = factor(sample(c("a", "b"), n, replace = TRUE))
   )
   df_test = data.frame(
@@ -137,7 +137,7 @@ test_that("LearnerClassifKNNGower - all-NA feature column handled via min_featur
     y   = factor(sample(c("a", "b"), 10, replace = TRUE))
   )
   task_train = mlr3::TaskClassif$new(id = "knn_na", backend = df_train, target = "y")
-  task_test  = mlr3::TaskClassif$new(id = "knn_na_te", backend = df_test, target = "y")
+  task_test = mlr3::TaskClassif$new(id = "knn_na_te", backend = df_test, target = "y")
 
   # Set min_feature_frac low enough to still predict with only x1
   lrn = mlr3::lrn("classif.knngower", k = 3L, min_feature_frac = 0.4)

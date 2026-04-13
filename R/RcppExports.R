@@ -13,8 +13,8 @@ cpp_mbspca_one_lv <- function(X_blocks, c_vec, max_iter = 50L, tol = 1e-4) {
     .Call(`_mlr3mbspls_cpp_mbspca_one_lv`, X_blocks, c_vec, max_iter, tol)
 }
 
-perm_test_component_mbspca <- function(X_blocks, W_list, c_vec, n_perm = 999L, alpha = 0.05) {
-    .Call(`_mlr3mbspls_perm_test_component_mbspca`, X_blocks, W_list, c_vec, n_perm, alpha)
+perm_test_component_mbspca <- function(X_blocks, W_list, c_vec, n_perm = 999L, alpha = 0.05, max_iter = 50L, tol = 1e-4) {
+    .Call(`_mlr3mbspls_perm_test_component_mbspca`, X_blocks, W_list, c_vec, n_perm, alpha, max_iter, tol)
 }
 
 cpp_block_objective_oos <- function(X_blocks, W_list, spearman = FALSE, frobenius = FALSE) {

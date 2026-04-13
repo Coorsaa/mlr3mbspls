@@ -106,9 +106,9 @@ test_that("PipeOpMBsPLSBootstrapSelect - min_score_cor=0.0 accepts all bootstrap
   set.seed(8)
   latent = rnorm(n)
   b1 = cbind(latent + rnorm(n, 0, 0.1), rnorm(n), latent + rnorm(n, 0, 0.1),
-             rnorm(n), latent + rnorm(n, 0, 0.2), rnorm(n))
+    rnorm(n), latent + rnorm(n, 0, 0.2), rnorm(n))
   b2 = cbind(latent + rnorm(n, 0, 0.1), rnorm(n), latent + rnorm(n, 0, 0.1),
-             rnorm(n), latent + rnorm(n, 0, 0.2), rnorm(n))
+    rnorm(n), latent + rnorm(n, 0, 0.2), rnorm(n))
   colnames(b1) = paste0("x", seq_len(ncol(b1)))
   colnames(b2) = paste0("z", seq_len(ncol(b2)))
   y = latent + rnorm(n, 0, 0.3)

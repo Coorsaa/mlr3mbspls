@@ -625,7 +625,7 @@ PipeOpMBsPLS = R6::R6Class(
 
       val_test_p = rep(NA_real_, K_active)
       val_test_stat = rep(NA_real_, K_active)
-      val_bootstrap_results = NULL  # pre-initialize; populated below if val_test="bootstrap"
+      val_bootstrap_results = NULL # pre-initialize; populated below if val_test="bootstrap"
 
       score_tables = vector("list", K_active)
       for (k in seq_len(K_active)) {

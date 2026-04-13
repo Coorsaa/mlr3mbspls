@@ -80,7 +80,7 @@ test_that("cpp_bootstrap_test_oos p-value is large for pure noise (H0 not reject
 
   # p_value should not be tiny for pure noise; many bootstrap MACs will be <= 0 or near 0
   expect_true(is.numeric(res$p_value))
-  expect_true(res$p_value > 0)  # sanity: must be in (0, 1]
+  expect_true(res$p_value > 0) # sanity: must be in (0, 1]
 })
 
 
