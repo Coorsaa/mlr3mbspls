@@ -17,6 +17,9 @@ arma::mat cpp_lm_coeff_ridge(const arma::mat& X,
                              const arma::mat& Y,
                              const double lambda,
                              Rcpp::Nullable<Rcpp::IntegerVector> unpen_idx) {
+  if (!std::isfinite(lambda) || lambda < 0.0)
+    Rcpp::stop("cpp_lm_coeff_ridge: lambda must be a non-negative finite number.");
+
   if (X.n_rows != Y.n_rows)
     Rcpp::stop("X and Y must have the same number of rows");
 
@@ -54,12 +57,11 @@ arma::mat cpp_lm_coeff_ridge(const arma::mat& X,
   if (!arma::qr_econ(Q, R, Xa)) {
     Rcpp::stop("cpp_lm_coeff_ridge: QR decomposition failed; cannot compute coefficients without changing the estimation method.");
   }
-  // Condition number check: flag ill-conditioned systems from large lambda
+  // Condition number check via reciprocal condition number of R
   if (R.n_rows > 0 && R.n_cols > 0) {
-    const double r_diag_max = std::abs(R(0, 0));
-    const double r_diag_min = std::abs(R(R.n_rows - 1, R.n_rows - 1));
-    if (r_diag_max > 0.0 && (r_diag_min / r_diag_max) < 1e-10) {
-      Rcpp::warning("cpp_lm_coeff_ridge: augmented system appears ill-conditioned (condition estimate > 1e10). Coefficients may be unreliable. Consider reducing the ridge penalty (lambda).");
+    const double rcond_R = arma::rcond(R);
+    if (rcond_R < 1e-10) {
+      Rcpp::warning("cpp_lm_coeff_ridge: augmented system appears ill-conditioned (rcond(R) < 1e-10). Coefficients may be unreliable. Consider reducing the ridge penalty (lambda).");
     }
   }
   const arma::mat QtY = Q.t() * Ya;

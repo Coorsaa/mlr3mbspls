@@ -110,9 +110,14 @@ Rcpp::List cpp_mbspca_one_lv(const Rcpp::List   &X_blocks,
 double perm_test_component_mbspca(const Rcpp::List   &X_blocks,
                                   const Rcpp::List   &W_list,
                                   const arma::vec    &c_vec,
-                                  int                 n_perm = 999,
-                                  double              alpha  = 0.05)
+                                  int                 n_perm    = 999,
+                                  double              alpha     = 0.05,
+                                  int                 max_iter  = 50,
+                                  double              tol       = 1e-4)
 {
+  if (arma::any(c_vec <= 0.0))
+    Rcpp::stop("perm_test_component_mbspca: all entries of c_vec must be strictly positive.");
+
   const int B = X_blocks.size();
   if (!B) Rcpp::stop("perm_test_component_mbspca: X_blocks is empty.");
 
@@ -149,7 +154,7 @@ double perm_test_component_mbspca(const Rcpp::List   &X_blocks,
     /* refit component on permuted data */
     Rcpp::List Xp_R(B); for (int b = 0; b < B; ++b) Xp_R[b] = Xp[b];
     Rcpp::List fit = cpp_mbspca_one_lv(Xp_R, c_vec,
-                                       40, 1e-4);
+                                       max_iter, tol);
     vec t_perm(n, arma::fill::zeros);
     Rcpp::List Wp_R = fit["W"];
     for (int b = 0; b < B; ++b)

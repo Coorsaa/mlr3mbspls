@@ -71,8 +71,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // perm_test_component_mbspca
-double perm_test_component_mbspca(const Rcpp::List& X_blocks, const Rcpp::List& W_list, const arma::vec& c_vec, int n_perm, double alpha);
-RcppExport SEXP _mlr3mbspls_perm_test_component_mbspca(SEXP X_blocksSEXP, SEXP W_listSEXP, SEXP c_vecSEXP, SEXP n_permSEXP, SEXP alphaSEXP) {
+double perm_test_component_mbspca(const Rcpp::List& X_blocks, const Rcpp::List& W_list, const arma::vec& c_vec, int n_perm, double alpha, int max_iter, double tol);
+RcppExport SEXP _mlr3mbspls_perm_test_component_mbspca(SEXP X_blocksSEXP, SEXP W_listSEXP, SEXP c_vecSEXP, SEXP n_permSEXP, SEXP alphaSEXP, SEXP max_iterSEXP, SEXP tolSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -81,7 +81,9 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const arma::vec& >::type c_vec(c_vecSEXP);
     Rcpp::traits::input_parameter< int >::type n_perm(n_permSEXP);
     Rcpp::traits::input_parameter< double >::type alpha(alphaSEXP);
-    rcpp_result_gen = Rcpp::wrap(perm_test_component_mbspca(X_blocks, W_list, c_vec, n_perm, alpha));
+    Rcpp::traits::input_parameter< int >::type max_iter(max_iterSEXP);
+    Rcpp::traits::input_parameter< double >::type tol(tolSEXP);
+    rcpp_result_gen = Rcpp::wrap(perm_test_component_mbspca(X_blocks, W_list, c_vec, n_perm, alpha, max_iter, tol));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -305,7 +307,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_mlr3mbspls_knn_predict_classif_gower_cpp", (DL_FUNC) &_mlr3mbspls_knn_predict_classif_gower_cpp, 12},
     {"_mlr3mbspls_knn_predict_regr_gower_cpp", (DL_FUNC) &_mlr3mbspls_knn_predict_regr_gower_cpp, 13},
     {"_mlr3mbspls_cpp_mbspca_one_lv", (DL_FUNC) &_mlr3mbspls_cpp_mbspca_one_lv, 4},
-    {"_mlr3mbspls_perm_test_component_mbspca", (DL_FUNC) &_mlr3mbspls_perm_test_component_mbspca, 5},
+    {"_mlr3mbspls_perm_test_component_mbspca", (DL_FUNC) &_mlr3mbspls_perm_test_component_mbspca, 7},
     {"_mlr3mbspls_cpp_block_objective_oos", (DL_FUNC) &_mlr3mbspls_cpp_block_objective_oos, 4},
     {"_mlr3mbspls_cpp_mbspls_one_lv", (DL_FUNC) &_mlr3mbspls_cpp_mbspls_one_lv, 6},
     {"_mlr3mbspls_perm_test_component", (DL_FUNC) &_mlr3mbspls_perm_test_component, 9},
