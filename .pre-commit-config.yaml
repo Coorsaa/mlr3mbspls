@@ -53,3 +53,6 @@ repos:
 
 ci:
     autoupdate_schedule: monthly
+    # pre-commit.ci cannot install the pinned formatter; the styler.mlr job of
+    # the R-CMD-check workflow runs the same check.
+    skip: [mlr-style]

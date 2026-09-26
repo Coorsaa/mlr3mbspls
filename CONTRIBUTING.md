@@ -10,7 +10,7 @@ and `styler.mlr` 0.1.0 at revision
 `e950499afb6b28610400489f3ae6faacc6897358`. Install that toolchain with:
 
 ```r
-install.packages("remotes")
+install.packages(c("remotes", "roxygen2", "knitr"))
 remotes::install_version("styler", version = "1.10.3", upgrade = "never")
 remotes::install_github(
   "mlr-org/styler.mlr@e950499afb6b28610400489f3ae6faacc6897358",
@@ -18,7 +18,8 @@ remotes::install_github(
 )
 ```
 
-`styler` 1.11.0 is not currently compatible with that `styler.mlr` revision:
+`roxygen2` and `knitr` let `styler` format roxygen examples and R Markdown
+chunks. `styler` 1.11.0 is not currently compatible with that `styler.mlr` revision:
 the mlr guide calls an internal transformer removed in 1.11.0. Keep the pinned
 pair together until `styler.mlr` publishes a compatible revision.
 

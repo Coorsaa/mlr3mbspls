@@ -38,7 +38,7 @@ jobs:
 
       - name: Install pinned style guide
         run: |
-          install.packages("remotes")
+          install.packages(c("remotes", "roxygen2", "knitr"))
           remotes::install_version(
             "styler",
             version = "1.10.3",

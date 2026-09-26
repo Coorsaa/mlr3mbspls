@@ -28,8 +28,10 @@ if (!file.exists("DESCRIPTION")) {
   stop("Run this script from the mlr3mbspls package root.", call. = FALSE)
 }
 
-if (!requireNamespace("styler", quietly = TRUE) ||
-  !requireNamespace("styler.mlr", quietly = TRUE)) {
+# styler formats roxygen @examples with roxygen2 and R Markdown with knitr;
+# without them it skips those files with a warning instead of failing.
+style_dependencies = c("styler", "styler.mlr", "roxygen2", "knitr")
+if (!all(vapply(style_dependencies, requireNamespace, logical(1L), quietly = TRUE))) {
   stop(
     paste(
       "The pinned style dependencies are missing.",
@@ -202,6 +204,16 @@ style_source_files = function(files, dry) {
     }
   )
 
+  failed = is.na(result$changed)
+  if (any(failed)) {
+    stop(
+      sprintf(
+        "styler.mlr could not process: %s.",
+        paste(result$file[failed], collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
   as.character(result$file[result$changed])
 }
 
