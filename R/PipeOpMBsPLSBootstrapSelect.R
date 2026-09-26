@@ -3,7 +3,8 @@
 #' @title Post-hoc bootstrap feature selection
 #'
 #' @description
-#' Performs post-hoc **bootstrap**, aligns replicate components (two alignment modes),
+#' Performs a post-hoc **descriptive bootstrap**, aligns replicate components
+#' (two alignment modes),
 #' summarises per-feature weights, then **selects features** via:
 #' \itemize{
 #'   \item \code{selection_method = "ci"} (default): keep if CI excludes 0 AND |mean| > \code{magnitude_threshold} (default 1e-3);
@@ -33,8 +34,10 @@
 #'   stability outputs (stable weights, kept blocks, stable loadings/scores, etc.) exactly as usual,
 #'   but do **not** modify the task: upstream LV columns and original block features are passed through
 #'   unchanged (no dropping, no stable LV replacement). Default \code{FALSE}.
-#' @param B Bootstrap replicates (default \code{500}).
-#' @param alpha CI alpha (default \code{0.05} -> 95\% CI).
+#' @param B Bootstrap replicates; at least two are required when bootstrap
+#'   selection is enabled (default \code{500}).
+#' @param alpha CI alpha strictly between zero and one (default \code{0.05} ->
+#'   95\% CI).
 #' @param align \code{"block_sign"} (default) or \code{"score_correlation"}.
 #' @param selection_method \code{"ci"} (default) or \code{"frequency"}.
 #' @param frequency_threshold Only for \code{"frequency"}; default \code{0.60}.
@@ -44,6 +47,11 @@
 #'   In all cases, selection is driven by the bootstrap summaries; this parameter
 #'   only controls the *magnitude* of the non-zero coefficients.
 #' @param stratify_by_block Optional dummy-encoded block name for stratified bootstrap (e.g., "Studygroup").
+#' @param bootstrap_groups Optional exchangeability-group vector. If named, its
+#'   names must cover the task row IDs and it is aligned by row ID; otherwise it
+#'   must already follow training-row order. Whole groups are sampled with
+#'   replacement. Supply this for repeated measures, families, or other
+#'   clustered sampling units; the package cannot infer the correct unit.
 #' @param min_score_cor Numeric in `[0, 1]`. Minimum mean absolute score correlation
 #'   between a bootstrap replicate component and the corresponding training reference
 #'   component required for the replicate to be accepted into the summary statistics.
@@ -94,6 +102,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         ),
 
         stratify_by_block = paradox::p_uty(default = NULL, tags = "train"),
+        bootstrap_groups = paradox::p_uty(default = NULL, tags = "train"),
         min_score_cor = paradox::p_dbl(lower = 0, upper = 1, default = 0.10, tags = "train"),
         seed_bootstrap = paradox::p_int(lower = 1L, default = 20250921L, tags = "train", special_vals = list(NULL)),
         workers = paradox::p_int(lower = 1L, default = 1L, tags = "train")
@@ -197,7 +206,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
           hi[is.na(hi)] = 0
 
           if (identical(method, "ci")) {
-            keep = ((lo >= 0) | (hi <= 0)) & (abs(mu) > magnitude_threshold)
+            keep = ((lo > 0) | (hi < 0)) & (abs(mu) > magnitude_threshold)
           } else {
             fb = freq_df[freq_df$component == k_lab & freq_df$block == b,
               c("feature", "freq"), drop = FALSE]
@@ -317,6 +326,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       sparsity, corr_method = "pearson", perf_metric = "mac",
       B = 500L, alpha = 0.05, align = "block_sign",
       workers = 1L, stratify_block = NULL,
+      groups = NULL, rng_streams = NULL,
       min_score_cor = 0.10
     ) {
       MIN_SCORE_COR = as.numeric(min_score_cor %||% 0.10) # acceptance gate
@@ -331,12 +341,25 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       if (!all(vapply(X_list, nrow, integer(1)) == N)) {
         stop("bootstrap: all blocks in 'X_list' must have the same number of rows.", call. = FALSE)
       }
+      if (!is.null(groups) && (length(groups) != N || anyNA(groups))) {
+        stop(
+          "bootstrap: `groups` must contain one non-missing exchangeability identifier per training row.",
+          call. = FALSE
+        )
+      }
+      if (!is.null(rng_streams) &&
+        (!is.list(rng_streams) || length(rng_streams) != B)) {
+        stop("bootstrap: `rng_streams` must contain one stream per replicate.",
+          call. = FALSE)
+      }
 
       pad_to_order = function(w_boot, w_ref_named) {
         all_feat = names(w_ref_named)
         out = numeric(length(all_feat))
         names(out) = all_feat
-        if (!is.null(names(w_boot))) out[names(w_boot)] <- w_boot
+        if (!is.null(names(w_boot))) {
+          out[names(w_boot)] = w_boot
+        }
         out
       }
       ref_concat = lapply(seq_len(ncomp), function(k) {
@@ -352,8 +375,15 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         }))
       }
 
+      # Each loading vector acts on the residual after earlier components.
+      # Applying later weights to the original blocks changes component matching.
+      reference_scores = as.matrix(
+        private$.recompute_scores_deflated(X_list, W_ref, bn)$T_mat
+      )
       T_ref = lapply(seq_len(ncomp), function(k) {
-        lapply(bn, function(b) as.numeric(X_list[[b]] %*% W_ref[[k]][[b]]))
+        lapply(seq_along(bn), function(bi) {
+          reference_scores[, (k - 1L) * length(bn) + bi]
+        })
       })
 
       strata = NULL
@@ -400,7 +430,9 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       }
 
       one_rep = function(r) {
-        idx = if (!is.null(strata)) {
+        idx = if (!is.null(groups)) {
+          mb_cluster_bootstrap(group = groups, strata = strata)$indices
+        } else if (!is.null(strata)) {
           splits = split(seq_len(N), strata, drop = FALSE)
           idx_cat = unlist(lapply(splits, function(ix) if (length(ix)) sample(ix, length(ix), TRUE) else integer(0)), use.names = FALSE)
           if (!length(idx_cat)) {
@@ -433,13 +465,17 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
           )
         }
         W_r = lapply(W_r, function(wk) {
-          if (is.null(names(wk))) names(wk) <- bn
+          if (is.null(names(wk))) {
+            names(wk) = bn
+          }
           wk[bn]
         })
 
-        # replicate scores (pre-align)
+        # The solver returns scores from the fitted sequential deflation path.
         T_boot = lapply(seq_len(Kfit), function(i) {
-          lapply(bn, function(b) as.numeric(Xb[[b]] %*% W_r[[i]][[b]]))
+          lapply(seq_along(bn), function(bi) {
+            fit_r$T_mat[, (i - 1L) * length(bn) + bi]
+          })
         })
 
         # match comps by mean |cor| across blocks
@@ -456,7 +492,9 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
           }
         }
         cost = matrix(1, K, K)
-        if (min(Kfit, K) > 0) cost[seq_len(min(Kfit, K)), ] <- 1 - S[seq_len(min(Kfit, K)), ]
+        if (min(Kfit, K) > 0L) {
+          cost[seq_len(min(Kfit, K)), ] = 1 - S[seq_len(min(Kfit, K)), ]
+        }
         perm = if (requireNamespace("clue", quietly = TRUE)) {
           as.integer(clue::solve_LSAP(cost))
         } else {
@@ -467,7 +505,9 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
             p[i] = rem[j]
             rem = rem[-j]
           }
-          if (length(rem)) p[is.na(p)] <- rem
+          if (length(rem) > 0L) {
+            p[is.na(p)] = rem
+          }
           p
         }
 
@@ -491,7 +531,9 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
               # when one strongly anti-correlated block can dominate the sum.
               j = which.max(abs(cs))
               s_all = sign(cs[j])
-              if (!is.finite(s_all) || s_all == 0L) s_all <- +1L
+              if (!is.finite(s_all) || s_all == 0L) {
+                s_all = +1L
+              }
             } else {
               s_all = +1L
             }
@@ -579,12 +621,20 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         }
 
         lgr$info("bootstrap_select: launching %d bootstrap replicates across %d workers.", B, workers)
-        raw_res = tryCatch(
+        run_parallel = function() {
           future.apply::future_lapply(
             rep_idx, one_rep,
-            future.seed = TRUE,
+            future.seed = if (is.null(rng_streams)) TRUE else rng_streams,
             future.packages = c("mlr3mbspls")
-          ),
+          )
+        }
+        raw_res = tryCatch(
+          if (is.null(rng_streams)) {
+            run_parallel()
+          } else {
+            # future_lapply advances the caller's RNG even with explicit seeds.
+            with_rng_stream_local(rng_streams[[1L]], run_parallel)
+          },
           error = function(e) {
             stop(sprintf(
               "bootstrap_select: parallel bootstrap failed. Consider setting workers=1 to diagnose. Original error: %s",
@@ -595,7 +645,13 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         raw_res
       } else {
         lgr$info("bootstrap_select: running %d bootstrap replicates sequentially.", B)
-        lapply(rep_idx, one_rep)
+        if (is.null(rng_streams)) {
+          lapply(rep_idx, one_rep)
+        } else {
+          lapply(rep_idx, function(r) {
+            with_rng_stream_local(rng_streams[[r]], function() one_rep(r))
+          })
+        }
       }
 
       n_eff = Reduce(`+`, lapply(rep_res, `[[`, "n_eff"), init = integer(length(comp_lab)))
@@ -655,15 +711,29 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         draws[, {
           list(
             boot_mean = mean(weight, na.rm = TRUE),
-            boot_sd   = stats::sd(weight, na.rm = TRUE),
-            ci_lower  = stats::quantile(weight, probs = a / 2, na.rm = TRUE),
-            ci_upper  = stats::quantile(weight, probs = 1 - a / 2, na.rm = TRUE)
+            boot_sd = if (.N >= 2L) {
+              stats::sd(weight, na.rm = TRUE)
+            } else {
+              NA_real_
+            },
+            ci_lower = if (.N >= 2L) {
+              stats::quantile(weight, probs = a / 2, na.rm = TRUE)
+            } else {
+              NA_real_
+            },
+            ci_upper = if (.N >= 2L) {
+              stats::quantile(weight, probs = 1 - a / 2, na.rm = TRUE)
+            } else {
+              NA_real_
+            },
+            replicates_effective = .N
           )
         }, by = .(component, block, feature)]
       } else {
         data.table::data.table(component = character(), block = character(), feature = character(),
           boot_mean = numeric(), boot_sd = numeric(),
-          ci_lower = numeric(), ci_upper = numeric())
+          ci_lower = numeric(), ci_upper = numeric(),
+          replicates_effective = integer())
       }
 
       summary$component = as.character(summary$component)
@@ -705,6 +775,19 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         return(private$.finalize_scores_only(task, blocks_map))
       }
 
+      if (pv$B < 2L) {
+        stop(
+          "Bootstrap stability selection requires at least two replicates.",
+          call. = FALSE
+        )
+      }
+      if (!is.finite(pv$alpha) || pv$alpha <= 0 || pv$alpha >= 1) {
+        stop(
+          "Bootstrap stability selection `alpha` must be strictly between 0 and 1.",
+          call. = FALSE
+        )
+      }
+
       st_env = private$.get_env_state(pv, run_id = self$state$run_id %||% NULL)
 
       dt_all = task$data()
@@ -735,23 +818,61 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         )
       }
 
-      bt = with_seed_local(pv$seed_bootstrap, function() {
-        private$.bootstrap_align_and_summarise(
-          X_list = X_blocks_train,
-          W_ref = st_env$weights,
-          blocks = st_env$blocks,
-          ncomp = length(st_env$weights),
-          sparsity = st_env$sparsity,
-          corr_method = st_env$corr_method %||% "pearson",
-          perf_metric = st_env$perf_metric %||% "mac",
-          B = as.integer(pv$B),
-          alpha = as.numeric(pv$alpha),
-          align = pv$align,
-          workers = as.integer(pv$workers),
-          stratify_block = pv$stratify_by_block,
-          min_score_cor = as.numeric(pv$min_score_cor %||% 0.10)
-        )
-      })
+      bootstrap_groups = pv$bootstrap_groups
+      if (!is.null(bootstrap_groups)) {
+        task_row_ids = as.character(task$row_ids)
+        group_names = names(bootstrap_groups)
+        if (!is.null(group_names)) {
+          if (anyNA(group_names) || any(!nzchar(group_names)) ||
+            anyDuplicated(group_names)) {
+            stop(
+              "`bootstrap_groups` names must be unique, non-missing task row IDs.",
+              call. = FALSE
+            )
+          }
+          missing_ids = setdiff(task_row_ids, group_names)
+          if (length(missing_ids)) {
+            stop(sprintf(
+              "`bootstrap_groups` is missing task row IDs: %s.",
+              mb_format_truncated(missing_ids)
+            ), call. = FALSE)
+          }
+          bootstrap_groups = bootstrap_groups[match(task_row_ids, group_names)]
+        } else if (length(bootstrap_groups) != nrow(dt_all)) {
+          stop(sprintf(
+            "Unnamed `bootstrap_groups` has length %d but the training task has %d rows.",
+            length(bootstrap_groups), nrow(dt_all)
+          ), call. = FALSE)
+        }
+        if (anyNA(bootstrap_groups)) {
+          stop("`bootstrap_groups` must not contain missing values.",
+            call. = FALSE)
+        }
+      }
+
+      rng_streams = if (is.null(pv$seed_bootstrap)) {
+        NULL
+      } else {
+        mb_rng_streams(as.integer(pv$B), pv$seed_bootstrap)
+      }
+
+      bt = private$.bootstrap_align_and_summarise(
+        X_list = X_blocks_train,
+        W_ref = st_env$weights,
+        blocks = st_env$blocks,
+        ncomp = length(st_env$weights),
+        sparsity = st_env$sparsity,
+        corr_method = st_env$corr_method %||% "pearson",
+        perf_metric = st_env$perf_metric %||% "mac",
+        B = as.integer(pv$B),
+        alpha = as.numeric(pv$alpha),
+        align = pv$align,
+        workers = as.integer(pv$workers),
+        stratify_block = pv$stratify_by_block,
+        groups = bootstrap_groups,
+        rng_streams = rng_streams,
+        min_score_cor = as.numeric(pv$min_score_cor %||% 0.10)
+      )
 
       bn = bt$blocks_order
       sum_df = as.data.frame(bt$summary)
@@ -810,6 +931,13 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
         self$state$weights_selectfreq = freq_df
         self$state$weights_stable = W_stable
         self$state$n_eff_by_component = n_eff_by_component
+        self$state$rng_streams = rng_streams
+        self$state$bootstrap_grouped = !is.null(bootstrap_groups)
+        self$state$n_exchangeability_units = if (is.null(bootstrap_groups)) {
+          nrow(dt_all)
+        } else {
+          length(unique(as.character(bootstrap_groups)))
+        }
 
         st_env$weights_stable = W_stable
         st_env$weights_stable_ci = built_ci$W
@@ -889,6 +1017,13 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       self$state$weights_stable = W_stable
       self$state$loadings_stable = P_all
       self$state$n_eff_by_component = n_eff_by_component
+      self$state$rng_streams = rng_streams
+      self$state$bootstrap_grouped = !is.null(bootstrap_groups)
+      self$state$n_exchangeability_units = if (is.null(bootstrap_groups)) {
+        nrow(dt_all)
+      } else {
+        length(unique(as.character(bootstrap_groups)))
+      }
       self$state$alignment_method = pv$align
       self$state$selection_method = pv$selection_method
       self$state$frequency_threshold = pv$frequency_threshold
@@ -1033,7 +1168,9 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       keep_cols = character(0)
       for (newk in seq_along(st$kept_blocks_per_comp)) {
         kb = st$kept_blocks_per_comp[[newk]]
-        if (length(kb)) keep_cols <- c(keep_cols, paste0("LV", newk, "_", kb))
+        if (length(kb) > 0L) {
+          keep_cols = c(keep_cols, paste0("LV", newk, "_", kb))
+        }
       }
 
       T_pred_all = as.matrix(T_pred_all_dt)

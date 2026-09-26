@@ -3,7 +3,7 @@
 #' @param model A single mbspls model containing $weights_boot_draws and $weights.
 #' @param component Integer LC index (e.g., 1).
 #' @param filter_method One of c("ci","frequency").
-#'   - "ci": keep features whose CI is >= 0 or <= 0.
+#'   - "ci": keep features whose CI is strictly above or below zero.
 #'   - "frequency": keep features with selection freq >= filter_level using model$weights_selectfreq.
 #' @param filter_level Numeric threshold:
 #'   - if filter_method == "ci": confidence level in `(0,1)`, default 0.95.
@@ -91,7 +91,9 @@ mbspls_extract_bootstrap_means = function(
   freq_tbl = NULL
   if (!is.null(model$weights_selectfreq)) {
     freq_tbl = model$weights_selectfreq
-    if (inherits(freq_tbl, "data.table")) freq_tbl <- as.data.frame(freq_tbl)
+    if (inherits(freq_tbl, "data.table")) {
+      freq_tbl = as.data.frame(freq_tbl)
+    }
     if (all(c("component", "block", "feature", "freq") %in% names(freq_tbl))) {
       freq_tbl = freq_tbl[freq_tbl$component == comp_lab,
         c("block", "feature", "freq"), drop = FALSE]
@@ -105,7 +107,7 @@ mbspls_extract_bootstrap_means = function(
   # --- apply filter
   if (filter_method == "ci") {
     out = out |>
-      dplyr::filter(ci_low >= 0 | ci_high <= 0) |>
+      dplyr::filter(ci_low > 0 | ci_high < 0) |>
       dplyr::filter(abs(mean) > 1e-3) # drop near-zeros
   } else { # frequency
     if (is.null(out$freq)) {

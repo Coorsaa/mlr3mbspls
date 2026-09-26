@@ -57,7 +57,7 @@ test_that("PipeOpMBsPCA validates c_matrix rows against retained blocks", {
   )
   expect_error(
     po_named$train(list(task)),
-    "rows must cover all retained blocks"
+    "rows must match either all declared or all retained blocks"
   )
 
   cm_plain = matrix(2, nrow = 2L, ncol = 2L)
@@ -89,4 +89,93 @@ test_that("PipeOpMBsPCA accepts a retained-block c_matrix after a block drops ou
   expect_no_error(po$train(list(task)))
   expect_equal(names(po$state$blocks), names(blocks)[1:2])
   expect_equal(po$state$ncomp, 1L)
+})
+
+
+test_that("PipeOpMBsPCA rejects infeasible and ambiguous c_matrix values", {
+  task = task_multiblock_synthetic(task_type = "clust", n = 24L, seed = 104L)
+  blocks = task$block_features()
+
+  duplicate_rows = matrix(
+    1,
+    nrow = 3L,
+    ncol = 1L,
+    dimnames = list(c("clinical", "clinical", "proteomic"), "PC1")
+  )
+  po_duplicate = PipeOpMBsPCA$new(
+    blocks = blocks,
+    param_vals = list(c_matrix = duplicate_rows)
+  )
+  expect_error(
+    po_duplicate$train(list(task)),
+    "rows must match either all declared or all retained blocks"
+  )
+
+  excessive = matrix(100, nrow = 3L, ncol = 1L)
+  po_excessive = PipeOpMBsPCA$new(
+    blocks = blocks,
+    param_vals = list(c_matrix = excessive)
+  )
+  expect_error(
+    po_excessive$train(list(task)),
+    "sparsity budget.*sqrt\\(p_block\\)"
+  )
+})
+
+
+test_that("PipeOpMBsPCA stops after a non-significant first diagnostic", {
+  task = task_multiblock_synthetic(task_type = "clust", n = 24L, seed = 105L)
+  po = PipeOpMBsPCA$new(
+    blocks = task$block_features(),
+    param_vals = list(
+      ncomp = 3L,
+      permutation_test = TRUE,
+      n_perm = 2L,
+      perm_alpha = 0
+    )
+  )
+
+  po$train(list(task))
+
+  expect_identical(po$state$ncomp, 1L)
+  expect_length(po$state$p_values, 1L)
+  expect_gt(po$state$p_values[[1L]], 0)
+})
+
+
+test_that("PipeOpMBsPCA rejects non-finite blocks and impossible ranks", {
+  non_finite = mlr3::TaskUnsupervised$new(
+    id = "mbspca_non_finite",
+    backend = data.frame(
+      x1 = c(1, 2, NA, 4),
+      x2 = c(4, 3, 2, 1),
+      z1 = c(1, 3, 2, 4),
+      z2 = c(2, 4, 1, 3)
+    )
+  )
+  po_non_finite = PipeOpMBsPCA$new(
+    blocks = list(x = c("x1", "x2"), z = c("z1", "z2"))
+  )
+  expect_error(po_non_finite$train(list(non_finite)), "finite")
+
+  rank_limited = mlr3::TaskUnsupervised$new(
+    id = "mbspca_rank",
+    backend = data.frame(x = 1:8, z1 = c(1:7, 9), z2 = c(8:2, 0))
+  )
+  po_rank = PipeOpMBsPCA$new(
+    blocks = list(x = "x", z = c("z1", "z2")),
+    param_vals = list(ncomp = 2L)
+  )
+  expect_error(po_rank$train(list(rank_limited)), "effective block rank")
+})
+
+test_that("PCA default sparsity remains valid after constant features are removed", {
+  task = mlr3::TaskUnsupervised$new(
+    id = "pca_filtered_dimension",
+    backend = data.frame(x = 1:8, constant = 1, y = c(1:7, 9))
+  )
+  po = PipeOpMBsPCA$new(blocks = list(a = c("x", "constant"), b = "y"))
+  expect_no_error(po$train(list(task)))
+  expect_identical(po$state$blocks$a, "x")
+  expect_equal(abs(unname(po$state$weights[[1L]][[1L]])), 1)
 })

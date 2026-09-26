@@ -47,7 +47,8 @@ the inferred supervised task type is used.}
 
 \item{c_matrix}{Optional L1 constraint matrix for MB-sPLS-XY.}
 
-\item{permutation_test, n_perm, perm_alpha}{Train-time permutation test for MB-sPLS-XY.}
+\item{permutation_test, n_perm, perm_alpha}{Conditional component-wise
+train-time permutation diagnostic for MB-sPLS-XY.}
 
 \item{y_rep}{Integer replication count for the target block.}
 

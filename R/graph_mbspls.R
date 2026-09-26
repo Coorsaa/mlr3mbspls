@@ -101,12 +101,19 @@ mbspls_preproc_graph = function(
 #' @param correlation_method "pearson" or "spearman".
 #' @param c_matrix Optional L1 constraint matrix for MB-sPLS.
 #'
-#' @param permutation_test,n_perm,perm_alpha Train-time permutation test (MB-sPLS).
+#' @param permutation_test,n_perm,perm_alpha Conditional component-wise
+#'   train-time permutation diagnostic (MB-sPLS), not a full-pipeline test.
 #' @param predict_weights character; one of "auto","raw","stable_ci","stable_frequency".
 #'   Controls which weights PipeOpMBsPLS uses at predict/validation time.
-#' @param val_test,val_test_alpha,val_test_n,val_test_permute_all Prediction-side validation (MB-sPLS).
+#' @param val_test,val_test_alpha,val_test_n,val_test_permute_all Prediction-side
+#'   conditional permutation diagnostic or descriptive bootstrap uncertainty.
+#' @param seed_validation Optional seed for prediction-side diagnostics; one
+#'   deterministic stream is assigned per component.
 #'
 #' @param bootstrap Logical; run bootstrap selection (default TRUE).
+#' @param store_train_blocks Logical; retain the fitted raw block matrices for
+#'   post-fit summaries and plots. The default follows `bootstrap`. It must be
+#'   `TRUE` when bootstrap selection is enabled.
 #' @param bootstrap_selection Logical; whether to run bootstrap-based feature
 #'   selection inside [PipeOpMBsPLSBootstrapSelect] (default TRUE).
 #' @param stability_only Logical; only compute stability, no selection (default FALSE).
@@ -117,7 +124,9 @@ mbspls_preproc_graph = function(
 #' @param frequency_threshold Numeric in `[0,1]`; only if selection_method="frequency" (default 0.6).
 #' @param stable_weight_source "training" (default) or "bootstrap_mean".
 #' @param stratify_by_block Optional dummy block for stratified bootstrap (e.g., "Studygroup").
-#' @param workers Integer; Unix workers (default cores-1).
+#' @param bootstrap_groups Optional exchangeability-group vector for cluster
+#'   bootstrap sampling. Named vectors are aligned to task row IDs.
+#' @param workers Integer; number of cross-platform bootstrap workers.
 #' @param seed_train Optional seed for MB-sPLS training.
 #' @param seed_bootstrap Optional seed for bootstrap selection.
 #' @param id_suffix Optional suffix for PipeOp ids.
@@ -146,8 +155,10 @@ mbspls_graph = function(
   val_test_alpha = 0.05,
   val_test_n = 1000L,
   val_test_permute_all = TRUE,
+  seed_validation = NULL,
 
   bootstrap = TRUE,
+  store_train_blocks = bootstrap,
   stability_only = FALSE,
   B = 500L,
   alpha = 0.05,
@@ -157,6 +168,7 @@ mbspls_graph = function(
   frequency_threshold = 0.60,
   stable_weight_source = c("training", "bootstrap_mean"),
   stratify_by_block = NULL,
+  bootstrap_groups = NULL,
   seed_train = NULL,
   seed_bootstrap = NULL,
   workers = 1L,
@@ -178,6 +190,7 @@ mbspls_graph = function(
   align = match.arg(align)
   selection_method = match.arg(selection_method)
   stable_weight_source = match.arg(stable_weight_source)
+  checkmate::assert_flag(store_train_blocks)
 
   if (is.null(log_env)) {
     log_env = new.env(parent = emptyenv())
@@ -187,6 +200,13 @@ mbspls_graph = function(
 
   if (isTRUE(stability_only) && !isTRUE(bootstrap_selection)) {
     stop("`stability_only = TRUE` has no effect when `bootstrap_selection = FALSE` because there is no PipeOpMBsPLSBootstrapSelect in the graph. Set `bootstrap_selection = TRUE` or remove `stability_only`.", call. = FALSE)
+  }
+  if (isTRUE(bootstrap_selection) && isTRUE(bootstrap) &&
+    !isTRUE(store_train_blocks)) {
+    stop(
+      "`store_train_blocks` must be TRUE when bootstrap selection is enabled.",
+      call. = FALSE
+    )
   }
 
   if (isTRUE(bootstrap_selection)) {
@@ -202,6 +222,7 @@ mbspls_graph = function(
       frequency_threshold = frequency_threshold,
       stable_weight_source = stable_weight_source,
       stratify_by_block = stratify_by_block,
+      bootstrap_groups = bootstrap_groups,
       seed_bootstrap = seed_bootstrap,
       workers = workers
     )
@@ -237,9 +258,10 @@ mbspls_graph = function(
       val_test_alpha = val_test_alpha,
       val_test_n = val_test_n,
       val_test_permute_all = val_test_permute_all,
+      seed_validation = seed_validation,
 
       # expose training snapshot for selection
-      store_train_blocks = isTRUE(bootstrap),
+      store_train_blocks = store_train_blocks,
       append = isTRUE(bootstrap_selection) && isTRUE(bootstrap) && !isTRUE(stability_only),
       seed_train = seed_train,
       log_env = log_env
@@ -282,8 +304,10 @@ mbspls_graph_learner = function(
   val_test_alpha = 0.05,
   val_test_n = 1000L,
   val_test_permute_all = TRUE,
+  seed_validation = NULL,
 
   bootstrap = TRUE,
+  store_train_blocks = bootstrap,
   stability_only = FALSE,
   B = 500L,
   alpha = 0.05,
@@ -293,6 +317,7 @@ mbspls_graph_learner = function(
   frequency_threshold = 0.60,
   stable_weight_source = c("training", "bootstrap_mean"),
   stratify_by_block = NULL,
+  bootstrap_groups = NULL,
   seed_train = NULL,
   seed_bootstrap = NULL,
   workers = 1L,
@@ -320,7 +345,9 @@ mbspls_graph_learner = function(
     val_test_alpha = val_test_alpha,
     val_test_n = val_test_n,
     val_test_permute_all = val_test_permute_all,
+    seed_validation = seed_validation,
     bootstrap = bootstrap,
+    store_train_blocks = store_train_blocks,
     stability_only = stability_only,
     B = B,
     alpha = alpha,
@@ -330,6 +357,7 @@ mbspls_graph_learner = function(
     frequency_threshold = frequency_threshold,
     stable_weight_source = stable_weight_source,
     stratify_by_block = stratify_by_block,
+    bootstrap_groups = bootstrap_groups,
     seed_train = seed_train,
     seed_bootstrap = seed_bootstrap,
     workers = workers,
@@ -349,7 +377,8 @@ mbspls_graph_learner = function(
 #' @param performance_metric "mac" or "frobenius".
 #' @param correlation_method "pearson" or "spearman".
 #' @param c_matrix Optional L1 constraint matrix for MB-sPLS-XY.
-#' @param permutation_test,n_perm,perm_alpha Train-time permutation test for MB-sPLS-XY.
+#' @param permutation_test,n_perm,perm_alpha Conditional component-wise
+#'   train-time permutation diagnostic for MB-sPLS-XY.
 #' @param y_rep Integer replication count for the target block.
 #' @param emit_y_scores Logical; append Y-side scores to the transformed task.
 #' @param center_y,scale_y Logical target centering/scaling flags.

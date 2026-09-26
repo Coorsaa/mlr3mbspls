@@ -141,6 +141,16 @@ test_that("PipeOpMBsPLS - c_matrix path works and validates dimensions", {
     ),
     sprintf("c_matrix must have %s rows \\(blocks\\); got 1", length(blocks))
   )
+
+  excessive = matrix(100, nrow = 2L, ncol = 1L)
+  po_excessive = PipeOpMBsPLS$new(
+    blocks = blocks,
+    param_vals = list(c_matrix = excessive, append = FALSE)
+  )
+  expect_error(
+    po_excessive$train(list(task)),
+    "sparsity budget.*sqrt\\(p_block\\)"
+  )
 })
 
 
@@ -183,7 +193,7 @@ test_that("PipeOpMBsPLS - writes expected payloads to log_env", {
   expect_true(all(c("mac_comp", "ev_block", "ev_comp", "T_mat") %in% names(log_env$last)))
 })
 
-test_that("PipeOpMBsPLS - prediction-side bootstrap validation logs summary payload", {
+test_that("PipeOpMBsPLS - prediction-side bootstrap logs descriptive uncertainty", {
   set.seed(71)
 
   n = 44
@@ -222,9 +232,11 @@ test_that("PipeOpMBsPLS - prediction-side bootstrap validation logs summary payl
   expect_true("val_bootstrap" %in% names(log_env$last))
   expect_true(is.data.frame(log_env$last$val_bootstrap))
   expect_equal(nrow(log_env$last$val_bootstrap), 1L)
-  expect_true(all(c("observed_correlation", "boot_mean", "boot_se", "boot_p_value", "n_boot") %in%
+  expect_true(all(c("estimate", "bootstrap_mean", "bias", "standard_error",
+    "conf_low", "conf_high", "replicates_effective", "p_value_note") %in%
     names(log_env$last$val_bootstrap)))
-  expect_true(is.numeric(log_env$last$val_bootstrap$boot_p_value))
+  expect_true(is.na(log_env$last$val_bootstrap$p_value[[1L]]))
+  expect_false("val_test_p" %in% names(log_env$last))
 })
 
 
@@ -249,4 +261,34 @@ test_that("PipeOpMBsPLS accepts rownamed c_matrix entries for retained blocks af
   expect_no_error(po$train(list(task)))
   expect_equal(names(po$state$blocks), names(blocks)[1:2])
   expect_equal(dim(po$state$c_matrix), c(2L, 1L))
+})
+
+
+test_that("PipeOpMBsPLS rejects non-finite blocks and impossible component counts", {
+  non_finite_task = mlr3::TaskRegr$new(
+    "mbspls_non_finite",
+    data.frame(
+      x1 = c(1, 2, NA, 4),
+      x2 = c(4, 3, 2, 1),
+      z1 = c(1, 3, 2, 4),
+      z2 = c(2, 4, 1, 3),
+      y = 1:4
+    ),
+    target = "y"
+  )
+  non_finite = PipeOpMBsPLS$new(
+    blocks = list(x = c("x1", "x2"), z = c("z1", "z2"))
+  )
+  expect_error(non_finite$train(list(non_finite_task)), "finite")
+
+  rank_task = mlr3::TaskRegr$new(
+    "mbspls_rank",
+    data.frame(x = 1:8, z1 = c(1:7, 9), z2 = c(8:2, 0), y = 1:8),
+    target = "y"
+  )
+  rank_limited = PipeOpMBsPLS$new(
+    blocks = list(x = "x", z = c("z1", "z2")),
+    param_vals = list(ncomp = 2L)
+  )
+  expect_error(rank_limited$train(list(rank_task)), "effective block rank")
 })

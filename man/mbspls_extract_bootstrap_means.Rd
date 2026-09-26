@@ -18,7 +18,7 @@ mbspls_extract_bootstrap_means(
 
 \item{filter_method}{One of c("ci","frequency").
 \itemize{
-\item "ci": keep features whose CI is >= 0 or <= 0.
+\item "ci": keep features whose CI is strictly above or below zero.
 \item "frequency": keep features with selection freq >= filter_level using model$weights_selectfreq.
 }}
 

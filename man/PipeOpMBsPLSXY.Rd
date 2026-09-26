@@ -10,8 +10,10 @@ each X-block.
 \description{
 \strong{PipeOpMBsPLSXY} is a supervised variant of MB-sPLS. During training, the
 target (\eqn{Y}) is appended as its own block alongside the input blocks
-\eqn{X_1,\dots,X_B}, so that extracted components maximize correlation
-between X-blocks and Y. For downstream learners, only the \strong{X-side} latent
+\eqn{X_1,\dots,X_B}, so that extracted components reflect associations
+among the input and target blocks. The PMD weight updates are those of
+\link{PipeOpMBsPLS}; correlation criteria control convergence and evaluation.
+For downstream learners, only the \strong{X-side} latent
 scores (LVs) are output (no Y leakage).
 
 \strong{Handling encoded column names.} If upstream encoding expands/renames factors
@@ -23,8 +25,14 @@ The resolved names are stored and reused at prediction; missing trained columns
 now raise an explicit error instead of being synthesized as zeros.
 
 For classification tasks, Y is internally one-hot encoded (no intercept).
-You can replicate the target block via \code{y_rep} to increase its weight in the
-objective.
+\code{y_rep} repeats target columns within the same block. This can change the
+sparsity geometry, but is not an explicit target-block weight because score
+contributions are standardized. This implementation deflates every block
+symmetrically, so
+the requested component count cannot exceed the effective rank of the
+preprocessed target block. In particular, a centred binary or univariate
+outcome supports one supervised component. Replicating target columns does
+not increase their rank.
 
 \strong{Sparsity constraints.} Either provide a full \code{c_matrix} (rows = blocks
 including target, columns = components), or use per-block \code{c_<block>}

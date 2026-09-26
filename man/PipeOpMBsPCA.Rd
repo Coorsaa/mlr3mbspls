@@ -16,7 +16,7 @@ if \code{log_env} is supplied, writes prediction-side EV payloads.
 multiple, predefined feature blocks. Each component is estimated with a
 GSMV-style algorithm (\code{cpp_mbspca_one_lv()}), and after extraction a
 block-wise rank-1 deflation is applied so later components capture novel
-structure. Optionally, a permutation test
+structure. Optionally, a conditional component-wise permutation diagnostic
 (\code{perm_test_component_mbspca()}) can stop extraction early if a component
 explains no more variance than expected under the null.
 
@@ -52,6 +52,8 @@ The \verb{$state} stores:
 \item \code{ev_block}: matrix \verb{[components x blocks]} of variance explained by each PC
 within each block.
 \item \code{ev_comp}: numeric vector of total variance explained by each PC.
+\item \code{p_values}: conditional component-wise permutation diagnostics, or \code{NA}
+when the diagnostic is disabled.
 \item \code{T_mat}: numeric matrix of appended latent scores (column names match the
 appended features).
 \item \code{run_id}: optional identifier used to match prediction-side payloads to the
@@ -70,7 +72,8 @@ to character vectors of feature names.
 \item \code{n_perm} (\code{int}, default \code{500}; tag \code{"train"}): permutations for the test.
 \item \code{perm_alpha} (\code{dbl} in \verb{[0,1]}, default \code{0.05}; tag \code{"train"}): test alpha.
 \item \verb{c_<block>} (one \code{dbl} per block, lower \code{1}, upper \verb{sqrt(#features in block)},
-default \verb{sqrt(#features)}; tags \code{c("train","tune")}): sqrt(L1-budget) for that block.
+default \verb{sqrt(#features)}; tags \code{c("train","tune")}): L1-norm budget for
+the unit-L2 loading vector in that block.
 \item \code{c_matrix} (\code{uty}, default \code{NULL}; tags \code{c("train","tune")}): optional
 matrix (\verb{blocks x components}) overriding single-value \verb{c_<block>} parameters.
 \item \code{log_env} (\code{uty}, default \code{NULL}; tags \code{c("train","predict")}): optional
@@ -105,8 +108,7 @@ task = tsk("mtcars")
 blocks = list(eng = c("disp", "hp", "drat"),
   body = c("wt", "qsec"))
 po = PipeOpMBsPCA$new(blocks = blocks, param_vals = list(ncomp = 2))
-g = as_graph(po)
-g$train(task)
+po$train(list(task))
 print(po$plot_scree())
 }
 

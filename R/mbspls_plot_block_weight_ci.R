@@ -8,7 +8,8 @@
 #'   * "bootstrap": uses aligned summaries from selection state (`weights_ci` + `weights_selectfreq`).
 #'   * "weights"  : aggregates across multiple MB-sPLS fits (means + Wald CIs).
 #' @param ci_filter One of c("none","excludes_zero","overlaps_zero").
-#'   * "excludes_zero": keep if (ci_low >= 0 | ci_high <= 0) AND |mean| > 1e-3.
+#'   * "excludes_zero": keep if the interval is strictly above or below zero
+#'     AND |mean| > 1e-3.
 #' @param top_n Integer or NULL. Keep top-N features per blockxcomponent by |mean|.
 #' @param add_block_rule Logical; thin rule between block facets (default FALSE; safe implementation).
 #' @param font Character; font family (default "sans").
@@ -81,10 +82,18 @@ mbspls_plot_block_weight_ci = function(
       if (is.null(st_sel)) stop("Cannot locate a PipeOpMBsPLSBootstrapSelect node in the model for bootstrap plotting.")
     }
   } else if (is.list(x)) {
-    if (!is.null(x$mbspls)) st_fit <- .get_state(x$mbspls)
-    if (!is.null(x$mbspls_bootstrap_select)) st_sel <- .get_state(x$mbspls_bootstrap_select)
-    if (is.null(st_fit) && length(x) >= 1L) st_fit <- .get_state(x[[1]])
-    if (is.null(st_sel) && length(x) >= 2L && source == "bootstrap") st_sel <- .get_state(x[[2]])
+    if (!is.null(x$mbspls)) {
+      st_fit = .get_state(x$mbspls)
+    }
+    if (!is.null(x$mbspls_bootstrap_select)) {
+      st_sel = .get_state(x$mbspls_bootstrap_select)
+    }
+    if (is.null(st_fit) && length(x) >= 1L) {
+      st_fit = .get_state(x[[1L]])
+    }
+    if (is.null(st_sel) && length(x) >= 2L && source == "bootstrap") {
+      st_sel = .get_state(x[[2L]])
+    }
     if (is.null(st_fit)) stop("Could not extract MB-sPLS state from the provided list.")
     if (is.null(st_sel) && source == "bootstrap") {
       stop("Could not extract bootstrap-select state from the provided list.")
@@ -112,7 +121,7 @@ mbspls_plot_block_weight_ci = function(
       ci_df$feature = as.character(ci_df$feature)
       # limit to known blocks; keep components present in table
       ci_df = ci_df[ci_df$block %in% block_levels, , drop = FALSE]
-      present_comp = intersect(unique(ci_df$component), comp_levels)
+      present_comp = intersect(comp_levels, unique(ci_df$component))
       if (!length(present_comp)) stop("No bootstrap CI rows for any component in selection state.")
       comp_levels = present_comp
 
@@ -159,7 +168,7 @@ mbspls_plot_block_weight_ci = function(
       d$block = as.character(d$block)
       d$feature = as.character(d$feature)
       d = d[d$block %in% block_levels, , drop = FALSE]
-      comp_levels = intersect(unique(d$component), comp_levels)
+      comp_levels = intersect(comp_levels, unique(d$component))
       if (!length(comp_levels)) stop("No bootstrap draws for any component in the supplied model.")
 
       df = d |>
@@ -225,7 +234,9 @@ mbspls_plot_block_weight_ci = function(
           ref = mat[, 1]
           for (j in 2:ncol(mat)) {
             cc = suppressWarnings(stats::cor(ref, mat[, j], use = "complete.obs"))
-            if (is.finite(cc) && cc < 0) mat[, j] <- -mat[, j]
+            if (is.finite(cc) && cc < 0) {
+              mat[, j] = -mat[, j]
+            }
           }
         }
         mu = rowMeans(mat, na.rm = TRUE)
@@ -258,7 +269,7 @@ mbspls_plot_block_weight_ci = function(
 
   if (ci_filter == "excludes_zero") {
     df = df |>
-      dplyr::filter(ci_low >= 0 | ci_high <= 0) |>
+      dplyr::filter(ci_low > 0 | ci_high < 0) |>
       dplyr::filter(abs_m > 1e-3)
   } else if (ci_filter == "overlaps_zero") {
     df = df |>
@@ -350,7 +361,8 @@ mbspls_plot_block_weight_ci = function(
     ggplot2::theme(
       panel.grid.major.y = ggplot2::element_blank(),
       panel.grid.minor   = ggplot2::element_blank(),
-      panel.spacing      = grid::unit(0, "pt"),
+      panel.spacing.x    = grid::unit(2.5, "lines"),
+      panel.spacing.y    = grid::unit(0, "pt"),
       strip.placement    = "outside",
       strip.background   = ggplot2::element_rect(fill = NA, colour = NA),
       strip.text.y.left  = ggplot2::element_text(angle = 0, face = "bold"),

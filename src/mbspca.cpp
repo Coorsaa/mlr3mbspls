@@ -11,6 +11,7 @@
 //    Rcpp::sourceCpp("src/mbspca.cpp"), or within an R package's src/
 //
 #include <RcppArmadillo.h>
+#include <limits>
 using arma::mat;
 using arma::vec;
 using arma::uvec;
@@ -20,17 +21,8 @@ using std::size_t;
 inline bool valid_vec(const vec &v)  { return v.n_elem && v.is_finite(); }
 inline bool valid_mat(const mat &M)  { return M.n_rows && M.n_cols && M.is_finite(); }
 
-inline vec l2_normalise(const vec &v)
-{
-  double n = arma::norm(v, 2);
-  if (!std::isfinite(n) || n < 1e-12) {
-    Rcpp::stop("l2_normalise: vector norm is numerically zero; cannot normalize the MB-sPCA loading.");
-  }
-  return v / n;
-}
-
-// forward declaration from mbspls.cpp (already compiled in same TU)
-arma::vec soft_no_scale(const arma::vec&, double);
+// Shared constrained PMD update from the linked mbspls.cpp translation unit.
+arma::vec pmd_update_bisection(const arma::vec&, double, int, double);
 
 // ───────────────────────── one‑LV solver ────────────────────────────
 //
@@ -44,24 +36,46 @@ Rcpp::List cpp_mbspca_one_lv(const Rcpp::List   &X_blocks,
   if (!B) Rcpp::stop("X_blocks is empty.");
   if (static_cast<int>(c_vec.n_elem) != B)
     Rcpp::stop("c_vec length must equal number of blocks");
+  if (!c_vec.is_finite() || arma::any(c_vec <= 0.0))
+    Rcpp::stop("c_vec must contain finite, strictly positive constraints.");
+  if (max_iter < 1)
+    Rcpp::stop("max_iter must be at least 1.");
+  if (!std::isfinite(tol) || tol <= 0.0)
+    Rcpp::stop("tol must be finite and positive.");
 
   std::vector<mat> X(B), Xt(B);
   int n = -1;
   for (int b = 0; b < B; ++b) {
     X[b]  = Rcpp::as<mat>(X_blocks[b]);
-    if (!valid_mat(X[b])) Rcpp::stop("Invalid matrix in block ", b + 1);
+    if (!valid_mat(X[b]))
+      Rcpp::stop("Invalid matrix in block %d.", b + 1);
     if (n == -1) n = X[b].n_rows;
     else if (X[b].n_rows != n)
       Rcpp::stop("All blocks must have identical row counts.");
+    const double upper = std::sqrt(static_cast<double>(X[b].n_cols));
+    if (c_vec(b) < 1.0 || c_vec(b) > upper + 1e-10)
+      Rcpp::stop("c_vec entry for block %d must lie in [1, sqrt(p)].", b + 1);
     Xt[b] = X[b].t();
   }
+  if (n < 3) Rcpp::stop("At least 3 rows are required.");
 
   /* ── initial weights: first PCA loading per block ── */
   std::vector<vec> W(B);
+  vec initial_score(n, arma::fill::zeros);
   for (int b = 0; b < B; ++b) {
     arma::mat U, V; arma::vec s;
-    arma::svd_econ(U, s, V, X[b]);          // economical SVD
-    W[b] = l2_normalise(V.col(0));          // first principal loading
+    if (!arma::svd_econ(U, s, V, X[b]) || !s.n_elem || s(0) < 1e-12) {
+      Rcpp::stop("Cannot initialize MB-sPCA from degenerate block %d.", b + 1);
+    }
+    W[b] = pmd_update_bisection(V.col(0), c_vec(b), 80, 1e-8);
+    vec score = X[b] * W[b];
+    // SVD signs are arbitrary. Orient initial scores before summing them,
+    // otherwise perfectly associated blocks can cancel to a zero gradient.
+    if (arma::dot(initial_score, score) < 0.0) {
+      W[b] *= -1.0;
+      score *= -1.0;
+    }
+    initial_score += score;
   }
 
   double obj_old = -1.0;
@@ -80,11 +94,14 @@ Rcpp::List cpp_mbspca_one_lv(const Rcpp::List   &X_blocks,
     /* 2) update weights */
     for (int b = 0; b < B; ++b) {
       vec g = Xt[b] * t_global;               // gradient
-      W[b]  = soft_no_scale(g, c_vec(b));
+      W[b] = pmd_update_bisection(g, c_vec(b), 80, 1e-8);
     }
 
-    /* 3) objective = variance explained */
-    double num = arma::dot(t_global, t_global);
+    /* 3) objective at the updated weights = variance explained */
+    vec t_updated(n, arma::fill::zeros);
+    for (int b = 0; b < B; ++b)
+      t_updated += X[b] * W[b];
+    double num = arma::dot(t_updated, t_updated);
     double denom = 0.0;
     for (int b = 0; b < B; ++b)
       denom += arma::accu(arma::square(X[b]));
@@ -115,11 +132,19 @@ double perm_test_component_mbspca(const Rcpp::List   &X_blocks,
                                   int                 max_iter  = 50,
                                   double              tol       = 1e-4)
 {
-  if (arma::any(c_vec <= 0.0))
-    Rcpp::stop("perm_test_component_mbspca: all entries of c_vec must be strictly positive.");
-
   const int B = X_blocks.size();
   if (!B) Rcpp::stop("perm_test_component_mbspca: X_blocks is empty.");
+  if (W_list.size() != B)
+    Rcpp::stop("perm_test_component_mbspca: W_list length must equal the number of blocks.");
+  if (static_cast<int>(c_vec.n_elem) != B || !c_vec.is_finite() || arma::any(c_vec <= 0.0))
+    Rcpp::stop("perm_test_component_mbspca: c_vec must contain one finite, strictly positive value per block.");
+  if (n_perm < 1)
+    Rcpp::stop("perm_test_component_mbspca: n_perm must be at least 1.");
+  if (max_iter < 1)
+    Rcpp::stop("perm_test_component_mbspca: max_iter must be at least 1.");
+  if (!std::isfinite(tol) || tol <= 0.0)
+    Rcpp::stop("perm_test_component_mbspca: tol must be finite and positive.");
+  (void)alpha;  // Retained for API compatibility; every requested permutation is used.
 
   /* unpack X & W once */
   std::vector<mat> X(B);
@@ -131,9 +156,17 @@ double perm_test_component_mbspca(const Rcpp::List   &X_blocks,
     X[b] = Rcpp::as<mat>(X_blocks[b]);
     W[b] = Rcpp::as<vec>(W_list[b]);
     if (!valid_mat(X[b])) Rcpp::stop(std::string("perm_test_component_mbspca: invalid matrix in block ") + std::to_string(b + 1) + ".");
+    if (!valid_vec(W[b]) || W[b].n_elem != X[b].n_cols)
+      Rcpp::stop(std::string("perm_test_component_mbspca: invalid or dimensionally incompatible weight vector in block ") + std::to_string(b + 1) + ".");
     if (n == -1) n = X[b].n_rows;
+    else if (X[b].n_rows != static_cast<arma::uword>(n))
+      Rcpp::stop("perm_test_component_mbspca: all blocks must have identical row counts.");
     ss_tot += arma::accu(arma::square(X[b]));
   }
+  if (n < 3)
+    Rcpp::stop("perm_test_component_mbspca: at least 3 rows are required.");
+  if (!std::isfinite(ss_tot) || ss_tot <= 1e-12)
+    Rcpp::stop("perm_test_component_mbspca: total sum of squares is numerically zero.");
 
   /* observed variance explained */
   vec t_global(n, arma::fill::zeros);
@@ -160,10 +193,8 @@ double perm_test_component_mbspca(const Rcpp::List   &X_blocks,
     for (int b = 0; b < B; ++b)
       t_perm += Xp[b] * Rcpp::as<vec>(Wp_R[b]);
     double var_perm = arma::dot(t_perm, t_perm) / ss_tot;
-    if (var_perm >= var_obs) ++ge;
+    if (var_perm >= var_obs - 100.0 * std::numeric_limits<double>::epsilon() * std::abs(var_obs)) ++ge;
 
-    /* early break for efficiency */
-    if (p > 50 && (double)(ge + 1) / (p + 1) > alpha * 2) break;
   }
 
   return (ge + 1.0) / (n_perm + 1.0);

@@ -13,6 +13,8 @@
 
 #define ARMA_DONT_ALIGN_MEMORY
 #include <RcppArmadillo.h>
+#include <algorithm>
+#include <limits>
 #include <utility>  // std::pair
 
 using arma::uvec;
@@ -347,64 +349,71 @@ inline arma::vec soft_no_scale(const arma::vec& g, double alpha) {
                                    arma::zeros<arma::vec>(g.n_elem));
 }
 
-inline arma::vec pmd_update_bisection(const arma::vec& g,
-                                      double c,
-                                      int    maxit = 60,
-                                      double tol   = 1e-8)
+// Shared by MB-sPLS and MB-sPCA. Solve max g'w subject to ||w||2 = 1
+// and ||w||1 <= c, including the tied-maximum case where soft-thresholding
+// alone cannot reach the requested L1 budget.
+arma::vec pmd_update_bisection(const arma::vec& g,
+                              double c,
+                              int maxit = 80,
+                              double tol = 1e-8)
 {
   const arma::uword p = g.n_elem;
-  if (p == 0) {
-    Rcpp::stop("pmd_update_bisection: empty gradient vector.");
+  if (!p || !g.is_finite()) {
+    Rcpp::stop("pmd_update_bisection: gradient must be finite and non-empty.");
+  }
+  if (!std::isfinite(c) || c < 1.0) {
+    Rcpp::stop("pmd_update_bisection: L1 budget must be finite and at least 1.");
+  }
+  const double magnitude = arma::abs(g).max();
+  if (!std::isfinite(magnitude) || magnitude < 1e-16) {
+    Rcpp::stop("pmd_update_bisection: gradient norm is numerically zero.");
   }
 
-  if (!g.is_finite() || arma::norm(g, 2) < 1e-16) {
-    Rcpp::stop("pmd_update_bisection: gradient is non-finite or numerically zero; cannot compute a sparse weight vector.");
-  }
+  const arma::vec scaled = g / magnitude;
+  arma::vec weights = scaled / arma::norm(scaled, 2);
+  if (arma::accu(arma::abs(weights)) <= c) return weights;
 
-  if (!std::isfinite(c) || c >= std::sqrt(static_cast<double>(p))) {
-    arma::vec w = g;
-    double n2 = arma::norm(w, 2);
-    if (!std::isfinite(n2) || n2 < 1e-12) {
-      Rcpp::stop("pmd_update_bisection: unconstrained normalization failed because the gradient norm is numerically zero.");
+  const arma::uvec maxima = arma::find(arma::abs(scaled) == 1.0);
+  const double m = static_cast<double>(maxima.n_elem);
+  weights.zeros();
+  if (c <= std::sqrt(m)) {
+    // Put all mass on tied maxima. The largest coefficient and remaining
+    // equal coefficients satisfy both norm constraints and attain max(|g|)*c.
+    const double spread = std::sqrt(std::max(0.0, m - c * c));
+    const double first = (c + std::sqrt(m - 1.0) * spread) / m;
+    const double rest = m > 1.0 ? (c - spread / std::sqrt(m - 1.0)) / m : 0.0;
+    for (arma::uword j = 0; j < maxima.n_elem; ++j) {
+      const arma::uword at = maxima(j);
+      weights(at) = (scaled(at) < 0.0 ? -1.0 : 1.0) * (j == 0 ? first : rest);
     }
-    return w / n2;
+    return weights;
   }
 
-  double lo = 0.0, hi = arma::abs(g).max();
-  if (!std::isfinite(hi) || hi <= 0.0) {
-    Rcpp::stop("pmd_update_bisection: bisection bracket is degenerate because the gradient has no finite magnitude.");
+  // Keep the feasible side of the bracket, so the returned vector never
+  // exceeds its budget even when the iteration limit is reached.
+  for (arma::uword j = 0; j < maxima.n_elem; ++j) {
+    weights(maxima(j)) = scaled(maxima(j)) / std::sqrt(m);
   }
-
-  arma::vec w; double l1 = 0.0;
-
+  double lo = 0.0, hi = 1.0;
   for (int it = 0; it < maxit; ++it) {
-    const double alpha = 0.5 * (lo + hi);
-    arma::vec z = soft_no_scale(g, alpha);
-    double n2 = arma::norm(z, 2);
-
-    if (n2 < 1e-16) { hi = alpha; continue; }    // too much shrinkage
-
-    w  = z / n2;                                  // enforce ||w||2 = 1
-    l1 = arma::accu(arma::abs(w));
-    if (std::abs(l1 - c) <= tol) break;
-
-    if (l1 > c) lo = alpha; else hi = alpha;      // move the bracket
+    const double threshold = 0.5 * (lo + hi);
+    arma::vec candidate = soft_no_scale(scaled, threshold);
+    const double candidate_norm = arma::norm(candidate, 2);
+    if (candidate_norm == 0.0) {
+      hi = threshold;
+      continue;
+    }
+    candidate /= candidate_norm;
+    const double l1 = arma::accu(arma::abs(candidate));
+    if (l1 > c) {
+      lo = threshold;
+    } else {
+      weights = candidate;
+      hi = threshold;
+      if (c - l1 <= tol) break;
+    }
   }
-
-  // Final tighten if slightly above c
-  if (l1 > c + 1e-10) {
-    arma::vec z = soft_no_scale(g, hi);
-    double n2 = arma::norm(z, 2);
-    if (n2 >= 1e-16) w = z / n2;
-  }
-  if (w.n_elem != p || !w.is_finite()) {
-    Rcpp::stop("pmd_update_bisection: produced a non-finite weight vector.");
-  }
-  const double w_norm = arma::norm(w, 2);
-  if (!std::isfinite(w_norm) || w_norm < 1e-12) {
-    Rcpp::stop("pmd_update_bisection: produced a numerically zero weight vector.");
-  }
-  return w;
+  return weights;
 }
 
 
@@ -426,6 +435,11 @@ Rcpp::List cpp_mbspls_one_lv(const Rcpp::List&  X_blocks,
 
   if (B < 2) Rcpp::stop("cpp_mbspls_one_lv: at least 2 blocks are required to define a cross-block latent variable; got " + std::to_string(B) + ".");
   if (c_constraints.n_elem != B) Rcpp::stop("c_constraints length must match number of blocks");
+  if (max_iter < 1) Rcpp::stop("cpp_mbspls_one_lv: max_iter must be at least 1.");
+  if (!std::isfinite(tol) || tol <= 0.0) Rcpp::stop("cpp_mbspls_one_lv: tol must be finite and positive.");
+  if (!c_constraints.is_finite() || arma::any(c_constraints < 1.0)) {
+    Rcpp::stop("cpp_mbspls_one_lv: every sparsity constraint must be finite and at least 1.");
+  }
 
   std::vector<arma::mat> X;
   std::vector<arma::mat> Xt;
@@ -498,6 +512,8 @@ Rcpp::List cpp_mbspls_one_lv(const Rcpp::List&  X_blocks,
 
   // Build final results using core computation
   ScoreMatrix final_scores = compute_scores_core(X, W);
+  const double final_objective =
+    compute_objective_direct_core(X, W, spearman, frobenius);
 
   Rcpp::List W_out(B); 
   for (int b = 0; b < B; ++b) {
@@ -507,7 +523,7 @@ Rcpp::List cpp_mbspls_one_lv(const Rcpp::List&  X_blocks,
   return Rcpp::List::create(
     Rcpp::_["W"]         = W_out,
     Rcpp::_["T_mat"]     = final_scores.T,
-    Rcpp::_["objective"] = obj_old,
+    Rcpp::_["objective"] = final_objective,
     Rcpp::_["converged"] = converged
   );
 }
@@ -599,7 +615,7 @@ Rcpp::List cpp_mbspls_one_lv(const Rcpp::List&  X_blocks,
 //       aligned_scores.n_valid = perm_scores.n_valid;
 
 //       double obj_perm = compute_block_objective_core(aligned_scores, spearman, frobenius);
-//       if (obj_perm >= obj_ref) ++ge;
+//       if (obj_perm >= obj_ref - 100.0 * std::numeric_limits<double>::epsilon() * std::abs(obj_ref)) ++ge;
 
 //     } catch (...) {
 //       // If a replicate fails to fit, skip it
@@ -625,7 +641,26 @@ double perm_test_component(
 {
   const int B = static_cast<int>(X_orig.size());
   if (B < 2) return 1.0;
+  if (static_cast<int>(W_orig.size()) != B ||
+      static_cast<int>(c_vec.n_elem) != B) {
+    Rcpp::stop("perm_test_component requires one weight vector and one sparsity constraint per block.");
+  }
+  if (n_perm < 1) Rcpp::stop("perm_test_component requires at least one sampled permutation.");
+  if (max_iter < 1) Rcpp::stop("perm_test_component requires max_iter >= 1.");
+  if (!std::isfinite(tol) || tol <= 0.0) Rcpp::stop("perm_test_component requires finite, positive tol.");
+  if (!c_vec.is_finite() || arma::any(c_vec < 1.0)) {
+    Rcpp::stop("perm_test_component requires finite sparsity constraints of at least 1.");
+  }
   const int n = static_cast<int>(X_orig[0].n_rows);
+  if (n < 3) Rcpp::stop("perm_test_component requires at least 3 rows per block.");
+  for (int b = 0; b < B; ++b) {
+    if (!is_valid_matrix(X_orig[b]) || !is_valid_vector(W_orig[b]) ||
+        X_orig[b].n_rows != static_cast<arma::uword>(n) ||
+        X_orig[b].n_cols != W_orig[b].n_elem) {
+      Rcpp::stop(std::string("perm_test_component received an invalid or dimensionally incompatible block/weight pair at block ") + std::to_string(b + 1) + ".");
+    }
+  }
+  (void)early_stop_threshold;  // Retained for API compatibility; full B is used.
 
   // Observed statistic (same pipeline as permutations, no alignment)
   const double obj_ref = compute_objective_direct_core(X_orig, W_orig, spearman, frobenius);
@@ -642,21 +677,14 @@ double perm_test_component(
       X[b] = X[b].rows(idx);
     }
 
-    // Optional early stop on running p-value
-    if (early_stop_threshold < 1.0 && p >= 100 && (p % 50) == 0) {
-      // Safe lower bound on the final p-value if we stopped now
-      double p_lower_final = static_cast<double>(ge + 1) / static_cast<double>(n_perm + 1);
-      if (p_lower_final > early_stop_threshold) {
-        return p_lower_final;
-      }
-    }
-
     // Fit one-LV to the permuted blocks using the SAME penalties
     Rcpp::List X_list(B);
     for (int b = 0; b < B; ++b) X_list[b] = X[b];
 
     try {
-      Rcpp::List fit = cpp_mbspls_one_lv(X_list, c_vec, max_iter, tol, frobenius);
+      Rcpp::List fit = cpp_mbspls_one_lv(
+        X_list, c_vec, max_iter, tol, frobenius, spearman
+      );
 
       // Unwrap weights
       std::vector<arma::vec> Wp(B);
@@ -666,7 +694,7 @@ double perm_test_component(
       // Evaluate the SAME statistic on permuted fit — NO rotations/Procrustes
       const double obj_perm = compute_objective_direct_core(X, Wp, spearman, frobenius);
 
-      if (obj_perm >= obj_ref) ++ge;
+      if (obj_perm >= obj_ref - 100.0 * std::numeric_limits<double>::epsilon() * std::abs(obj_ref)) ++ge;
 
     } catch (const std::exception &e) {
       Rcpp::stop(std::string("Permutation replicate ") + std::to_string(p + 1) +
@@ -736,7 +764,9 @@ Rcpp::List cpp_mbspls_multi_lv(const Rcpp::List&  X_blocks,
     
     Rcpp::List fit;
     try {
-      fit = cpp_mbspls_one_lv(X_list, c_constraints, max_iter, tol, frobenius);
+      fit = cpp_mbspls_one_lv(
+        X_list, c_constraints, max_iter, tol, frobenius, spearman
+      );
     } catch (const std::exception &e) {
       Rcpp::stop(std::string("Component extraction failed at component ") + std::to_string(k + 1) + ": " + e.what());
     }
@@ -768,10 +798,8 @@ Rcpp::List cpp_mbspls_multi_lv(const Rcpp::List&  X_blocks,
     // CORE: Use standardized score computation
     ScoreMatrix scores_k = compute_scores_core(X, Wk);
     arma::mat Tk = scores_k.T;
-    T_all = arma::join_rows(T_all, Tk);
-
     std::vector<arma::vec> Pk(B);
-    arma::vec ev_block(B);
+    arma::vec ev_block(B, arma::fill::zeros);
     double ss_exp_total = 0.0;
 
     for (int b = 0; b < B; ++b) {
@@ -789,11 +817,6 @@ Rcpp::List cpp_mbspls_multi_lv(const Rcpp::List&  X_blocks,
       ss_exp_total += ss_exp;
 
       Pk[b] = pb;
-      
-      if (!deflate_block(X[b], tb, pb)) {
-        Rcpp::stop(std::string("cpp_mbspls_multi_lv: deflation failed for block ") +
-                   std::to_string(b + 1) + ", component " + std::to_string(k + 1) + ".");
-      }
     }
 
     double ev_comp = ss_exp_total / arma::accu(ss_tot);
@@ -806,6 +829,7 @@ Rcpp::List cpp_mbspls_multi_lv(const Rcpp::List&  X_blocks,
     }
 
     /* ---------- store the component ---------- */
+    T_all = arma::join_rows(T_all, Tk);
     W_all.push_back(Wk);
     P_all.push_back(Pk);
     obj_vec.push_back(obj_k);
@@ -817,6 +841,16 @@ Rcpp::List cpp_mbspls_multi_lv(const Rcpp::List&  X_blocks,
     if (do_perm && !keep_it) {       // this can only be k == 0
       log_info("🚦  LV-1 kept but not significant - no further extraction");
       break;
+    }
+
+    /* ---------- deflate only when another component is requested ---------- */
+    if (k + 1 < K) {
+      for (int b = 0; b < B; ++b) {
+        if (!deflate_block(X[b], Tk.col(b), Pk[b])) {
+          Rcpp::stop(std::string("cpp_mbspls_multi_lv: deflation failed for block ") +
+                     std::to_string(b + 1) + ", component " + std::to_string(k + 1) + ".");
+        }
+      }
     }
   }
 
@@ -949,8 +983,6 @@ Rcpp::List cpp_mbspls_multi_lv_cmatrix(const Rcpp::List&  X_blocks,
     // Scores for this component
     ScoreMatrix scores_k = compute_scores_core(X, Wk);
     arma::mat Tk = scores_k.T;
-    T_all = arma::join_rows(T_all, Tk);
-
     // Loadings, EVs, and deflation
     std::vector<arma::vec> Pk(B);
     arma::vec ev_block(B, arma::fill::zeros);
@@ -971,12 +1003,6 @@ Rcpp::List cpp_mbspls_multi_lv_cmatrix(const Rcpp::List&  X_blocks,
       ss_exp_total += ss_exp;
 
       Pk[b] = pb;
-
-      // Deflate for next component
-      if (!deflate_block(X[b], tb, pb)) {
-        Rcpp::stop(std::string("cpp_mbspls_multi_lv_cmatrix: deflation failed for block ") +
-                   std::to_string(b + 1) + ", component " + std::to_string(k + 1) + ".");
-      }
     }
 
     double ev_comp = 0.0;
@@ -990,6 +1016,7 @@ Rcpp::List cpp_mbspls_multi_lv_cmatrix(const Rcpp::List&  X_blocks,
     }
 
     // Store results
+    T_all = arma::join_rows(T_all, Tk);
     W_all.push_back(Wk);
     P_all.push_back(Pk);
     obj_vec.push_back(obj_k);
@@ -1001,6 +1028,16 @@ Rcpp::List cpp_mbspls_multi_lv_cmatrix(const Rcpp::List&  X_blocks,
     if (do_perm && !keep_it) {
       log_info("🚦  LV-1 kept but not significant - no further extraction");
       break;
+    }
+
+    // Deflate only when another component will be extracted.
+    if (k + 1 < K) {
+      for (int b = 0; b < B; ++b) {
+        if (!deflate_block(X[b], Tk.col(b), Pk[b])) {
+          Rcpp::stop(std::string("cpp_mbspls_multi_lv_cmatrix: deflation failed for block ") +
+                     std::to_string(b + 1) + ", component " + std::to_string(k + 1) + ".");
+        }
+      }
     }
   }
 
@@ -1540,11 +1577,15 @@ std::pair<std::vector<arma::mat>, std::vector<arma::vec>>
 align_and_filter(const std::vector<arma::mat>& Xin,
                  const std::vector<arma::vec>& Win)
 {
+  if (Xin.size() != Win.size()) {
+    Rcpp::stop("Prediction-side validation requires one weight vector per data block.");
+  }
   std::vector<arma::mat> Xv;
   std::vector<arma::vec> Wv;
   Xv.reserve(Xin.size());
   Wv.reserve(Win.size());
 
+  arma::uword expected_rows = Xin.empty() ? 0 : Xin[0].n_rows;
   for (size_t b = 0; b < Xin.size(); ++b) {
     arma::mat Xb = Xin[b];
     arma::vec Wb = Win[b];
@@ -1554,6 +1595,12 @@ align_and_filter(const std::vector<arma::mat>& Xin,
     }
     if (Xb.n_rows == 0 || Xb.n_cols == 0 || Wb.n_elem == 0) {
       Rcpp::stop(std::string("Prediction-side validation received an empty block or weight vector in block ") + std::to_string(b + 1) + ".");
+    }
+    if (Xb.n_rows != expected_rows) {
+      Rcpp::stop(std::string("Prediction-side validation row mismatch in block ") +
+                 std::to_string(b + 1) + ": expected " +
+                 std::to_string(expected_rows) + " rows but found " +
+                 std::to_string(Xb.n_rows) + ".");
     }
 
     const int pX = static_cast<int>(Xb.n_cols);
@@ -1577,11 +1624,18 @@ Rcpp::List cpp_perm_test_oos(
     int               n_perm               = 1000,
     bool              spearman             = false,
     bool              frobenius            = false,
-    double            early_stop_threshold = 1.0,   // set <1.0 to allow early stop
+    double            early_stop_threshold = 1.0,   // retained for API compatibility; ignored
     bool              permute_all_blocks   = true)  // B==2: may set false to permute only block 2
 {
   const int B = X_test.size();
   if (B < 2) Rcpp::stop("Need at least 2 blocks");
+  if (W_trained.size() != B) {
+    Rcpp::stop("cpp_perm_test_oos requires one trained weight vector per test block.");
+  }
+  if (n_perm < 1) {
+    Rcpp::stop("cpp_perm_test_oos requires at least one sampled permutation.");
+  }
+  (void)early_stop_threshold;  // Retained for API compatibility; full B is used.
 
   // Materialize X and W from R lists
   std::vector<arma::mat> X(B);
@@ -1611,14 +1665,6 @@ Rcpp::List cpp_perm_test_oos(
   }
 
   const double stat_obs = compute_objective_direct_core(Xv_obs, Wv_obs, spearman, frobenius);
-
-  if (n_perm <= 0) {
-    return Rcpp::List::create(
-      Rcpp::_["stat_obs"] = stat_obs,
-      Rcpp::_["p_value"]  = 1.0,
-      Rcpp::_["n_perm"]   = 0
-    );
-  }
 
   // Prepare row indices for permutations
   std::vector<arma::uvec> base_idx(B);
@@ -1653,26 +1699,18 @@ Rcpp::List cpp_perm_test_oos(
                  " produced fewer than two valid score blocks.");
     }
     const double stat_perm = compute_objective_direct_core(Xv_perm, Wv_perm, spearman, frobenius);
-    if (stat_perm >= stat_obs) ++ge;
+    if (stat_perm >= stat_obs - 100.0 * std::numeric_limits<double>::epsilon() * std::abs(stat_obs)) ++ge;
 
-    // Early stop (optional)
-    if (early_stop_threshold < 1.0 && p >= 100 && (p % 50 == 0)) {
-      const double running_p = static_cast<double>(ge + 1) / static_cast<double>(p + 1);
-      if (running_p > early_stop_threshold) {
-        return Rcpp::List::create(
-          Rcpp::_["stat_obs"] = stat_obs,
-          Rcpp::_["p_value"]  = running_p,
-          Rcpp::_["n_perm"]   = p + 1
-        );
-      }
-    }
   }
 
   const double pval = (ge + 1.0) / (n_perm + 1.0);  // add-one smoothing
   return Rcpp::List::create(
     Rcpp::_["stat_obs"] = stat_obs,
     Rcpp::_["p_value"]  = pval,
-    Rcpp::_["n_perm"]   = n_perm
+    Rcpp::_["n_perm"]   = n_perm,
+    Rcpp::_["n_extreme"] = ge,
+    Rcpp::_["alternative"] = "greater",
+    Rcpp::_["correction"] = "(b + 1) / (B + 1)"
   );
 }
 
@@ -1688,6 +1726,15 @@ Rcpp::List cpp_bootstrap_test_oos(
 {
   const int B = X_test.size();
   if (B < 2) Rcpp::stop("Need at least 2 blocks");
+  if (W_trained.size() != B) {
+    Rcpp::stop("cpp_bootstrap_test_oos requires one trained weight vector per test block.");
+  }
+  if (n_boot < 2) {
+    Rcpp::stop("cpp_bootstrap_test_oos requires at least two bootstrap replicates.");
+  }
+  if (!std::isfinite(alpha) || alpha <= 0.0 || alpha >= 1.0) {
+    Rcpp::stop("cpp_bootstrap_test_oos requires alpha strictly between 0 and 1.");
+  }
 
   std::vector<arma::mat> X(B);
   std::vector<arma::vec> W(B);
@@ -1749,10 +1796,13 @@ Rcpp::List cpp_bootstrap_test_oos(
         arma::vec xi = (idx == nullptr) ? Tset[bi] : Tset[bi].elem(*idx);
         arma::vec xj = (idx == nullptr) ? Tset[bj] : Tset[bj].elem(*idx);
         double r = compute_correlation_core(xi, xj, spearman);
-        if (std::isfinite(r)) {
-          acc += frobenius ? (r * r) : std::abs(r);
-          ++pairs;
+        if (!std::isfinite(r)) {
+          // A replicate must retain the observed set of block pairs. Dropping
+          // degenerate pairs would bootstrap a different association statistic.
+          return NA_REAL;
         }
+        acc += frobenius ? (r * r) : std::abs(r);
+        ++pairs;
       }
     }
     if (pairs == 0) {
@@ -1763,59 +1813,59 @@ Rcpp::List cpp_bootstrap_test_oos(
 
   const double stat_obs = stat_from_scores(T_full, nullptr);
 
-  if (n_boot <= 0) {
-    return Rcpp::List::create(
-      Rcpp::_["stat_obs"]  = stat_obs,
-      Rcpp::_["boot_mean"] = NA_REAL,
-      Rcpp::_["boot_se"]   = NA_REAL,
-      Rcpp::_["p_value"]   = NA_REAL,
-      Rcpp::_["ci_lower"]  = NA_REAL,
-      Rcpp::_["ci_upper"]  = NA_REAL,
-      Rcpp::_["n_boot"]    = 0
-    );
-  }
-
   arma::vec boot_vals(n_boot, arma::fill::zeros);
   int valid_reps = 0;
 
   for (int r = 0; r < n_boot; ++r) {
     arma::uvec idx = arma::randi<arma::uvec>(n_aligned, arma::distr_param(0, n_aligned - 1));
-    double stat_boot = stat_from_scores(T_full, &idx);
-    if (std::isfinite(stat_boot)) {
-      boot_vals(valid_reps) = stat_boot;
-      ++valid_reps;
+    try {
+      double stat_boot = stat_from_scores(T_full, &idx);
+      if (std::isfinite(stat_boot)) {
+        boot_vals(valid_reps) = stat_boot;
+        ++valid_reps;
+      }
+    } catch (const std::exception&) {
+      // A degenerate resample is recorded as failed and excluded from summaries.
     }
   }
 
-  if (valid_reps == 0) {
-    Rcpp::stop("cpp_bootstrap_test_oos: all bootstrap replicates produced invalid statistics.");
+  if (valid_reps < 2) {
+    Rcpp::stop("cpp_bootstrap_test_oos: fewer than two bootstrap replicates produced valid statistics.");
   }
 
   arma::vec vals = boot_vals.head(valid_reps);
   const double boot_mean = arma::mean(vals);
-  const double boot_se = (valid_reps > 1) ? arma::stddev(vals) : 0.0;
+  const double boot_se = arma::stddev(vals);
 
-  // p-value: fraction of bootstrap replicates with stat <= 0, testing H0: MAC <= 0.
-  // Small p means the MAC is reliably positive (most bootstrap samples > 0),
-  // consistent with the permutation test convention where small p = significant.
-  int le_zero_count = 0;
-  for (int i = 0; i < valid_reps; ++i) {
-    if (vals(i) <= 0.0) ++le_zero_count;
-  }
-  const double p_value = (static_cast<double>(le_zero_count) + 1.0) / (static_cast<double>(valid_reps) + 1.0);
-
-  const double conf = 1.0 - alpha;
-  const double zval = R::qnorm5(1.0 - (1.0 - conf) / 2.0, 0.0, 1.0, 1, 0);
-  const double ci_lower = boot_mean - zval * boot_se;
-  const double ci_upper = boot_mean + zval * boot_se;
+  arma::vec sorted_vals = arma::sort(vals);
+  auto quantile_type8 = [&](double probability) {
+    const double n_vals = static_cast<double>(sorted_vals.n_elem);
+    const double h = (n_vals + 1.0 / 3.0) * probability + 1.0 / 3.0;
+    const int j = static_cast<int>(std::floor(h));
+    const double gamma = h - static_cast<double>(j);
+    if (j <= 0) return sorted_vals(0);
+    if (j >= static_cast<int>(sorted_vals.n_elem)) {
+      return sorted_vals(sorted_vals.n_elem - 1);
+    }
+    return (1.0 - gamma) * sorted_vals(j - 1) + gamma * sorted_vals(j);
+  };
+  const double ci_lower = quantile_type8(alpha / 2.0);
+  const double ci_upper = quantile_type8(1.0 - alpha / 2.0);
 
   return Rcpp::List::create(
     Rcpp::_["stat_obs"]  = stat_obs,
     Rcpp::_["boot_mean"] = boot_mean,
+    Rcpp::_["bias"]      = boot_mean - stat_obs,
     Rcpp::_["boot_se"]   = boot_se,
-    Rcpp::_["p_value"]   = p_value,
+    Rcpp::_["p_value"]   = NA_REAL,
+    Rcpp::_["p_value_note"] = "Not computed: an ordinary bootstrap distribution is not a null distribution for hypothesis testing.",
     Rcpp::_["ci_lower"]  = ci_lower,
     Rcpp::_["ci_upper"]  = ci_upper,
-    Rcpp::_["n_boot"]    = valid_reps
+    Rcpp::_["confidence_level"] = 1.0 - alpha,
+    Rcpp::_["interval_type"] = "percentile",
+    Rcpp::_["n_boot"]    = valid_reps,
+    Rcpp::_["n_boot_requested"] = n_boot,
+    Rcpp::_["n_boot_failed"] = n_boot - valid_reps,
+    Rcpp::_["replicates"] = vals
   );
 }

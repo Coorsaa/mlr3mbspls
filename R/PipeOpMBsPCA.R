@@ -7,7 +7,7 @@
 #' multiple, predefined feature blocks. Each component is estimated with a
 #' GSMV-style algorithm (`cpp_mbspca_one_lv()`), and after extraction a
 #' block-wise rank-1 deflation is applied so later components capture novel
-#' structure. Optionally, a permutation test
+#' structure. Optionally, a conditional component-wise permutation diagnostic
 #' (`perm_test_component_mbspca()`) can stop extraction early if a component
 #' explains no more variance than expected under the null.
 #'
@@ -29,6 +29,8 @@
 #' * `ev_block`: matrix `[components x blocks]` of variance explained by each PC
 #'   within each block.
 #' * `ev_comp`: numeric vector of total variance explained by each PC.
+#' * `p_values`: conditional component-wise permutation diagnostics, or `NA`
+#'   when the diagnostic is disabled.
 #' * `T_mat`: numeric matrix of appended latent scores (column names match the
 #'   appended features).
 #' * `run_id`: optional identifier used to match prediction-side payloads to the
@@ -43,7 +45,8 @@
 #' * `n_perm` (`int`, default `500`; tag `"train"`): permutations for the test.
 #' * `perm_alpha` (`dbl` in `[0,1]`, default `0.05`; tag `"train"`): test alpha.
 #' * `c_<block>` (one `dbl` per block, lower `1`, upper `sqrt(#features in block)`,
-#'   default `sqrt(#features)`; tags `c("train","tune")`): sqrt(L1-budget) for that block.
+#'   default `sqrt(#features)`; tags `c("train","tune")`): L1-norm budget for
+#'   the unit-L2 loading vector in that block.
 #' * `c_matrix` (`uty`, default `NULL`; tags `c("train","tune")`): optional
 #'   matrix (`blocks x components`) overriding single-value `c_<block>` parameters.
 #' * `log_env` (`uty`, default `NULL`; tags `c("train","predict")`): optional
@@ -88,8 +91,7 @@
 #' blocks = list(eng = c("disp", "hp", "drat"),
 #'   body = c("wt", "qsec"))
 #' po = PipeOpMBsPCA$new(blocks = blocks, param_vals = list(ncomp = 2))
-#' g = as_graph(po)
-#' g$train(task)
+#' po$train(list(task))
 #' print(po$plot_scree())
 #' }
 #'
@@ -129,7 +131,7 @@ PipeOpMBsPCA = R6::R6Class(
         log_env = paradox::p_uty(tags = c("train", "predict"), default = NULL)
       )
 
-      ## one sparsity hyper-parameter per block (sqrtL1 budget)
+      ## one sparsity hyper-parameter per block (L1 budget)
       for (bn in names(blocks)) {
         p = length(blocks[[bn]])
         ps_base[[paste0("c_", bn)]] = paradox::p_dbl(
@@ -404,43 +406,54 @@ PipeOpMBsPCA = R6::R6Class(
       n_block = length(blocks)
 
       ## 1) materialise block matrices ---------------------------------
-      X = lapply(blocks, \(cols) {
-        M = as.matrix(dt[, ..cols])
+      X = lapply(names(blocks), function(name) {
+        cols = blocks[[name]]
+        M = .mb_numeric_matrix(
+          as.matrix(dt[, ..cols]),
+          sprintf("training block '%s'", name)
+        )
         storage.mode(M) = "double"
         M
-      })
+      }) |>
+        stats::setNames(names(blocks))
 
       ## 2) handle c-matrix vs single-value per block ------------------
       if (!is.null(pv$c_matrix)) {
-        cm = pv$c_matrix
-        if (!is.matrix(cm) || !is.numeric(cm)) {
-          stop("`c_matrix` must be a numeric matrix.", call. = FALSE)
-        }
-        if (!is.null(rownames(cm))) {
-          missing_rows = setdiff(names(blocks), rownames(cm))
-          if (length(missing_rows)) {
+        cm_input = pv$c_matrix
+        if (!is.null(rownames(cm_input))) {
+          declared_names = names(pv$blocks)
+          retained_names = names(blocks)
+          valid_row_set = setequal(rownames(cm_input), declared_names) ||
+            setequal(rownames(cm_input), retained_names)
+          if (!valid_row_set) {
             stop(
-              sprintf(
-                "`c_matrix` rows must cover all retained blocks. Missing: %s",
-                paste(missing_rows, collapse = ", ")
+              paste0(
+                "Named c_matrix rows must match either all declared or all ",
+                "retained blocks exactly."
               ),
               call. = FALSE
             )
           }
-          cm = cm[names(blocks), , drop = FALSE]
-        } else if (nrow(cm) != n_block) {
-          stop(sprintf("`c_matrix` must have %d rows (retained blocks); got %d.", n_block, nrow(cm)), call. = FALSE)
+          cm_input = cm_input[retained_names, , drop = FALSE]
         }
+        cm = .mb_prepare_c_matrix(
+          blocks = X,
+          c_matrix = cm_input,
+          ncomp = ncol(cm_input),
+          ncomp_missing = FALSE
+        )
         pv$ncomp = ncol(cm) # override
       } else {
         cm = NULL
       }
 
       ncomp = pv$ncomp
+      .mb_assert_component_rank(X, ncomp, "PipeOpMBsPCA")
       W_all = P_all = vector("list", ncomp)
       ev_blk = matrix(0, nrow = ncomp, ncol = length(blocks))
       colnames(ev_blk) = names(blocks)
       ev_cmp = numeric(ncomp)
+      p_values = rep(NA_real_, ncomp)
 
       ## copy of X that we deflate iteratively
       X_res = X
@@ -451,8 +464,10 @@ PipeOpMBsPCA = R6::R6Class(
 
         ## sparsity vector for this PC
         c_k = if (is.null(cm)) {
+          # Filtering can shrink a block after its parameter bounds were set.
+          # Larger L1 budgets are nonbinding and therefore equivalent to sqrt(p).
           vapply(names(blocks),
-            \(bn) pv[[paste0("c_", bn)]],
+            \(bn) min(pv[[paste0("c_", bn)]], sqrt(ncol(X[[bn]]))),
             numeric(1))
         } else {
           cm[, k]
@@ -493,23 +508,36 @@ PipeOpMBsPCA = R6::R6Class(
             alpha     = pv$perm_alpha,
             max_iter  = pv$max_iter,
             tol       = pv$tol)
-          if (p_val > pv$perm_alpha && k != 1L) { # always keep PC-1
-            W_all = W_all[seq_len(k - 1)]
-            P_all = P_all[seq_len(k - 1)]
-            ev_blk = ev_blk[seq_len(k - 1), , drop = FALSE]
-            ev_cmp = ev_cmp[seq_len(k - 1)]
-            ncomp = k - 1
+          p_values[[k]] = p_val
+          if (p_val > pv$perm_alpha) {
+            if (k > 1L) {
+              W_all = W_all[seq_len(k - 1L)]
+              P_all = P_all[seq_len(k - 1L)]
+              ev_blk = ev_blk[seq_len(k - 1L), , drop = FALSE]
+              ev_cmp = ev_cmp[seq_len(k - 1L)]
+              p_values = p_values[seq_len(k - 1L)]
+              ncomp = k - 1L
+            } else {
+              W_all = W_all[1L]
+              P_all = P_all[1L]
+              ev_blk = ev_blk[1L, , drop = FALSE]
+              ev_cmp = ev_cmp[1L]
+              p_values = p_values[1L]
+              ncomp = 1L
+            }
             break
           }
         }
 
         ## deflate residual matrices ----------------------------------
-        for (b in seq_along(blocks)) {
-          tb = Tk[, b]
-          denom = drop(crossprod(tb))
-          if (denom > 1e-12) {
-            pb = Pk[[b]]
-            X_res[[b]] = X_res[[b]] - tcrossprod(tb, pb)
+        if (k < ncomp) {
+          for (b in seq_along(blocks)) {
+            tb = Tk[, b]
+            denom = drop(crossprod(tb))
+            if (denom > 1e-12) {
+              pb = Pk[[b]]
+              X_res[[b]] = X_res[[b]] - tcrossprod(tb, pb)
+            }
           }
         }
       }
@@ -572,6 +600,7 @@ PipeOpMBsPCA = R6::R6Class(
         loadings = P_all,
         ev_block = ev_blk,
         ev_comp  = ev_cmp,
+        p_values = p_values,
         T_mat    = T_mat,
         run_id   = NULL
       )
@@ -588,6 +617,7 @@ PipeOpMBsPCA = R6::R6Class(
           loadings = P_all,
           ev_block = ev_blk,
           ev_comp = ev_cmp,
+          p_values = p_values,
           T_mat_train = T_mat,
           time = Sys.time()
         )

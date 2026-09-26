@@ -7,7 +7,8 @@
 aggregate_mbspls_payloads(
   payloads,
   weight_by = c("sqrt_n", "n", "equal"),
-  p_method = c("stouffer", "fisher", "none"),
+  p_method = c("none", "stouffer", "fisher"),
+  allow_p_combination = FALSE,
   enforce_monotone = FALSE
 )
 }
@@ -20,10 +21,16 @@ aggregate_mbspls_payloads(
 \code{"sqrt_n"} (default; weight = sqrtn_test), \code{"n"} (weight = n_test), or \code{"equal"}.}
 
 \item{p_method}{character(1). How to combine validation p-values across folds:
-\code{"stouffer"} (default), \code{"fisher"}, or \code{"none"}.}
+\code{"none"} (default), \code{"stouffer"}, or \code{"fisher"}.}
 
-\item{enforce_monotone}{logical(1). If TRUE, makes combined p-values
-nondecreasing across components (useful for sequential stopping). Default FALSE.}
+\item{allow_p_combination}{logical(1). Must be explicitly \code{TRUE} to request
+Stouffer or Fisher combination. This asserts that the caller has justified
+the required dependence assumptions or calibrated the combination for the
+study design. The result remains labelled exploratory.}
+
+\item{enforce_monotone}{logical(1). If TRUE, makes exploratory combined
+p-values nondecreasing across components as a display constraint. This is
+not a sequential-testing or multiplicity correction. Default FALSE.}
 }
 \value{
 list with:
@@ -41,8 +48,14 @@ into weighted cross-fold summaries. Supports component-wise aggregation of:
 \itemize{
 \item latent correlation (MAC or Frobenius), with mean/SD,
 \item explained variance (per-block and total),
-\item optional validation p-values (combined via Stouffer or Fisher).
+\item optional, explicitly exploratory validation p-value combinations.
 }
+
+Fold-wise values produced by \code{PipeOpMBsPLS} are conditional diagnostics, and
+resampling folds generally do not supply independent p-values. Consequently,
+no p-value combination is performed by default. Stouffer or Fisher
+combination requires an explicit opt-in and a study-specific justification;
+it is not upgraded to confirmatory inference by this function.
 }
 \examples{
 # Minimal example with two outer folds, two components and two blocks.

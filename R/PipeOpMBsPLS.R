@@ -9,19 +9,25 @@
 #' (block-wise score deflation in the sense of Westerhuis et al., 2001),
 #' ensuring that successive LVs are orthogonal within every block.
 #'
-#' The training objective is controlled by \code{performance_metric}:
+#' The association criterion used for convergence and evaluation is controlled
+#' by \code{performance_metric}:
 #' \itemize{
 #'   \item \code{"mac"}: mean absolute correlation (average of \eqn{|r|}
 #'         across all block-score pairs) per component;
-#'   \item \code{"frobenius"}: Frobenius norm of the block-score correlation
-#'         matrix \eqn{\sqrt{\sum r^2}}.
+#'   \item \code{"frobenius"}: Euclidean norm of the distinct off-diagonal
+#'         block-score correlations \eqn{\sqrt{\sum_{i<j} r_{ij}^2}}.
 #' }
-#' We refer to this scalar as the \emph{latent correlation}.
+#' We refer to this scalar as the \emph{latent correlation}. Weights are updated
+#' by constrained PMD steps against standardized scores from the other blocks.
+#' These updates do not directly optimize the reported correlation criterion;
+#' changing the criterion changes convergence, evaluation, and tuning rather
+#' than the weight-update formula.
 #'
 #' During prediction, the same criterion (MAC/Frobenius) and explained variances
 #' are computed on test data and, if \code{log_env} is provided, a compact
-#' payload is written to \code{log_env$last}. Optionally, \emph{prediction-side
-#' validation tests} can be requested (permutation or bootstrap; see Parameters).
+#' payload is written to \code{log_env$last}. Optionally, prediction-side
+#' diagnostics can be requested (permutation or descriptive bootstrap; see
+#' Parameters).
 #'
 #' The operator is a pure transformer: it performs no internal resampling,
 #' tuning or preprocessing. Hyper-parameters such as the L1 sparsity levels
@@ -37,7 +43,9 @@
 #'   \item{\code{latent_cor_train}}{Objective value of the last retained component (training).}
 #'   \item{\code{ev_block}}{Training explained variance per block (rows = components, cols = blocks).}
 #'   \item{\code{ev_comp}}{Training explained variance per component (summed across blocks).}
-#'   \item{\code{p_values}}{Permutation p-values per component if enabled during training.}
+#'   \item{\code{p_values}}{Conditional component-wise permutation p-values if
+#'         enabled during training. They assume the supplied preprocessed data
+#'         and hyperparameters are fixed and are not full-pipeline inference.}
 #'   \item{\code{performance_metric}}{\code{"mac"} or \code{"frobenius"}.}
 #'   \item{\code{c_matrix}}{If provided/derived, the block-by-component sparsity matrix.}
 #'   \item{\code{T_mat}}{Training score matrix (per-component deflation applied);
@@ -55,10 +63,13 @@
 #'   \item \code{blocks}: character vector with block names,
 #'   \item \code{perf_metric}: objective used (\code{"mac"} or \code{"frobenius"}),
 #'   \item \code{time}: POSIXct timestamp,
-#'   \item \code{val_test_p}: (if \code{val_test = "permutation"} or \code{"bootstrap"}) per-component p-values,
+#'   \item \code{val_test_p}: (if \code{val_test = "permutation"}) per-component
+#'         conditional permutation p-values,
 #'   \item \code{val_test_stat}: (if available) observed test statistic per component,
 #'   \item \code{val_bootstrap}: (if \code{val_test = "bootstrap"}) data.table with
-#'         observed statistic, bootstrap mean/SE, p-value, and CI per component.
+#'         the observed statistic, bias, standard error, interval, confidence
+#'         level, and effective replicate count. Its p-value fields are `NA`
+#'         because an ordinary bootstrap distribution is not a null distribution.
 #' }
 #'
 #' @section Parameters:
@@ -73,13 +84,17 @@
 #' @param efficient \code{logical(1)}. Reserved flag for an alternative C++ routine.
 #' @param correlation_method \code{character(1)}. Correlation estimator for block
 #'   scores: \code{"pearson"} (default) or \code{"spearman"}.
-#' @param performance_metric \code{character(1)}. Objective to maximize:
+#' @param performance_metric \code{character(1)}. Association criterion for
+#'   convergence, tuning, and evaluation:
 #'   \code{"mac"} (mean absolute correlation, default) or \code{"frobenius"}.
-#' @param permutation_test \code{logical(1)}. If \code{TRUE} perform a permutation
-#'   test after each component during \emph{training} and stop when the empirical p-value
-#'   exceeds \code{perm_alpha} (LV1 is always retained).
+#' @param permutation_test \code{logical(1)}. If \code{TRUE}, perform a
+#'   conditional component-wise permutation diagnostic during training and stop
+#'   when its empirical p-value exceeds \code{perm_alpha} (LV1 is always
+#'   retained). This does not replace a design-valid full-pipeline permutation
+#'   analysis.
 #' @param n_perm \code{integer(1)}. Number of permutations (training).
-#' @param perm_alpha \code{numeric(1)}. Significance level for training-time permutation test.
+#' @param perm_alpha \code{numeric(1)}. Cutoff for the conditional train-time
+#'   permutation diagnostic.
 #' @param c_<block> \code{numeric(1)}. One L1 sparsity limit per block; upper bound defaults to \eqn{\sqrt{p_b}}.
 #' @param c_matrix \code{matrix}. Optional matrix of L1 limits (rows = blocks, cols = components).
 #' @param store_train_blocks \code{logical(1)}. If \code{TRUE} and \code{log_env} is provided,
@@ -88,10 +103,18 @@
 #'   Controls which weights PipeOpMBsPLS uses at predict/validation time. Explicit
 #'   requests for \code{"stable_ci"} or \code{"stable_frequency"} now error if the
 #'   requested stability-selected weights/loadings are unavailable in \code{log_env}.
-#' @param val_test \code{character(1)}. Prediction-side validation: \code{"none"}, \code{"permutation"}, \code{"bootstrap"}.
+#' @param val_test \code{character(1)}. Prediction-side diagnostic:
+#'   \code{"none"}, conditional held-out \code{"permutation"}, or descriptive
+#'   \code{"bootstrap"}. A design-level hypothesis test must rerun the complete
+#'   preprocessing, tuning, and fitting pipeline within each valid permutation.
 #' @param val_test_n \code{integer(1)}. Number of permutations / bootstrap replicates for prediction-side validation.
-#' @param val_test_alpha \code{numeric(1)}. Early-stop threshold for permutation and CI level for bootstrap validation.
+#' @param val_test_alpha \code{numeric(1)}. Alpha used for the descriptive
+#'   bootstrap confidence interval. Retained for permutation calls for API
+#'   compatibility; sampled permutation p-values always use all replicates.
 #' @param val_test_permute_all \code{logical(1)}. If \code{TRUE}, permute all blocks; for \eqn{B=2}, \code{FALSE} permutes block 2 only.
+#' @param seed_validation \code{integer(1)} or \code{NULL}. Optional seed for
+#'   prediction-side permutation/bootstrap diagnostics. One L'Ecuyer-CMRG stream
+#'   is assigned per component and the caller's RNG state is restored.
 #' @param log_env \code{environment} or \code{NULL}. If not \code{NULL}, writes payloads to \code{log_env$last} and saves a training snapshot in \code{log_env$mbspls_state}.
 #' @param append \code{logical(1)}. If \code{TRUE}, keep original features and append LV columns
 #'   (both in training and prediction). If \code{FALSE} (default), output only LV columns.
@@ -155,6 +178,7 @@ PipeOpMBsPLS = R6::R6Class(
         val_test_alpha = p_dbl(lower = 0, upper = 1, default = 0.05, tags = "predict"),
         val_test_n = p_int(lower = 1L, default = 1000L, tags = "predict"),
         val_test_permute_all = p_lgl(default = TRUE, tags = "predict"),
+        seed_validation = p_uty(tags = "predict", default = NULL),
         log_env = p_uty(tags = c("train", "predict"), default = NULL),
         append = p_lgl(default = FALSE, tags = c("train", "predict")),
         seed_train = p_uty(tags = "train", default = NULL)
@@ -172,18 +196,42 @@ PipeOpMBsPLS = R6::R6Class(
 
       if (!is.null(param_vals$c_matrix)) {
         cm = param_vals$c_matrix
-        checkmate::assert_matrix(cm, mode = "numeric", any.missing = FALSE)
+        if (!is.matrix(cm) || !is.numeric(cm) || !ncol(cm) ||
+          anyNA(cm) || any(!is.finite(cm))) {
+          stop(
+            "`c_matrix` must be a finite numeric matrix with at least one column.",
+            call. = FALSE
+          )
+        }
+        if (nrow(cm) != length(blocks)) {
+          stop(sprintf(
+            "c_matrix must have %d rows (blocks); got %d",
+            length(blocks),
+            nrow(cm)
+          ), call. = FALSE)
+        }
         if (!is.null(rownames(cm))) {
+          if (anyNA(rownames(cm)) || any(!nzchar(rownames(cm))) ||
+            anyDuplicated(rownames(cm))) {
+            stop("c_matrix row names must be unique and non-empty.",
+              call. = FALSE)
+          }
           missing_rows = setdiff(names(blocks), rownames(cm))
-          if (length(missing_rows)) {
+          extra_rows = setdiff(rownames(cm), names(blocks))
+          if (length(missing_rows) || length(extra_rows)) {
             stop(sprintf(
-              "c_matrix rows must cover all blocks. Missing: %s",
-              paste(missing_rows, collapse = ", ")
+              "c_matrix rows must match all blocks exactly. Missing: %s; unexpected: %s",
+              paste(missing_rows, collapse = ", "),
+              paste(extra_rows, collapse = ", ")
             ), call. = FALSE)
           }
           cm = cm[names(blocks), , drop = FALSE]
-        } else if (nrow(cm) != length(blocks)) {
-          stop(sprintf("c_matrix must have %d rows (blocks); got %d", length(blocks), nrow(cm)), call. = FALSE)
+        }
+        if (!is.null(colnames(cm)) &&
+          (anyNA(colnames(cm)) || any(!nzchar(colnames(cm))) ||
+            anyDuplicated(colnames(cm)))) {
+          stop("c_matrix column names must be unique and non-empty.",
+            call. = FALSE)
         }
         param_vals$c_matrix = cm
         param_vals$ncomp = ncol(cm)
@@ -226,27 +274,41 @@ PipeOpMBsPLS = R6::R6Class(
       if (!length(blocks)) stop("No block contains at least one numeric, non-constant feature.")
       n_block = length(blocks)
 
-      X_list = lapply(blocks, \(cols) {
-        m = as.matrix(dt[, ..cols])
+      X_list = lapply(names(blocks), function(name) {
+        cols = blocks[[name]]
+        m = .mb_numeric_matrix(
+          as.matrix(dt[, ..cols]),
+          sprintf("training block '%s'", name)
+        )
         storage.mode(m) = "double"
         m
-      })
+      }) |>
+        stats::setNames(names(blocks))
 
       if (!is.null(pv$c_matrix)) {
-        cm = pv$c_matrix
-        checkmate::assert_matrix(cm, mode = "numeric", any.missing = FALSE)
-        if (!is.null(rownames(cm))) {
-          missing_rows = setdiff(names(blocks), rownames(cm))
-          if (length(missing_rows)) {
-            stop(sprintf(
-              "c_matrix rows must cover all retained blocks. Missing: %s",
-              paste(missing_rows, collapse = ", ")
-            ), call. = FALSE)
+        cm_input = pv$c_matrix
+        if (!is.null(rownames(cm_input))) {
+          declared_names = names(pv$blocks)
+          retained_names = names(blocks)
+          valid_row_set = setequal(rownames(cm_input), declared_names) ||
+            setequal(rownames(cm_input), retained_names)
+          if (!valid_row_set) {
+            stop(
+              paste0(
+                "Named c_matrix rows must match either all declared or all ",
+                "retained blocks exactly."
+              ),
+              call. = FALSE
+            )
           }
-          cm = cm[names(blocks), , drop = FALSE]
-        } else if (nrow(cm) != n_block) {
-          stop(sprintf("c_matrix must have %d rows (blocks); got %d", n_block, nrow(cm)), call. = FALSE)
+          cm_input = cm_input[retained_names, , drop = FALSE]
         }
+        cm = .mb_prepare_c_matrix(
+          blocks = X_list,
+          c_matrix = cm_input,
+          ncomp = ncol(cm_input),
+          ncomp_missing = FALSE
+        )
         pv$ncomp = ncol(cm)
         c_matrix = cm
         c_vec = NULL
@@ -257,6 +319,7 @@ PipeOpMBsPLS = R6::R6Class(
         lgr$info("Fitting MB-sPLS: %d blocks, %d components; c = %s",
           n_block, pv$ncomp, paste(c_vec, collapse = ", "))
       }
+      .mb_assert_component_rank(X_list, pv$ncomp, "PipeOpMBsPLS")
 
       fit = with_seed_local(pv$seed_train, function() {
         if (is.null(c_matrix)) {
@@ -308,7 +371,9 @@ PipeOpMBsPLS = R6::R6Class(
       comp_names = sprintf("LC_%02d", seq_len(n_kept))
 
       pad_and_name = function(x, feat_names) {
-        if (length(x) == 0L) x <- numeric(length(feat_names))
+        if (length(x) == 0L) {
+          x = numeric(length(feat_names))
+        }
         if (length(x) != length(feat_names)) {
           stop(sprintf("Internal size mismatch: expected %d, got %d", length(feat_names), length(x)))
         }
@@ -366,6 +431,14 @@ PipeOpMBsPLS = R6::R6Class(
       self$state$T_mat = T_mat_train
       self$state$obj_vec = obj
       self$state$p_values = pvals
+      self$state$p_value_scope = if (isTRUE(pv$permutation_test)) {
+        paste(
+          "Conditional component-wise diagnostic with fixed preprocessing and",
+          "hyperparameters; not a full-pipeline permutation test."
+        )
+      } else {
+        NULL
+      }
       self$state$ev_block = ev_blk
       self$state$ev_comp = ev_cmp
       self$state$latent_cor_train = utils::tail(obj, 1)
@@ -394,7 +467,9 @@ PipeOpMBsPLS = R6::R6Class(
           perf_metric  = pv$performance_metric,
           time         = Sys.time()
         )
-        if (isTRUE(pv$store_train_blocks)) payload$X_train_blocks <- X_list
+        if (isTRUE(pv$store_train_blocks)) {
+          payload$X_train_blocks = X_list
+        }
         payload$pipeop_id = self$id
         run_id = log_env_store_state(pv$log_env, payload, warn_overwrite = TRUE)
         self$state$run_id = run_id
@@ -463,43 +538,43 @@ PipeOpMBsPLS = R6::R6Class(
         )
       }
 
-      use_env_weights = function(ci = FALSE, freq = FALSE) {
+      get_env_weights = function(ci = FALSE, freq = FALSE) {
         if (is.null(st_env)) {
-          return(FALSE)
+          return(NULL)
         }
         if (ci) {
           if (length(st_env$weights_stable_ci)) {
-            W_active <<- st_env$weights_stable_ci
-            P_active <<- st_env$loadings_stable_ci %||% NULL
-            K_active <<- length(W_active)
-            used_source <<- "stable_ci"
-            return(TRUE)
+            return(list(
+              weights = st_env$weights_stable_ci,
+              loadings = st_env$loadings_stable_ci %||% NULL,
+              source = "stable_ci"
+            ))
           }
           if (identical(st_env$selection_method, "ci") && length(st_env$weights_stable)) {
-            W_active <<- st_env$weights_stable
-            P_active <<- st_env$loadings_stable %||% NULL
-            K_active <<- length(W_active)
-            used_source <<- "stable_ci"
-            return(TRUE)
+            return(list(
+              weights = st_env$weights_stable,
+              loadings = st_env$loadings_stable %||% NULL,
+              source = "stable_ci"
+            ))
           }
         }
         if (freq) {
           if (length(st_env$weights_stable_frequency)) {
-            W_active <<- st_env$weights_stable_frequency
-            P_active <<- st_env$loadings_stable_frequency %||% NULL
-            K_active <<- length(W_active)
-            used_source <<- "stable_frequency"
-            return(TRUE)
+            return(list(
+              weights = st_env$weights_stable_frequency,
+              loadings = st_env$loadings_stable_frequency %||% NULL,
+              source = "stable_frequency"
+            ))
           }
           if (identical(st_env$selection_method, "frequency") && length(st_env$weights_stable)) {
-            W_active <<- st_env$weights_stable
-            P_active <<- st_env$loadings_stable %||% NULL
-            K_active <<- length(W_active)
-            used_source <<- "stable_frequency"
-            return(TRUE)
+            return(list(
+              weights = st_env$weights_stable,
+              loadings = st_env$loadings_stable %||% NULL,
+              source = "stable_frequency"
+            ))
           }
         }
-        FALSE
+        NULL
       }
 
       stable_request_error = function(requested) {
@@ -547,13 +622,23 @@ PipeOpMBsPLS = R6::R6Class(
           lgr$info("[%s] predict_weights='auto': no stable weights found in log_env; falling back to 'raw'.", self$id)
         }
       } else if (identical(pick, "stable_ci")) {
-        if (!use_env_weights(ci = TRUE, freq = FALSE)) {
+        selected = get_env_weights(ci = TRUE, freq = FALSE)
+        if (is.null(selected)) {
           stable_request_error("stable_ci")
         }
+        W_active = selected$weights
+        P_active = selected$loadings
+        K_active = length(W_active)
+        used_source = selected$source
       } else if (identical(pick, "stable_frequency")) {
-        if (!use_env_weights(ci = FALSE, freq = TRUE)) {
+        selected = get_env_weights(ci = FALSE, freq = TRUE)
+        if (is.null(selected)) {
           stable_request_error("stable_frequency")
         }
+        W_active = selected$weights
+        P_active = selected$loadings
+        K_active = length(W_active)
+        used_source = selected$source
       } else {
         used_source = "raw"
       }
@@ -622,10 +707,34 @@ PipeOpMBsPLS = R6::R6Class(
           nrow(dt)
         ), call. = FALSE)
       }
+      if (val_test == "bootstrap" && val_test_n < 2L) {
+        stop("Prediction-side bootstrap validation requires at least two replicates.",
+          call. = FALSE)
+      }
+      if (val_test == "bootstrap" &&
+        (!is.finite(pv$val_test_alpha) || pv$val_test_alpha <= 0 ||
+          pv$val_test_alpha >= 1)) {
+        stop("Prediction-side bootstrap `val_test_alpha` must be strictly between 0 and 1.",
+          call. = FALSE)
+      }
 
       val_test_p = rep(NA_real_, K_active)
       val_test_stat = rep(NA_real_, K_active)
       val_bootstrap_results = NULL # pre-initialize; populated below if val_test="bootstrap"
+      val_bootstrap_vectors = NULL
+      validation_streams = if (val_test == "none" ||
+        is.null(pv$seed_validation)) {
+        NULL
+      } else {
+        mb_rng_streams(K_active, pv$seed_validation)
+      }
+      run_validation = function(component, fn) {
+        if (is.null(validation_streams)) {
+          fn()
+        } else {
+          with_rng_stream_local(validation_streams[[component]], fn)
+        }
+      }
 
       score_tables = vector("list", K_active)
       for (k in seq_len(K_active)) {
@@ -649,15 +758,17 @@ PipeOpMBsPLS = R6::R6Class(
             storage.mode(x) = "double"
             x
           })
-          res = cpp_perm_test_oos(
-            X_test = Xk_list,
-            W_trained = Wk,
-            n_perm = val_test_n,
-            spearman = use_spear,
-            frobenius = use_frob,
-            permute_all_blocks = isTRUE(val_test_permute_all),
-            early_stop_threshold = pv$val_test_alpha
-          )
+          res = run_validation(k, function() {
+            cpp_perm_test_oos(
+              X_test = Xk_list,
+              W_trained = Wk,
+              n_perm = val_test_n,
+              spearman = use_spear,
+              frobenius = use_frob,
+              permute_all_blocks = isTRUE(val_test_permute_all),
+              early_stop_threshold = 1.0
+            )
+          })
           if (is.list(res)) {
             val_test_p[k] = if (is.null(res$p_value)) NA_real_ else as.numeric(res$p_value)
             val_test_stat[k] = if (is.null(res$stat_obs)) NA_real_ else as.numeric(res$stat_obs)
@@ -675,31 +786,63 @@ PipeOpMBsPLS = R6::R6Class(
             storage.mode(x) = "double"
             x
           })
-          bres = cpp_bootstrap_test_oos(
-            X_test = Xk_list,
-            W_trained = Wk,
-            n_boot = val_test_n,
-            spearman = use_spear,
-            frobenius = use_frob,
-            alpha = pv$val_test_alpha
-          )
+          bres = run_validation(k, function() {
+            cpp_bootstrap_test_oos(
+              X_test = Xk_list,
+              W_trained = Wk,
+              n_boot = val_test_n,
+              spearman = use_spear,
+              frobenius = use_frob,
+              alpha = pv$val_test_alpha
+            )
+          })
           observed_correlation = as.numeric(bres$stat_obs %||% NA_real_)
           boot_mean = as.numeric(bres$boot_mean %||% NA_real_)
+          boot_bias = as.numeric(bres$bias %||% (boot_mean - observed_correlation))
           boot_se = as.numeric(bres$boot_se %||% NA_real_)
-          boot_p_value = as.numeric(bres$p_value %||% NA_real_)
           ci_lower = as.numeric(bres$ci_lower %||% NA_real_)
           ci_upper = as.numeric(bres$ci_upper %||% NA_real_)
           n_boot_done = as.integer(bres$n_boot %||% val_test_n)
-          conf = 1 - (if (is.null(pv$val_test_alpha)) 0.05 else pv$val_test_alpha)
-          val_test_p[k] = boot_p_value
+          n_boot_requested = as.integer(bres$n_boot_requested %||% val_test_n)
+          n_boot_failed = as.integer(bres$n_boot_failed %||%
+            (n_boot_requested - n_boot_done))
+          conf = as.numeric(bres$confidence_level %||%
+            (1 - pv$val_test_alpha))
+          interval_type = as.character(bres$interval_type %||% "percentile")
+          p_value_note = as.character(bres$p_value_note %||% paste(
+            "Not computed: an ordinary bootstrap distribution estimates",
+            "uncertainty and is not a null distribution for hypothesis testing."
+          ))
           val_test_stat[k] = observed_correlation
           row_k = data.table::data.table(
-            component = k, observed_correlation = observed_correlation,
-            boot_mean = boot_mean, boot_se = boot_se,
-            boot_p_value = boot_p_value,
-            boot_ci_lower = ci_lower, boot_ci_upper = ci_upper,
-            confidence_level = conf, n_boot = n_boot_done
+            component = k,
+            estimate = observed_correlation,
+            bootstrap_mean = boot_mean,
+            bias = boot_bias,
+            standard_error = boot_se,
+            conf_low = ci_lower,
+            conf_high = ci_upper,
+            confidence_level = conf,
+            interval_type = interval_type,
+            replicates_requested = n_boot_requested,
+            replicates_effective = n_boot_done,
+            replicates_failed = n_boot_failed,
+            p_value = NA_real_,
+            p_value_note = p_value_note,
+            # Backward-compatible descriptive aliases. The former p-value
+            # alias remains present but deliberately has no numeric value.
+            observed_correlation = observed_correlation,
+            boot_mean = boot_mean,
+            boot_se = boot_se,
+            boot_p_value = NA_real_,
+            boot_ci_lower = ci_lower,
+            boot_ci_upper = ci_upper,
+            n_boot = n_boot_done
           )
+          if (is.null(val_bootstrap_vectors)) {
+            val_bootstrap_vectors = vector("list", K_active)
+          }
+          val_bootstrap_vectors[[k]] = as.numeric(bres$replicates %||% numeric())
           val_bootstrap_results = if (is.null(val_bootstrap_results)) {
             row_k
           } else {
@@ -747,21 +890,37 @@ PipeOpMBsPLS = R6::R6Class(
           T_mat = T_mat_test,
           blocks = block_names,
           perf_metric = pv$performance_metric,
-          weights_source = used_source, # <- NEW
+          weights_source = used_source,
           time = Sys.time()
         )
-        if (exists("val_test_p", inherits = FALSE) && pv$val_test != "none") {
-          names(val_test_p) = comp_names
+        if (pv$val_test != "none") {
           names(val_test_stat) = comp_names
-          payload$val_test_p = val_test_p
           payload$val_test_stat = val_test_stat
-          if (exists("val_bootstrap_results", inherits = FALSE)) {
-            payload$val_bootstrap = val_bootstrap_results
-          } else {
+          if (pv$val_test == "permutation") {
+            names(val_test_p) = comp_names
+            payload$val_test_p = val_test_p
             payload$val_test_params = list(
-              n_perm = if (pv$val_test == "permutation") pv$val_test_n else NA_integer_,
+              n_perm = pv$val_test_n,
+              alternative = "greater",
+              correction = "(b + 1) / (B + 1)",
+              permute_all_blocks = isTRUE(val_test_permute_all),
+              seed = pv$seed_validation,
+              rng_streams = validation_streams,
+              scope = paste(
+                "Conditional association diagnostic with fixed trained",
+                "weights; not a full-pipeline permutation test."
+              )
+            )
+          } else if (pv$val_test == "bootstrap") {
+            payload$val_bootstrap = val_bootstrap_results
+            payload$val_boot_vectors = val_bootstrap_vectors
+            payload$val_test_params = list(
+              n_boot = pv$val_test_n,
               alpha = pv$val_test_alpha,
-              permute_all_blocks = if (pv$val_test == "permutation") isTRUE(val_test_permute_all) else NA
+              interval_type = "percentile",
+              seed = pv$seed_validation,
+              rng_streams = validation_streams,
+              scope = "Descriptive uncertainty; no null-hypothesis p-value."
             )
           }
         }

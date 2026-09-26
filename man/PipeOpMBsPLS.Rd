@@ -14,19 +14,25 @@ After each component the corresponding rank-1 structure is removed
 (block-wise score deflation in the sense of Westerhuis et al., 2001),
 ensuring that successive LVs are orthogonal within every block.
 
-The training objective is controlled by \code{performance_metric}:
+The association criterion used for convergence and evaluation is controlled
+by \code{performance_metric}:
 \itemize{
 \item \code{"mac"}: mean absolute correlation (average of \eqn{|r|}
 across all block-score pairs) per component;
-\item \code{"frobenius"}: Frobenius norm of the block-score correlation
-matrix \eqn{\sqrt{\sum r^2}}.
+\item \code{"frobenius"}: Euclidean norm of the distinct off-diagonal
+block-score correlations \eqn{\sqrt{\sum_{i<j} r_{ij}^2}}.
 }
-We refer to this scalar as the \emph{latent correlation}.
+We refer to this scalar as the \emph{latent correlation}. Weights are updated
+by constrained PMD steps against standardized scores from the other blocks.
+These updates do not directly optimize the reported correlation criterion;
+changing the criterion changes convergence, evaluation, and tuning rather
+than the weight-update formula.
 
 During prediction, the same criterion (MAC/Frobenius) and explained variances
 are computed on test data and, if \code{log_env} is provided, a compact
-payload is written to \code{log_env$last}. Optionally, \emph{prediction-side
-validation tests} can be requested (permutation or bootstrap; see Parameters).
+payload is written to \code{log_env$last}. Optionally, prediction-side
+diagnostics can be requested (permutation or descriptive bootstrap; see
+Parameters).
 
 The operator is a pure transformer: it performs no internal resampling,
 tuning or preprocessing. Hyper-parameters such as the L1 sparsity levels
@@ -46,7 +52,9 @@ Multi-Block Sparse Partial Least Squares (MB-sPLS) Transformer
 \item{\code{latent_cor_train}}{Objective value of the last retained component (training).}
 \item{\code{ev_block}}{Training explained variance per block (rows = components, cols = blocks).}
 \item{\code{ev_comp}}{Training explained variance per component (summed across blocks).}
-\item{\code{p_values}}{Permutation p-values per component if enabled during training.}
+\item{\code{p_values}}{Conditional component-wise permutation p-values if
+enabled during training. They assume the supplied preprocessed data
+and hyperparameters are fixed and are not full-pipeline inference.}
 \item{\code{performance_metric}}{\code{"mac"} or \code{"frobenius"}.}
 \item{\code{c_matrix}}{If provided/derived, the block-by-component sparsity matrix.}
 \item{\code{T_mat}}{Training score matrix (per-component deflation applied);
@@ -66,10 +74,13 @@ A list containing:
 \item \code{blocks}: character vector with block names,
 \item \code{perf_metric}: objective used (\code{"mac"} or \code{"frobenius"}),
 \item \code{time}: POSIXct timestamp,
-\item \code{val_test_p}: (if \code{val_test = "permutation"} or \code{"bootstrap"}) per-component p-values,
+\item \code{val_test_p}: (if \code{val_test = "permutation"}) per-component
+conditional permutation p-values,
 \item \code{val_test_stat}: (if available) observed test statistic per component,
 \item \code{val_bootstrap}: (if \code{val_test = "bootstrap"}) data.table with
-observed statistic, bootstrap mean/SE, p-value, and CI per component.
+the observed statistic, bias, standard error, interval, confidence
+level, and effective replicate count. Its p-value fields are \code{NA}
+because an ordinary bootstrap distribution is not a null distribution.
 }
 }
 

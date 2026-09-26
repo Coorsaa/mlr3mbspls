@@ -28,7 +28,9 @@ autoplot.GraphLearner = function(object,
       return(explicit)
     }
     fml = names(formals(fun))
-    if (is.null(fml)) fml <- character(0)
+    if (is.null(fml)) {
+      fml = character(0)
+    }
     keep = intersect(setdiff(names(dots), names(explicit)), fml)
     c(explicit, dots[keep])
   }
@@ -175,7 +177,9 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
       return(explicit)
     }
     fml = names(formals(fun))
-    if (is.null(fml)) fml <- character(0)
+    if (is.null(fml)) {
+      fml = character(0)
+    }
     keep = intersect(setdiff(names(dots), names(explicit)), fml)
     c(explicit, dots[keep])
   }
@@ -461,7 +465,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
         next
       }
       keep = switch(match.arg(ci_filter),
-        excludes_zero = ((sb$ci_lower >= 0) | (sb$ci_upper <= 0)) & (abs(sb$boot_mean) > 1e-3),
+        excludes_zero = ((sb$ci_lower > 0) | (sb$ci_upper < 0)) & (abs(sb$boot_mean) > 1e-3),
         overlaps_zero = (sb$ci_lower <= 0 & sb$ci_upper >= 0),
         none          = rep(TRUE, nrow(sb))
       )
@@ -773,7 +777,9 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
 
   # cross-version edge guide detection
   edge_guide_fun = get0("guide_edge_colourbar", asNamespace("ggraph"))
-  if (is.null(edge_guide_fun)) edge_guide_fun <- get0("guide_edge_colorbar", asNamespace("ggraph"))
+  if (is.null(edge_guide_fun)) {
+    edge_guide_fun = get0("guide_edge_colorbar", asNamespace("ggraph"))
+  }
   guide_obj = if (is.null(edge_guide_fun)) ggplot2::guide_colourbar() else edge_guide_fun()
 
   edge_col_scale = if (absolute) {
@@ -837,9 +843,13 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   ev_comp = rec$ev_comp
 
   rn = rownames(ev_blk)
-  if (is.null(rn)) rn <- paste0("LC_", sprintf("%02d", seq_len(nrow(ev_blk))))
+  if (is.null(rn)) {
+    rn = paste0("LC_", sprintf("%02d", seq_len(nrow(ev_blk))))
+  }
   cn = colnames(ev_blk)
-  if (is.null(cn)) cn <- names(model$blocks)
+  if (is.null(cn)) {
+    cn = names(model$blocks)
+  }
 
   df_long = data.frame(
     component = factor(rep(rn, each = length(cn)), levels = rn),
@@ -853,7 +863,13 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   ev_table$total = as.numeric(ev_comp)
 
   ev_table_percent = ev_table
-  if (ncol(ev_table_percent) > 1) ev_table_percent[-1] <- lapply(ev_table_percent[-1], scales::percent, accuracy = accuracy)
+  if (ncol(ev_table_percent) > 1L) {
+    ev_table_percent[-1L] = lapply(
+      ev_table_percent[-1L],
+      scales::percent,
+      accuracy = accuracy
+    )
+  }
 
   p_base = if (layout == "grouped") {
     ggplot2::ggplot(df_long, ggplot2::aes(x = component, y = explained, fill = block)) +
@@ -1087,7 +1103,9 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   bn = names(blocks)
 
   comps = names(fit_state$weights)
-  if (is.null(comps)) comps <- sprintf("LC_%02d", seq_len(fit_state$ncomp %||% 1L))
+  if (is.null(comps)) {
+    comps = sprintf("LC_%02d", seq_len(fit_state$ncomp %||% 1L))
+  }
 
   dplyr::bind_rows(lapply(comps, function(cn) {
     blist = fit_state$weights[[cn]]
@@ -1097,11 +1115,17 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
 
       v = as.numeric(w)
       nm = .mbspls_feat_names(w, fallback = feats)
-      if (is.null(nm)) nm <- paste0("V", seq_along(v))
+      if (is.null(nm)) {
+        nm = paste0("V", seq_along(v))
+      }
 
       # If lengths mismatch but blocks match, prefer blocks
-      if (!is.null(feats) && length(feats) == length(v)) nm <- feats
-      if (length(nm) != length(v)) nm <- rep_len(nm, length.out = length(v))
+      if (!is.null(feats) && length(feats) == length(v)) {
+        nm = feats
+      }
+      if (length(nm) != length(v)) {
+        nm = rep_len(nm, length.out = length(v))
+      }
 
       tibble::tibble(
         component = gsub("^LC_0?", "LC ", cn),
@@ -1130,8 +1154,12 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
         v = as.numeric(w)
         nm = .mbspls_feat_names(w)
 
-        if (is.null(nm)) nm <- paste0("V", seq_along(v))
-        if (length(nm) != length(v)) nm <- rep_len(nm, length.out = length(v))
+        if (is.null(nm)) {
+          nm = paste0("V", seq_along(v))
+        }
+        if (length(nm) != length(v)) {
+          nm = rep_len(nm, length.out = length(v))
+        }
 
         tibble::tibble(
           component_code = cn,
@@ -1171,7 +1199,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
 
   if (ci_filter == "excludes_zero") {
     df = df |>
-      dplyr::filter((.data$ci_lower >= 0 | .data$ci_upper <= 0) & abs(.data$mean) > 1e-3)
+      dplyr::filter((.data$ci_lower > 0 | .data$ci_upper < 0) & abs(.data$mean) > 1e-3)
   } else if (ci_filter == "overlaps_zero") {
     df = df |>
       dplyr::filter(.data$ci_lower <= 0 & .data$ci_upper >= 0)
@@ -1196,8 +1224,12 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
         if (is.null(w)) next
         v = as.numeric(w)
         nm = .mbspls_feat_names(w)
-        if (is.null(nm)) nm <- paste0("V", seq_along(v))
-        if (length(nm) != length(v)) nm <- rep_len(nm, length.out = length(v))
+        if (is.null(nm)) {
+          nm = paste0("V", seq_along(v))
+        }
+        if (length(nm) != length(v)) {
+          nm = rep_len(nm, length.out = length(v))
+        }
 
         keep = is.finite(v) & v != 0
         if (!any(keep)) next
@@ -1223,7 +1255,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   }
 
   keep = switch(ci_filter,
-    excludes_zero = ((ci$ci_lower >= 0) | (ci$ci_upper <= 0)) & (abs(ci$boot_mean) > 1e-3),
+    excludes_zero = ((ci$ci_lower > 0) | (ci$ci_upper < 0)) & (abs(ci$boot_mean) > 1e-3),
     overlaps_zero = (ci$ci_lower <= 0 & ci$ci_upper >= 0),
     none          = rep(TRUE, nrow(ci))
   )
@@ -1431,7 +1463,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   show_box = TRUE,
   show_ci = TRUE,
   show_observed = TRUE,
-  show_pvalue = TRUE,
+  show_pvalue = FALSE,
   violin_alpha = 0.25,
   box_width = 0.15,
   point_size = 2.6,
@@ -1451,22 +1483,35 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   }
 
   bt = as.data.frame(bt, stringsAsFactors = FALSE)
-  req = c("component", "observed_correlation", "boot_mean", "boot_se",
-    "boot_p_value", "boot_ci_lower", "boot_ci_upper",
-    "confidence_level", "n_boot")
+  # Accept old payloads for plotting, but normalize to the descriptive schema.
+  aliases = list(
+    estimate = "observed_correlation",
+    bootstrap_mean = "boot_mean",
+    standard_error = "boot_se",
+    conf_low = "boot_ci_lower",
+    conf_high = "boot_ci_upper",
+    replicates_effective = "n_boot"
+  )
+  for (canonical in names(aliases)) {
+    legacy = aliases[[canonical]]
+    if (!canonical %in% names(bt) && legacy %in% names(bt)) {
+      bt[[canonical]] = bt[[legacy]]
+    }
+  }
+  req = c("component", "estimate", "bootstrap_mean", "standard_error",
+    "conf_low", "conf_high", "confidence_level", "replicates_effective")
   miss = setdiff(req, names(bt))
   if (length(miss)) stop("val_bootstrap missing columns: ", paste(miss, collapse = ", "))
 
   comp_lab = paste0("LC_", sprintf("%02d", bt$component))
   df = data.frame(
     component = factor(comp_lab, levels = comp_lab),
-    mean = bt$boot_mean,
-    lwr = bt$boot_ci_lower,
-    upr = bt$boot_ci_upper,
-    obs = bt$observed_correlation,
-    pval = bt$boot_p_value,
+    mean = bt$bootstrap_mean,
+    lwr = bt$conf_low,
+    upr = bt$conf_high,
+    obs = bt$estimate,
     conf = bt$confidence_level[1],
-    nboot = bt$n_boot[1]
+    nboot = bt$replicates_effective[1]
   )
 
   perf = pay$perf_metric %||% "MAC"
@@ -1474,11 +1519,14 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   p = ggplot2::ggplot(df, ggplot2::aes(.data$component, .data$mean))
 
   has_samples = !is.null(pay$val_boot_vectors)
-  if (isTRUE(show_violin) && has_samples) {
+  boot_long = NULL
+  if (has_samples) {
     boot_long = do.call(rbind, lapply(seq_along(pay$val_boot_vectors), function(i) {
       data.frame(component = comp_lab[i], boot = as.numeric(pay$val_boot_vectors[[i]]))
     }))
     boot_long$component = factor(boot_long$component, levels = comp_lab)
+  }
+  if (isTRUE(show_violin) && has_samples) {
     p = p +
       ggplot2::geom_violin(data = boot_long,
         ggplot2::aes(y = .data$boot, x = .data$component),
@@ -1489,7 +1537,14 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   }
 
   if (isTRUE(show_box) && has_samples) {
-    p = p + ggplot2::geom_boxplot(width = box_width, outlier.shape = NA, fill = NA)
+    p = p + ggplot2::geom_boxplot(
+      data = boot_long,
+      ggplot2::aes(x = .data$component, y = .data$boot),
+      width = box_width,
+      outlier.shape = NA,
+      fill = NA,
+      inherit.aes = FALSE
+    )
   }
 
   if (isTRUE(show_ci)) {
@@ -1508,27 +1563,27 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   }
 
   if (isTRUE(show_pvalue)) {
-    df$y_lab = df$upr
-    df$lab = sprintf("p = %s",
-      ifelse(is.finite(df$pval),
-        formatC(df$pval, format = "f", digits = 3), "NA"))
-    p = p + ggplot2::geom_text(
-      data = df,
-      ggplot2::aes(x = .data$component, y = .data$y_lab, label = .data$lab),
-      inherit.aes = FALSE,
-      vjust = -0.8, size = 3.2
+    warning(
+      paste(
+        "`show_pvalue` is ignored: ordinary bootstrap replicates describe",
+        "uncertainty and do not provide a null-hypothesis p-value."
+      ),
+      call. = FALSE
     )
   }
 
   p +
     ggplot2::scale_y_continuous(expand = ggplot2::expansion(mult = c(0.02, 0.18))) +
     ggplot2::labs(
-      title = "Bootstrap validation (component-wise)",
+      title = "Bootstrap uncertainty (component-wise)",
       subtitle = sprintf("Statistic: %s - %.0f%% CI - n_boot = %d",
         tolower(perf), df$conf[1] * 100, df$nboot[1]),
       x = NULL,
       y = "Latent correlation (MAC/Frobenius)",
-      caption = "Red cross = observed correlation on original test data; filled dot = bootstrap mean"
+      caption = paste(
+        "Red cross = observed correlation; filled dot = bootstrap mean.",
+        "Intervals are descriptive, not null-hypothesis tests."
+      )
     ) +
     ggplot2::theme_minimal(base_size = 11, base_family = font)
 }

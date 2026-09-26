@@ -5,7 +5,13 @@
 #' into weighted cross-fold summaries. Supports component-wise aggregation of:
 #' - latent correlation (MAC or Frobenius), with mean/SD,
 #' - explained variance (per-block and total),
-#' - optional validation p-values (combined via Stouffer or Fisher).
+#' - optional, explicitly exploratory validation p-value combinations.
+#'
+#' Fold-wise values produced by `PipeOpMBsPLS` are conditional diagnostics, and
+#' resampling folds generally do not supply independent p-values. Consequently,
+#' no p-value combination is performed by default. Stouffer or Fisher
+#' combination requires an explicit opt-in and a study-specific justification;
+#' it is not upgraded to confirmatory inference by this function.
 #'
 #' @param payloads list of payloads (one per outer fold), each as produced in
 #'   `PipeOpMBsPLS$predict()` with fields `mac_comp`, `ev_block`, `ev_comp`,
@@ -13,9 +19,14 @@
 #' @param weight_by character(1). Weights for cross-fold means:
 #'   `"sqrt_n"` (default; weight = sqrtn_test), `"n"` (weight = n_test), or `"equal"`.
 #' @param p_method character(1). How to combine validation p-values across folds:
-#'   `"stouffer"` (default), `"fisher"`, or `"none"`.
-#' @param enforce_monotone logical(1). If TRUE, makes combined p-values
-#'   nondecreasing across components (useful for sequential stopping). Default FALSE.
+#'   `"none"` (default), `"stouffer"`, or `"fisher"`.
+#' @param allow_p_combination logical(1). Must be explicitly `TRUE` to request
+#'   Stouffer or Fisher combination. This asserts that the caller has justified
+#'   the required dependence assumptions or calibrated the combination for the
+#'   study design. The result remains labelled exploratory.
+#' @param enforce_monotone logical(1). If TRUE, makes exploratory combined
+#'   p-values nondecreasing across components as a display constraint. This is
+#'   not a sequential-testing or multiplicity correction. Default FALSE.
 #'
 #' @return list with:
 #' \itemize{
@@ -62,7 +73,8 @@
 aggregate_mbspls_payloads = function(
   payloads,
   weight_by = c("sqrt_n", "n", "equal"),
-  p_method = c("stouffer", "fisher", "none"),
+  p_method = c("none", "stouffer", "fisher"),
+  allow_p_combination = FALSE,
   enforce_monotone = FALSE
 ) {
   if (!is.list(payloads) || !length(payloads)) {
@@ -70,6 +82,28 @@ aggregate_mbspls_payloads = function(
   }
   weight_by = match.arg(weight_by)
   p_method = match.arg(p_method)
+  checkmate::assert_flag(allow_p_combination)
+  checkmate::assert_flag(enforce_monotone)
+  if (p_method != "none" && !allow_p_combination) {
+    stop(
+      paste(
+        "Fold-wise conditional p-values are not combined by default because",
+        "resampling folds need not be independent. Set `allow_p_combination = TRUE`",
+        "only after justifying or calibrating the dependence assumptions."
+      ),
+      call. = FALSE
+    )
+  }
+  if (p_method != "none") {
+    warning(
+      paste(
+        "Combining conditional fold-wise p-values is exploratory and assumes a",
+        "study-design-appropriate dependence treatment; it is not a full-pipeline",
+        "confirmatory test."
+      ),
+      call. = FALSE
+    )
+  }
 
   # --- helpers ---------------------------------------------------------------
   n_from_payload = function(pl) {
@@ -86,17 +120,21 @@ aggregate_mbspls_payloads = function(
     )
   }
   stouffer_combine = function(p, w = NULL) {
-    p = p[is.finite(p) & p >= 0 & p <= 1]
+    keep = is.finite(p)
+    p = p[keep]
+    if (!is.null(w)) w = w[keep]
     if (!length(p)) {
       return(NA_real_)
     }
-    z = stats::qnorm(1 - p) # one-sided mapping
-    if (is.null(w)) w <- rep(1, length(z))
+    z = stats::qnorm(p, lower.tail = FALSE) # avoid cancellation for small p
+    if (is.null(w)) {
+      w = rep(1, length(z))
+    }
     zc = sum(w * z) / sqrt(sum(w^2))
-    1 - stats::pnorm(zc)
+    stats::pnorm(zc, lower.tail = FALSE)
   }
   fisher_combine = function(p) {
-    p = p[is.finite(p) & p > 0 & p <= 1]
+    p = p[is.finite(p)]
     if (!length(p)) {
       return(NA_real_)
     }
@@ -145,6 +183,11 @@ aggregate_mbspls_payloads = function(
     mac_i = pad_len(as.numeric(if (is.null(pl$mac_comp)) numeric() else pl$mac_comp), K_max)
     evc_i = pad_len(as.numeric(if (is.null(pl$ev_comp)) numeric() else pl$ev_comp), K_max)
     pv_i = pad_len(as.numeric(if (is.null(pl$val_test_p)) rep(NA_real_, comp_len_i) else pl$val_test_p), K_max)
+    if (p_method != "none" && any(!is.na(pv_i) &
+      (!is.finite(pv_i) | pv_i < 0 | pv_i > 1))) {
+      stop("Validation p-values must be missing or finite values in [0, 1].",
+        call. = FALSE)
+    }
 
     # map ev_block to full block union
     evb_i = matrix(NA_real_, K_max, B_all,
@@ -253,7 +296,7 @@ aggregate_mbspls_payloads = function(
       }
     }
     if (isTRUE(enforce_monotone) && K_max > 1L) {
-      # make p-values nondecreasing across components (sequential testing)
+      # Presentation constraint only; this does not control multiplicity.
       for (k in 2:K_max) {
         if (is.finite(p_combined[k - 1]) && is.finite(p_combined[k])) {
           p_combined[k] = max(p_combined[k], p_combined[k - 1])
@@ -264,13 +307,19 @@ aggregate_mbspls_payloads = function(
 
   list(
     summary = list(
-      mac_mean      = mac_mean_vec,
-      mac_sd        = mac_sd_vec,
-      ev_comp_mean  = evc_mean_vec,
+      mac_mean = mac_mean_vec,
+      mac_sd = mac_sd_vec,
+      ev_comp_mean = evc_mean_vec,
       ev_block_mean = ev_block_mean,
-      p_combined    = p_combined,
-      perf_metric   = perf_metric,
-      blocks        = block_union
+      p_combined = p_combined,
+      p_combination_method = p_method,
+      p_combination_scope = if (p_method == "none") {
+        "Not computed: fold-wise conditional p-values may be dependent."
+      } else {
+        "Exploratory combination requested by caller; not confirmatory inference."
+      },
+      perf_metric = perf_metric,
+      blocks = block_union
     ),
     fold_table = fold_table[]
   )

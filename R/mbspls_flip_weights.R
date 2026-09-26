@@ -40,7 +40,9 @@ mbspls_flip_weights.list = function(x, signs = -1L, flip_boot = TRUE, flip_T = T
   # -- resolve signs -> K x B matrix with dimnames (components x blocks)
   S = (function() {
     # default: flip all
-    if (is.null(signs)) signs <- -1L
+    if (is.null(signs)) {
+      signs = -1L
+    }
     if (length(signs) == 1L && !is.matrix(signs)) {
       matrix(as.integer(signs), nrow = K, ncol = B,
         dimnames = list(comp_names, bn))
@@ -161,11 +163,15 @@ mbspls_flip_weights.list = function(x, signs = -1L, flip_boot = TRUE, flip_T = T
           s = S[k, b]
           if (is.na(s) || s == 1L) next
           sel = (comp_val == comp_names[k]) & (as.character(dr$block) == bn[b])
-          if (any(sel)) dr$weight[sel] <- s * dr$weight[sel]
+          if (any(sel)) {
+            dr$weight[sel] = s * dr$weight[sel]
+          }
         }
       }
       # keep original classing
-      if (comp_is_factor) dr$component <- factor(dr$component, levels = levels(dr$component))
+      if (comp_is_factor) {
+        dr$component = factor(dr$component, levels = levels(dr$component))
+      }
       x$weights_boot_draws = dr
     }
 
@@ -241,7 +247,11 @@ mbspls_flip_graphlearner = function(gl, signs = -1L, inplace = TRUE, ...) {
 mbspls_flip_model_path = function(obj, signs = -1L, ...) {
   # If obj is the 'mbspls' node under gl$model, try $state first, then $model.
   st = NULL
-  if (!is.null(obj$state)) st <- obj$state else if (!is.null(obj$model)) st <- obj$model
+  if (!is.null(obj$state)) {
+    st = obj$state
+  } else if (!is.null(obj$model)) {
+    st = obj$model
+  }
   if (is.null(st)) stop("No $state or $model found on supplied object.")
   mbspls_flip_weights(st, signs = signs, ...)
   invisible(obj)

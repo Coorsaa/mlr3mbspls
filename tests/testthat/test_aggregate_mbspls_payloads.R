@@ -35,7 +35,12 @@ test_that("aggregate_mbspls_payloads aggregates minimal payload lists", {
   expect_true(is.list(agg$summary))
 
   s = agg$summary
-  expect_true(all(c("mac_mean", "mac_sd", "ev_comp_mean", "ev_block_mean", "p_combined", "blocks") %in% names(s)))
+  expect_true(all(c(
+    "mac_mean", "mac_sd", "ev_comp_mean", "ev_block_mean", "p_combined",
+    "p_combination_method", "p_combination_scope", "blocks"
+  ) %in% names(s)))
+  expect_identical(s$p_combination_method, "none")
+  expect_true(all(is.na(s$p_combined)))
 
   expect_true(is.numeric(s$mac_mean))
   expect_length(s$mac_mean, 2L)
@@ -71,13 +76,49 @@ test_that("aggregate_mbspls_payloads combines p-values once per fold/component",
     )
   )
 
-  agg = aggregate_mbspls_payloads(payloads, p_method = "stouffer")
+  expect_error(
+    aggregate_mbspls_payloads(payloads, p_method = "stouffer"),
+    "not combined by default"
+  )
+  expect_warning(
+    aggregate_mbspls_payloads(
+      payloads,
+      p_method = "stouffer",
+      allow_p_combination = TRUE
+    ),
+    "exploratory"
+  )
+  agg = suppressWarnings(aggregate_mbspls_payloads(
+    payloads,
+    p_method = "stouffer",
+    allow_p_combination = TRUE
+  ))
   expected = 1 - stats::pnorm((sqrt(10) * stats::qnorm(0.90) + sqrt(12) * stats::qnorm(0.80)) /
     sqrt(10 + 12))
 
   expect_equal(unname(agg$summary$p_combined[[1L]]), expected, tolerance = 1e-12)
 })
 
+
+test_that("exploratory p-value aggregation preserves extreme tails", {
+  payload = list(
+    mac_comp = 0.5, ev_comp = 0.3, val_test_p = 1e-30,
+    T_mat = matrix(0, 10, 2), blocks = c("a", "b")
+  )
+  result = suppressWarnings(aggregate_mbspls_payloads(
+    list(payload), p_method = "stouffer", allow_p_combination = TRUE
+  ))
+  expect_equal(log(unname(result$summary$p_combined)), log(1e-30), tolerance = 1e-12)
+  payload$val_test_p = 0
+  result = suppressWarnings(aggregate_mbspls_payloads(
+    list(payload), p_method = "fisher", allow_p_combination = TRUE
+  ))
+  expect_equal(unname(result$summary$p_combined), 0)
+  payload$val_test_p = 1.1
+  expect_error(suppressWarnings(aggregate_mbspls_payloads(
+    list(payload), p_method = "stouffer", allow_p_combination = TRUE
+  )), "finite values in")
+})
 
 test_that("aggregate_mbspls_payloads handles monotone enforcement with one component", {
   payloads = list(
@@ -92,7 +133,13 @@ test_that("aggregate_mbspls_payloads handles monotone enforcement with one compo
     )
   )
 
-  expect_no_error(
-    aggregate_mbspls_payloads(payloads, p_method = "stouffer", enforce_monotone = TRUE)
+  expect_warning(
+    aggregate_mbspls_payloads(
+      payloads,
+      p_method = "stouffer",
+      allow_p_combination = TRUE,
+      enforce_monotone = TRUE
+    ),
+    "exploratory"
   )
 })

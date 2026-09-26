@@ -9,7 +9,8 @@ Stores \code{weights_ci}, \code{weights_selectfreq}, \code{weights_stable},
 \code{loadings_stable}, \code{kept_components}, \code{kept_blocks_per_comp}.
 }
 \description{
-Performs post-hoc \strong{bootstrap}, aligns replicate components (two alignment modes),
+Performs a post-hoc \strong{descriptive bootstrap}, aligns replicate components
+(two alignment modes),
 summarises per-feature weights, then \strong{selects features} via:
 \itemize{
 \item \code{selection_method = "ci"} (default): keep if CI excludes 0 AND |mean| > \code{magnitude_threshold} (default 1e-3);

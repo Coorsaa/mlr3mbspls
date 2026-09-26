@@ -24,7 +24,9 @@ mbspls_graph_learner(
   val_test_alpha = 0.05,
   val_test_n = 1000L,
   val_test_permute_all = TRUE,
+  seed_validation = NULL,
   bootstrap = TRUE,
+  store_train_blocks = bootstrap,
   stability_only = FALSE,
   B = 500L,
   alpha = 0.05,
@@ -34,6 +36,7 @@ mbspls_graph_learner(
   frequency_threshold = 0.6,
   stable_weight_source = c("training", "bootstrap_mean"),
   stratify_by_block = NULL,
+  bootstrap_groups = NULL,
   seed_train = NULL,
   seed_bootstrap = NULL,
   workers = 1L,
@@ -56,14 +59,23 @@ mbspls_graph_learner(
 
 \item{c_matrix}{Optional L1 constraint matrix for MB-sPLS.}
 
-\item{permutation_test, n_perm, perm_alpha}{Train-time permutation test (MB-sPLS).}
+\item{permutation_test, n_perm, perm_alpha}{Conditional component-wise
+train-time permutation diagnostic (MB-sPLS), not a full-pipeline test.}
 
 \item{predict_weights}{character; one of "auto","raw","stable_ci","stable_frequency".
 Controls which weights PipeOpMBsPLS uses at predict/validation time.}
 
-\item{val_test, val_test_alpha, val_test_n, val_test_permute_all}{Prediction-side validation (MB-sPLS).}
+\item{val_test, val_test_alpha, val_test_n, val_test_permute_all}{Prediction-side
+conditional permutation diagnostic or descriptive bootstrap uncertainty.}
+
+\item{seed_validation}{Optional seed for prediction-side diagnostics; one
+deterministic stream is assigned per component.}
 
 \item{bootstrap}{Logical; run bootstrap selection (default TRUE).}
+
+\item{store_train_blocks}{Logical; retain the fitted raw block matrices for
+post-fit summaries and plots. The default follows \code{bootstrap}. It must be
+\code{TRUE} when bootstrap selection is enabled.}
 
 \item{stability_only}{Logical; only compute stability, no selection (default FALSE).}
 
@@ -84,11 +96,14 @@ selection inside \link{PipeOpMBsPLSBootstrapSelect} (default TRUE).}
 
 \item{stratify_by_block}{Optional dummy block for stratified bootstrap (e.g., "Studygroup").}
 
+\item{bootstrap_groups}{Optional exchangeability-group vector for cluster
+bootstrap sampling. Named vectors are aligned to task row IDs.}
+
 \item{seed_train}{Optional seed for MB-sPLS training.}
 
 \item{seed_bootstrap}{Optional seed for bootstrap selection.}
 
-\item{workers}{Integer; Unix workers (default cores-1).}
+\item{workers}{Integer; number of cross-platform bootstrap workers.}
 
 \item{id_suffix}{Optional suffix for PipeOp ids.}
 
