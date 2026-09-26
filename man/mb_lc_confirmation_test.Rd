@@ -83,9 +83,14 @@ with the fixed-score statistic, exceedance count \code{b}, raw sampled
 permutation p-value, Holm-adjusted p-value, the exact 95\% Clopper-Pearson
 interval for the exceedance probability (\code{monte_carlo_conf_low},
 \code{monte_carlo_conf_high}, the Monte Carlo precision to report), and the
-adjusted decision. \code{pairwise_correlations} lists the observed signed
-correlation of every active score pair per LC, with its reference and
-sign-oriented value when \code{reference_signs} is supplied. \code{direction} is
+adjusted decision \code{significant_holm}. With \code{reference_signs},
+\code{direction_agrees} states whether the observed statistic (the mean
+sign-oriented correlation) is positive, and \code{replicated} is
+\code{significant_holm & direction_agrees}, the replication decision; both are
+\code{NA} without \code{reference_signs}. \code{pairwise_correlations} lists the observed
+signed correlation of every active score pair per LC, with its reference,
+sign-oriented value and sign agreement when \code{reference_signs} is
+supplied. \code{direction} is
 \code{"expected_sign"} or \code{"either"}, and \code{statistic_name} names the statistic.
 \code{log_permutation_group_size} describes the design shared by all LCs. The
 per-LC \code{\link[=mb_permutation_test]{mb_permutation_test()}} objects are kept in \code{tests}.
@@ -114,7 +119,13 @@ pairwise score correlation is meaningful. With \code{reference_signs}, each LC i
 tested directionally: the statistic is the mean of the active pairwise
 correlations multiplied by their expected signs from discovery, and the
 one-sided test rejects only for association in the discovery direction.
-This is a directional replication test. Without \code{reference_signs}, the
+Replication additionally requires the observed statistic to be positive,
+i.e. the sign-oriented correlations to agree with discovery on average:
+restricted designs (strata or whole units) keep between-stratum or
+between-unit structure fixed under the null, so a significant upper-tail
+p-value can occur for a pooled correlation of the opposite sign. It then
+shows dependence relative to that design, not replication of the discovery
+sign. \code{replicated} combines both conditions. Without \code{reference_signs}, the
 statistic is unsigned (\code{performance_metric}), so an association in either
 direction, including one opposite to discovery, can be significant; the
 result then establishes dependence, not directional replication. The

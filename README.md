@@ -415,19 +415,27 @@ Direction: one-sided in the discovery direction (reference signs)
  component statistic exceedances p_value_raw p_value_holm monte_carlo_conf_low
        LC1  0.994699           0        0.01         0.02            0.0000000
        LC2 -0.121364          86        0.87         0.87            0.7859224
- monte_carlo_conf_high significant_holm
-            0.03657574             TRUE
-            0.92818907            FALSE
+ monte_carlo_conf_high significant_holm direction_agrees replicated
+            0.03657574             TRUE             TRUE       TRUE
+            0.92818907            FALSE            FALSE      FALSE
 Observed signed score correlations:
  component   block_1 block_2 correlation reference_sign oriented_correlation
        LC1 predictor outcome    0.994699              1             0.994699
        LC2 predictor outcome   -0.121364              1            -0.121364
+ agrees
+   TRUE
+  FALSE
 Monte Carlo precision: exact 95% Clopper-Pearson interval for the exceedance probability b/B.
-Scope: Directional confirmation of fixed learned score associations: one-sided tests of the mean sign-oriented correlation in the discovery direction. Not a population-rank test and not valid after reusing confirmation data for fitting or selection.
+Scope: Directional confirmation of fixed learned score associations: one-sided tests of the mean sign-oriented correlation in the discovery direction. An LC replicates only if it is significant and its observed statistic is positive (`replicated`). Not a population-rank test and not valid after reusing confirmation data for fitting or selection.
 ```
 
-With `reference_signs`, the Holm-adjusted results are directional replication
-tests of fixed score associations. Without them, the statistic is unsigned and
+With `reference_signs`, the Holm-adjusted results are directional tests of
+fixed score associations. An LC counts as replicated (`replicated`) only if it
+is significant and its observed sign-oriented statistic is positive
+(`direction_agrees`): with strata or whole-unit designs the permutation null
+keeps between-stratum structure fixed, so a significant upper tail can occur
+for a pooled correlation of the opposite sign, which shows dependence relative
+to the design but not replication. Without them, the statistic is unsigned and
 an association in either direction, including one opposite to discovery, can
 be significant; the result then establishes dependence, not replication. The
 observed signed correlations are always returned in `pairwise_correlations`.

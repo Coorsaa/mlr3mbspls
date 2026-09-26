@@ -1015,3 +1015,38 @@ test_that("solver convergence is surfaced when the fit reports it", {
   expect_identical(unknown$n_nonconverged_permutations, NA_integer_)
   expect_identical(unknown$observed_converged, c(LC1 = NA))
 })
+
+test_that("directional replication requires the observed sign to agree", {
+  # Within each stratum x and y agree perfectly, but the strata shift them in
+  # opposite directions: the pooled correlation is -79/81, yet within-stratum
+  # permutations make it the most extreme upper-tail value (1 / 576).
+  u = c(-1.5, -0.5, 0.5, 1.5)
+  scores = list(
+    x = cbind(LC1 = c(-10 + u, 10 + u)),
+    y = cbind(LC1 = c(10 + u, -10 + u))
+  )
+  result = suppressWarnings(mb_lc_confirmation_test(scores,
+    independent_confirmation = TRUE, permute_blocks = "y", n_perm = 199L,
+    strata = rep(1:2, each = 4L), reference_signs = c("x:y" = 1), seed = 3L))
+
+  expect_equal(result$results$statistic, -79 / 81)
+  expect_true(result$results$significant_holm)
+  expect_false(result$results$direction_agrees)
+  expect_false(result$results$replicated)
+  expect_false(result$pairwise_correlations$agrees)
+  expect_output(print(result), "replicated")
+
+  set.seed(307L)
+  signal = stats::rnorm(40L)
+  aligned = list(
+    x = cbind(LC1 = signal + stats::rnorm(40L, sd = 0.1)),
+    y = cbind(LC1 = signal + stats::rnorm(40L, sd = 0.1))
+  )
+  agreed = mb_lc_confirmation_test(aligned, independent_confirmation = TRUE,
+    permute_blocks = "y", n_perm = 99L, reference_signs = c("x:y" = 1))
+  expect_true(agreed$results$replicated)
+  unsigned = mb_lc_confirmation_test(aligned, independent_confirmation = TRUE,
+    permute_blocks = "y", n_perm = 99L)
+  expect_identical(unsigned$results$replicated, NA)
+  expect_identical(unsigned$results$direction_agrees, NA)
+})

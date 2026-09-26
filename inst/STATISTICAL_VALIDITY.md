@@ -220,7 +220,13 @@ association in the discovery direction. With more than two blocks the
 directional statistic is the mean of the sign-oriented pairwise correlations,
 so a rejection shows association in the discovery direction on average, not
 for every pair; check the returned `pairwise_correlations` before claiming
-that each pair replicated. Without `reference_signs` the statistic is unsigned
+that each pair replicated. A significant directional p-value alone does not
+establish the discovery sign: stratified or whole-unit permutations keep
+between-stratum or between-unit structure fixed, so a pooled correlation of
+the opposite sign can still fall in the upper tail of that null. The
+replication decision `replicated` therefore also requires the observed
+sign-oriented statistic to be positive (`direction_agrees`). Without
+`reference_signs` the statistic is unsigned
 and the test establishes dependence in either direction, including one
 opposite to discovery. The observed signed correlations are always returned.
 The test is not a population-rank test and is invalid if the confirmation data

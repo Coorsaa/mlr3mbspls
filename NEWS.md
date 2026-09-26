@@ -204,8 +204,12 @@ versions.
   (`pairwise_correlations`). With `reference_signs` taken from discovery, each
   LC is tested directionally: the statistic is the mean sign-oriented pairwise
   correlation, so a rejection shows association in the discovery direction on
-  average across block pairs. Without them the unsigned statistic tests
-  dependence in either direction, and the result is labelled accordingly.
+  average across block pairs. The replication decision `replicated` also
+  requires the observed sign-oriented statistic to be positive
+  (`direction_agrees`), because stratified or whole-unit permutations can make
+  a pooled correlation of the opposite sign significant relative to the
+  design. Without them the unsigned statistic tests dependence in either
+  direction, and the result is labelled accordingly.
 - Sampled p-values use inclusive ties and `(b + 1) / (B + 1)`. Monte Carlo
   precision is reported as the exact 95% Clopper-Pearson interval for the
   exceedance probability, estimated by `b / B` (`monte_carlo_conf_low`,

@@ -340,8 +340,12 @@ it. `reference_signs` gives the expected sign of each pairwise score
 correlation, recycled across LCs here. In a real study, take the signs from the
 discovery data, for example from the pairwise correlations of the training
 block scores of each frozen LC. Each LC is then tested one-sided in the
-discovery direction. Without `reference_signs`, the statistic is unsigned and
-the test establishes dependence in either direction, not replication.
+discovery direction, and it counts as replicated (`replicated`) only if it is
+significant and its observed sign-oriented statistic is positive: under
+stratified or whole-unit permutations a pooled correlation of the opposite
+sign can still be significant relative to the design. Without
+`reference_signs`, the statistic is unsigned and the test establishes
+dependence in either direction, not replication.
 
 ```{r lc-confirmation-test}
 set.seed(20260831L)

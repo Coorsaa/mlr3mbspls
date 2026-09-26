@@ -1390,7 +1390,13 @@ print.mbspls_permutation_test = function(x, ...) {
 #' tested directionally: the statistic is the mean of the active pairwise
 #' correlations multiplied by their expected signs from discovery, and the
 #' one-sided test rejects only for association in the discovery direction.
-#' This is a directional replication test. Without `reference_signs`, the
+#' Replication additionally requires the observed statistic to be positive,
+#' i.e. the sign-oriented correlations to agree with discovery on average:
+#' restricted designs (strata or whole units) keep between-stratum or
+#' between-unit structure fixed under the null, so a significant upper-tail
+#' p-value can occur for a pooled correlation of the opposite sign. It then
+#' shows dependence relative to that design, not replication of the discovery
+#' sign. `replicated` combines both conditions. Without `reference_signs`, the
 #' statistic is unsigned (`performance_metric`), so an association in either
 #' direction, including one opposite to discovery, can be significant; the
 #' result then establishes dependence, not directional replication. The
@@ -1427,9 +1433,14 @@ print.mbspls_permutation_test = function(x, ...) {
 #'   permutation p-value, Holm-adjusted p-value, the exact 95% Clopper-Pearson
 #'   interval for the exceedance probability (`monte_carlo_conf_low`,
 #'   `monte_carlo_conf_high`, the Monte Carlo precision to report), and the
-#'   adjusted decision. `pairwise_correlations` lists the observed signed
-#'   correlation of every active score pair per LC, with its reference and
-#'   sign-oriented value when `reference_signs` is supplied. `direction` is
+#'   adjusted decision `significant_holm`. With `reference_signs`,
+#'   `direction_agrees` states whether the observed statistic (the mean
+#'   sign-oriented correlation) is positive, and `replicated` is
+#'   `significant_holm & direction_agrees`, the replication decision; both are
+#'   `NA` without `reference_signs`. `pairwise_correlations` lists the observed
+#'   signed correlation of every active score pair per LC, with its reference,
+#'   sign-oriented value and sign agreement when `reference_signs` is
+#'   supplied. `direction` is
 #'   `"expected_sign"` or `"either"`, and `statistic_name` names the statistic.
 #'   `log_permutation_group_size` describes the design shared by all LCs. The
 #'   per-LC [mb_permutation_test()] objects are kept in `tests`.
@@ -1566,6 +1577,14 @@ mb_lc_confirmation_test = function(
     significant_holm = holm_p <= alpha,
     stringsAsFactors = FALSE
   )
+  # A restricted null can make a pooled correlation of the opposite sign
+  # significant in the upper tail, so replication also needs sign agreement.
+  results$direction_agrees = if (directional) results$statistic > 0 else NA
+  results$replicated = if (directional) {
+    results$significant_holm & results$direction_agrees
+  } else {
+    NA
+  }
 
   pairwise_correlations = do.call(rbind, lapply(seq_along(tests), function(component) {
     correlation = tests[[component]]$observed_result$correlations
@@ -1577,6 +1596,7 @@ mb_lc_confirmation_test = function(
       correlation = correlation,
       reference_sign = reference_sign,
       oriented_correlation = correlation * reference_sign,
+      agrees = if (directional) correlation * reference_sign > 0 else NA,
       stringsAsFactors = FALSE
     )
   }))
@@ -1639,7 +1659,8 @@ mb_lc_confirmation_test = function(
       paste(
         "Directional confirmation of fixed learned score associations:",
         "one-sided tests of the mean sign-oriented correlation in the",
-        "discovery direction.", scope_tail
+        "discovery direction. An LC replicates only if it is significant and",
+        "its observed statistic is positive (`replicated`).", scope_tail
       )
     } else {
       paste(
@@ -1663,7 +1684,11 @@ print.mb_lc_confirmation_test = function(x, ...) {
       "replication test\n"
     ))
   }
-  print(x$results, row.names = FALSE)
+  results = x$results
+  if (!identical(x$direction, "expected_sign")) {
+    results = results[, setdiff(names(results), c("direction_agrees", "replicated")), drop = FALSE]
+  }
+  print(results, row.names = FALSE)
   if (!is.null(x$pairwise_correlations)) {
     pairwise = x$pairwise_correlations
     if (!identical(x$direction, "expected_sign")) {

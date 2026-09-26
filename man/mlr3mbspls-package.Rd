@@ -58,7 +58,8 @@ MB-sPLS test. \code{\link[=mb_lc_confirmation_test]{mb_lc_confirmation_test()}} 
 explicitly independent confirmation observations and applies Holm
 correction across LCs. It is a directional replication test only when the
 expected signs from discovery are supplied as \code{reference_signs}, and then
-for the mean sign-oriented association across block pairs; otherwise it
+for the mean sign-oriented association across block pairs; replication also
+requires the observed sign to agree (\code{replicated}); otherwise it
 tests dependence in either direction. None of these tests supports
 later-LC population-rank claims. All require design-valid exchangeability,
 and Monte Carlo precision is reported as an exact Clopper-Pearson interval.
