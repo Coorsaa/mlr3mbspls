@@ -14,7 +14,18 @@ run_null_behavior = function(
   n_sim = as.integer(n_sim)
   n_perm = as.integer(n_perm)
   n = as.integer(n)
-  stopifnot(n_sim >= 100L, n_perm >= 19L, n >= 10L)
+  # A rejection at alpha needs 1 / (n_perm + 1) <= alpha; otherwise the
+  # type-I check is vacuous.
+  minimum_permutations = as.integer(ceiling(1 / alpha)) - 1L
+  if (is.na(n_sim) || n_sim < 100L || is.na(n) || n < 10L) {
+    stop("`n_sim` must be >= 100 and `n` must be >= 10.", call. = FALSE)
+  }
+  if (is.na(n_perm) || n_perm < minimum_permutations) {
+    stop(sprintf(
+      "`n_perm` must be >= %d so that p-values can reach alpha = %.3f.",
+      minimum_permutations, alpha
+    ), call. = FALSE)
+  }
 
   streams = mb_rng_streams(n_sim, seed)
   with_stream = getFromNamespace("with_rng_stream_local", "mlr3mbspls")

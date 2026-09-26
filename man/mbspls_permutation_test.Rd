@@ -27,7 +27,9 @@ mbspls_permutation_test(
 }
 \arguments{
 \item{blocks}{Named list of at least two aligned matrices or data frames.
-Supply data before any alignment-dependent preprocessing or tuning.}
+Supply data before any alignment-dependent preprocessing or tuning. Row
+names, when present, must be identical across blocks; automatic data-frame
+row names are treated as absent.}
 
 \item{c_matrix}{Optional block-by-component matrix of fixed L1 budgets. With
 \code{NULL}, dense budgets \code{sqrt(p_block)} are used.}
@@ -43,17 +45,30 @@ it is inferred from its columns.}
 \item{permute_blocks}{Names or indices of blocks to permute independently.
 The default permutes every block except the first.}
 
-\item{n_perm}{Number of random permutations. The minimum attainable sampled
-p-value is \code{1 / (n_perm + 1)}.}
+\item{n_perm}{Number of random permutations. The smallest possible sampled
+p-value is \code{1 / (n_perm + 1)}. Permutation maps are drawn with
+replacement from the design's permutation group, whose size is the
+product over strata of the factorial of the number of exchangeable rows or
+units, raised to the number of permuted blocks. With few exchangeable
+units or small strata this group, not \code{n_perm}, limits the practically
+attainable p-value to about \verb{1 / |G|}; a warning of class
+\code{"mb_small_permutation_group"} is raised when \code{n_perm} is at least \verb{|G|}.}
 
-\item{exchangeability_unit}{Optional vector identifying independent units.
-Whole units, not individual rows, are reassigned.}
+\item{exchangeability_unit}{Optional vector identifying independent units,
+in block row order. Whole units, not individual rows, are reassigned.}
 
 \item{within_unit}{Required for repeated-row units; identifies positions
-such as visits that must be matched when whole trajectories are moved.}
+such as visits that must be matched when whole trajectories are moved.
+Supplied in block row order.}
 
 \item{strata}{Optional vector restricting row or unit permutations within
-design-valid strata. It must be constant within an exchangeability unit.}
+design-valid strata, in block row order. It must be constant within an
+exchangeability unit.
+
+The three design vectors are matched to rows by position. If a design
+vector is named and the blocks carry row names, the names must equal the
+block row names in the same order; mismatches are errors and vectors are
+never reordered.}
 
 \item{standardize}{If \code{TRUE}, z-standardise each block inside every observed
 and permuted fit.}
@@ -69,16 +84,20 @@ and permuted fit.}
 \item{seed}{Non-negative seed used to sample permutation maps. The caller's
 RNG kind and state are restored.}
 
-\item{analysis_seed}{Non-negative seed reset before every call to
-\code{analysis()}. This makes a stochastic fitting/tuning algorithm a
-deterministic statistic. Outcome-dependent splits, including stratified
-folds, must be recreated inside \code{analysis()} for the permuted outcomes.}
+\item{analysis_seed}{Non-negative seed reset before every observed and
+permuted fit. The native MB-sPLS solver is initialised deterministically,
+so the seed does not change the fitted statistic; it is recorded so the
+call is a complete, reproducible specification.}
 
 \item{keep_null}{If \code{TRUE}, retain the sampled null statistics.}
 }
 \value{
-An \code{mbspls_permutation_test} object. It contains one corrected global
-p-value and the observed per-component objectives for descriptive use.
+An \code{mbspls_permutation_test} object (inheriting from
+\code{mb_permutation_test}). It contains one corrected global p-value, the
+observed per-component objectives and statistics for descriptive use,
+\code{refit_ncomp} (components refitted per permutation), \code{observed_converged}
+(per-component convergence of the observed fit, \code{NA} if the solver does
+not report it), \code{n_nonconverged_permutations}, and a \code{validity_scope}.
 }
 \description{
 Fits the requested sequential MB-sPLS analysis to the observed aligned
@@ -90,7 +109,10 @@ component exists after earlier non-null components have been removed.
 \details{
 Four pre-specified statistics are available:
 \itemize{
-\item \code{"global_lc1"}: the optimized first-component cross-block objective;
+\item \code{"global_lc1"}: the first-component cross-block objective evaluated at the
+weights returned by the deterministic MB-sPLS solver. The criterion is
+non-convex, so this is the objective at the solver's solution, not
+necessarily at the global maximum;
 \item \code{"global_sum"}: the sum of objectives across a pre-specified number of
 sequential components;
 \item \code{"target_lc1"}: first-component association between a named target block
@@ -105,10 +127,23 @@ that block only, and test its independence from the joint predictor blocks.
 In all cases the p-value is global; the LC label identifies the statistic,
 not a separately proven population component.
 
+The \verb{*_sum} statistics refit every component on every permutation. The
+\verb{*_lc1} statistics depend only on the first component, which sequential
+extraction fits before any deflation, so permutations refit LC1 only; with
+\code{ncomp > 1}, the later-component statistics are taken from one additional
+descriptive fit to the observed data.
+
 Inputs should be raw finite numeric blocks. Optional z-standardisation is
-refitted inside every analysis call. \code{ncomp}, \code{c_matrix}, the statistic, and
-all other settings must be specified independently of the tested block
-alignment. If any were selected from the observed association, use
-\code{\link[=mb_permutation_test]{mb_permutation_test()}} with a callback that repeats that selection inside
-every permutation.
+refitted inside every analysis call. \code{ncomp}, \code{c_matrix}, the statistic,
+\code{max_iter}, \code{tol}, and all other settings must be specified independently of
+the tested block alignment. If any were selected from the observed
+association, use \code{\link[=mb_permutation_test]{mb_permutation_test()}} with a callback that repeats that
+selection inside every permutation. The result is therefore labelled a
+fixed-specification test, not a complete-analysis test.
+
+A warning of class \code{"mb_nonconverged_fit"} is raised when the native solver
+reports that an observed component fit did not converge within \code{max_iter};
+the number of non-converged permutation refits is returned. Both remain
+deterministic functions of the data, so the p-value stays valid for the
+statistic as computed, but that statistic is then not a converged objective.
 }

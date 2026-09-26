@@ -22,7 +22,9 @@ mb_permutation_test(
 }
 \arguments{
 \item{blocks}{Named list of at least two aligned matrices or data frames.
-Supply data before any alignment-dependent preprocessing or tuning.}
+Supply data before any alignment-dependent preprocessing or tuning. Row
+names, when present, must be identical across blocks; automatic data-frame
+row names are treated as absent.}
 
 \item{analysis}{Function taking the complete named block list. It must rerun
 the full data-dependent analysis and return one finite numeric statistic,
@@ -31,17 +33,30 @@ or a list containing that value in \code{statistic}.}
 \item{permute_blocks}{Names or indices of blocks to permute independently.
 The default permutes every block except the first.}
 
-\item{n_perm}{Number of random permutations. The minimum attainable sampled
-p-value is \code{1 / (n_perm + 1)}.}
+\item{n_perm}{Number of random permutations. The smallest possible sampled
+p-value is \code{1 / (n_perm + 1)}. Permutation maps are drawn with
+replacement from the design's permutation group, whose size is the
+product over strata of the factorial of the number of exchangeable rows or
+units, raised to the number of permuted blocks. With few exchangeable
+units or small strata this group, not \code{n_perm}, limits the practically
+attainable p-value to about \verb{1 / |G|}; a warning of class
+\code{"mb_small_permutation_group"} is raised when \code{n_perm} is at least \verb{|G|}.}
 
-\item{exchangeability_unit}{Optional vector identifying independent units.
-Whole units, not individual rows, are reassigned.}
+\item{exchangeability_unit}{Optional vector identifying independent units,
+in block row order. Whole units, not individual rows, are reassigned.}
 
 \item{within_unit}{Required for repeated-row units; identifies positions
-such as visits that must be matched when whole trajectories are moved.}
+such as visits that must be matched when whole trajectories are moved.
+Supplied in block row order.}
 
 \item{strata}{Optional vector restricting row or unit permutations within
-design-valid strata. It must be constant within an exchangeability unit.}
+design-valid strata, in block row order. It must be constant within an
+exchangeability unit.
+
+The three design vectors are matched to rows by position. If a design
+vector is named and the blocks carry row names, the names must equal the
+block row names in the same order; mismatches are errors and vectors are
+never reordered.}
 
 \item{alternative}{Direction of extremeness for the statistic.}
 
@@ -52,8 +67,16 @@ RNG kind and state are restored.}
 
 \item{analysis_seed}{Non-negative seed reset before every call to
 \code{analysis()}. This makes a stochastic fitting/tuning algorithm a
-deterministic statistic. Outcome-dependent splits, including stratified
-folds, must be recreated inside \code{analysis()} for the permuted outcomes.}
+deterministic statistic. For such an analysis the seed is part of the
+definition of the statistic: different seeds define different statistics
+and can give materially different p-values, so fix and record it before
+looking at the data. Choosing among seeds after seeing results is an
+uncorrected multiple-testing procedure. The seed selects the
+\code{"L'Ecuyer-CMRG"} generator, so analyses that use forked parallelism
+(e.g. \code{\link[parallel:mclapply]{parallel::mclapply()}} with \code{mc.set.seed = TRUE}) remain
+reproducible. Outcome-dependent splits,
+including stratified folds, must be recreated inside \code{analysis()} for the
+permuted outcomes.}
 
 \item{keep_null}{If \code{TRUE}, retain the sampled null statistics.}
 
@@ -63,6 +86,23 @@ folds, must be recreated inside \code{analysis()} for the permuted outcomes.}
 An object of class \code{mb_permutation_test} containing the observed
 statistic, corrected p-value, exceedance count, Monte Carlo precision,
 exchangeability metadata, and (optionally) the null distribution.
+Monte Carlo precision refers to the exceedance (tail) probability of the
+exhaustive permutation test, estimated without bias by
+\code{monte_carlo_tail_estimate = exceedances / n_perm}:
+\itemize{
+\item \code{monte_carlo_conf_low}, \code{monte_carlo_conf_high}: exact Clopper-Pearson
+interval at level \code{monte_carlo_conf_level} (0.95). This is the precision
+summary to report; it stays informative when no sampled statistic is as
+extreme as the observed one.
+\item \code{monte_carlo_standard_error}: binomial (Wald) standard error of the tail
+estimate. It degenerates at the boundary and is therefore \code{NA} when
+\code{exceedances} is \code{0} or \code{n_perm}.
+}
+
+\code{permutation_group_size} and \code{log_permutation_group_size} give the number
+of distinct permutation maps admitted by the design (see \code{n_perm}), an
+upper bound on the number of distinct null statistics; the former
+overflows to \code{Inf} for large designs.
 }
 \description{
 \code{mb_permutation_test()} is a design engine for a single pre-specified test

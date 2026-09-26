@@ -8,6 +8,7 @@ mb_lc_confirmation_test(
   scores,
   independent_confirmation = FALSE,
   permute_blocks = NULL,
+  reference_signs = NULL,
   n_perm = 999L,
   exchangeability_unit = NULL,
   within_unit = NULL,
@@ -20,9 +21,9 @@ mb_lc_confirmation_test(
 )
 }
 \arguments{
-\item{scores}{Named list of finite numeric confirmation-score matrices. Rows
-are aligned observations, columns are the same frozen LCs in the same
-order, and blocks contain their respective scores.}
+\item{scores}{Named list of finite numeric confirmation-score matrices or
+data frames. Rows are aligned observations, columns are the same frozen
+LCs in the same order, and blocks contain their respective scores.}
 
 \item{independent_confirmation}{Must be explicitly \code{TRUE}, asserting that
 the confirmation observations were not used to learn or select any part of
@@ -31,17 +32,39 @@ the score transformation or LC family.}
 \item{permute_blocks}{Names or indices of blocks to permute independently.
 The default permutes every block except the first.}
 
-\item{n_perm}{Number of random permutations. The minimum attainable sampled
-p-value is \code{1 / (n_perm + 1)}.}
+\item{reference_signs}{Optional expected signs (\code{1} or \code{-1}) of the pairwise
+block-score correlations, fixed from the discovery data (for example the
+signs of the discovery-sample score correlations). Either one numeric
+vector named by block pair, such as \code{c("imaging:clinical" = 1)}, used for
+every LC, or a list with one such vector per LC (named by LC or in LC
+order). Every pair entering the statistic must be covered; pairs of fixed
+blocks are ignored. When supplied, the test is directional and requires
+\code{performance_metric = "mac"}.}
 
-\item{exchangeability_unit}{Optional vector identifying independent units.
-Whole units, not individual rows, are reassigned.}
+\item{n_perm}{Number of random permutations. The smallest possible sampled
+p-value is \code{1 / (n_perm + 1)}. Permutation maps are drawn with
+replacement from the design's permutation group, whose size is the
+product over strata of the factorial of the number of exchangeable rows or
+units, raised to the number of permuted blocks. With few exchangeable
+units or small strata this group, not \code{n_perm}, limits the practically
+attainable p-value to about \verb{1 / |G|}; a warning of class
+\code{"mb_small_permutation_group"} is raised when \code{n_perm} is at least \verb{|G|}.}
+
+\item{exchangeability_unit}{Optional vector identifying independent units,
+in block row order. Whole units, not individual rows, are reassigned.}
 
 \item{within_unit}{Required for repeated-row units; identifies positions
-such as visits that must be matched when whole trajectories are moved.}
+such as visits that must be matched when whole trajectories are moved.
+Supplied in block row order.}
 
 \item{strata}{Optional vector restricting row or unit permutations within
-design-valid strata. It must be constant within an exchangeability unit.}
+design-valid strata, in block row order. It must be constant within an
+exchangeability unit.
+
+The three design vectors are matched to rows by position. If a design
+vector is named and the blocks carry row names, the names must equal the
+block row names in the same order; mismatches are errors and vectors are
+never reordered.}
 
 \item{correlation_method}{\code{"pearson"} or \code{"spearman"}.}
 
@@ -55,9 +78,17 @@ RNG kind and state are restored.}
 \item{keep_null}{If \code{TRUE}, retain the sampled null statistics.}
 }
 \value{
-An \code{mb_lc_confirmation_test} object with one row per LC containing
-the fixed-score association, raw sampled permutation p-value,
-Holm-adjusted p-value, Monte Carlo standard error, and adjusted decision.
+An \code{mb_lc_confirmation_test} object. \code{results} has one row per LC
+with the fixed-score statistic, exceedance count \code{b}, raw sampled
+permutation p-value, Holm-adjusted p-value, the exact 95\% Clopper-Pearson
+interval for the exceedance probability (\code{monte_carlo_conf_low},
+\code{monte_carlo_conf_high}, the Monte Carlo precision to report), and the
+adjusted decision. \code{pairwise_correlations} lists the observed signed
+correlation of every active score pair per LC, with its reference and
+sign-oriented value when \code{reference_signs} is supplied. \code{direction} is
+\code{"expected_sign"} or \code{"either"}, and \code{statistic_name} names the statistic.
+\code{log_permutation_group_size} describes the design shared by all LCs. The
+per-LC \code{\link[=mb_permutation_test]{mb_permutation_test()}} objects are kept in \code{tests}.
 }
 \description{
 Tests whether pre-specified, frozen block-score vectors reproduce
@@ -74,7 +105,20 @@ reusing the data that optimized its directions. It does not test whether the
 population cross-block rank is at least \code{k}, and it does not make an LC
 selected after inspecting the confirmation data valid. Raw sampled
 permutation p-values use inclusive ties and \code{(b + 1) / (B + 1)}. Holm
-adjustment is always reported across the complete supplied LC family.
+adjustment is always reported across the complete supplied LC family, so no
+LC can be significant unless \code{n_LC / (n_perm + 1) <= alpha}; a warning of
+class \code{"mb_insufficient_permutations"} is raised otherwise.
+
+Frozen weights fix the sign of every block score, so the sign of each
+pairwise score correlation is meaningful. With \code{reference_signs}, each LC is
+tested directionally: the statistic is the mean of the active pairwise
+correlations multiplied by their expected signs from discovery, and the
+one-sided test rejects only for association in the discovery direction.
+This is a directional replication test. Without \code{reference_signs}, the
+statistic is unsigned (\code{performance_metric}), so an association in either
+direction, including one opposite to discovery, can be significant; the
+result then establishes dependence, not directional replication. The
+observed signed pairwise correlations are always returned.
 
 Row, stratum, and complete-unit exchangeability follow
 \code{\link[=mb_permutation_test]{mb_permutation_test()}}. With a single \code{permute_blocks} entry, only

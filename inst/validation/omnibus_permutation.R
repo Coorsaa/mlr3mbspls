@@ -6,8 +6,15 @@
 # This simulation checks the implemented calculation in small reference
 # scenarios. It is not evidence that arbitrary exchangeability designs or
 # analysis callbacks are valid.
+#
+# MBSPLS_VALIDATION_N_PERM must be at least 59: the smallest Holm-adjusted
+# p-value in the three-LC confirmation family is 3 / (n_perm + 1), which must
+# not exceed alpha = 0.05 for the confirmation checks to be informative.
 
 suppressPackageStartupMessages(library(mlr3mbspls))
+
+validation_alpha = 0.05
+confirmation_ncomp = 3L
 
 simulation_count = as.integer(Sys.getenv(
   "MBSPLS_VALIDATION_N_SIM", unset = "200"
@@ -15,9 +22,25 @@ simulation_count = as.integer(Sys.getenv(
 permutation_count = as.integer(Sys.getenv(
   "MBSPLS_VALIDATION_N_PERM", unset = "99"
 ))
-if (!is.finite(simulation_count) || simulation_count < 20L ||
-  !is.finite(permutation_count) || permutation_count < 19L) {
-  stop("Validation counts are invalid.", call. = FALSE)
+# The smallest Holm-adjusted p-value of the LC family is
+# confirmation_ncomp / (n_perm + 1); single omnibus tests need 1 / (n_perm + 1).
+minimum_permutations = as.integer(
+  ceiling(confirmation_ncomp / validation_alpha)
+) - 1L
+if (is.na(simulation_count) || simulation_count < 20L) {
+  stop("MBSPLS_VALIDATION_N_SIM must be an integer >= 20.", call. = FALSE)
+}
+if (is.na(permutation_count) || permutation_count < minimum_permutations) {
+  stop(sprintf(
+    paste(
+      "MBSPLS_VALIDATION_N_PERM must be an integer >= %d: the smallest",
+      "Holm-adjusted p-value in the %d-LC confirmation family is",
+      "%d / (n_perm + 1), which must not exceed alpha = %.2f for the power",
+      "and family-wise error checks to be informative."
+    ),
+    minimum_permutations, confirmation_ncomp, confirmation_ncomp,
+    validation_alpha
+  ), call. = FALSE)
 }
 
 set.seed(20260831)
@@ -83,7 +106,7 @@ run_grouped_null = function(iteration) {
 
 run_confirmation = function(iteration, signal = FALSE) {
   n = 48L
-  ncomp = 3L
+  ncomp = confirmation_ncomp
   block_a = matrix(stats::rnorm(n * ncomp), nrow = n)
   block_b = matrix(stats::rnorm(n * ncomp), nrow = n)
   if (signal) {
@@ -124,7 +147,7 @@ confirmation_signal_p = vapply(
 )
 
 summarize_rate = function(p_values, label) {
-  rejected = sum(p_values <= 0.05)
+  rejected = sum(p_values <= validation_alpha)
   interval = stats::binom.test(rejected, length(p_values))$conf.int
   data.frame(
     check = label,
@@ -163,9 +186,9 @@ stopifnot(
     null_p, signal_p, grouped_null_p,
     confirmation_null_p, confirmation_signal_p
   ) == 0),
-  mean(null_p <= 0.05) <= 0.10,
-  mean(grouped_null_p <= 0.05) <= 0.10,
-  mean(signal_p <= 0.05) >= 0.80,
-  mean(confirmation_null_p <= 0.05) <= 0.10,
-  mean(confirmation_signal_p <= 0.05) >= 0.80
+  mean(null_p <= validation_alpha) <= 0.10,
+  mean(grouped_null_p <= validation_alpha) <= 0.10,
+  mean(signal_p <= validation_alpha) >= 0.80,
+  mean(confirmation_null_p <= validation_alpha) <= 0.10,
+  mean(confirmation_signal_p <= validation_alpha) >= 0.80
 )
