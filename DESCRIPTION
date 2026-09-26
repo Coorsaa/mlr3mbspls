@@ -43,7 +43,6 @@ Suggests:
     batchtools,
     clue,
     dplyr,
-    fairmodels,
     future,
     future.apply (>= 1.10.0),
     ggraph,

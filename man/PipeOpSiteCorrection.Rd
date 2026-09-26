@@ -30,26 +30,65 @@ default to \code{"partial_corr"}.
 }
 
 Blocks \strong{absent} from \code{site_correction} are \strong{left unchanged}.
+
+Columns that are read at prediction time (all \code{"partial_corr"} and \code{"dir"}
+columns and the ComBat \code{site}) must not be target columns: the correction of
+assessment rows would otherwise depend on their labels, and unlabeled new
+data could not be corrected. Only ComBat \code{covariates} may reference a target,
+because they are used at training time only (see below).
 }
 \details{
+All correction parameters are estimated from the training rows only and are
+applied unchanged at prediction; prediction data are never used to
+re-estimate site effects, batch parameters or repair maps.
+
 \strong{Partial correlation (\code{"partial_corr"})}
 \itemize{
 \item If the site spec is a \strong{single categorical} column, we build a dummy-coded
 design with an intercept and keep a stable column layout across train/predict.
-At predict-time, \strong{unseen site labels} are treated as \strong{no-op rows} (i.e.,
-zero design contribution) or can be mapped to baseline if you set
-\code{unknown_site = "baseline"}.
-\item If the site spec is \strong{multiple columns} (e.g., PRS PCs) or numeric,
-we construct the design as \code{cbind(1, Z)} via \code{model.matrix(~ .)}.
-\item We solve a ridge-stabilized normal equation for the site effects and
-subtract them; optional mean re-add (\code{zero_center = FALSE} by default).
+At predict-time, \strong{unseen or missing site labels} receive no site-specific
+correction under \code{unknown_site = "other"} (default), or are mapped to the
+baseline (first training level) under \code{unknown_site = "baseline"}. With
+\code{"other"}, such rows share the output location of the corrected rows: they
+are returned unchanged when \code{zero_center = FALSE} and minus the training
+grand means when \code{zero_center = TRUE}.
+\item If the site spec is \strong{multiple columns} (e.g., site plus covariates such
+as age or PRS PCs) or numeric, we construct the design as \code{cbind(1, Z)} via
+\code{model.matrix(~ .)}. Categorical columns of such designs keep their
+training levels: prediction rows with unseen levels (including an unseen
+site) are rejected and \code{unknown_site} does not apply. Use a single
+categorical site column for unseen-site handling.
+\item We solve a (ridge-stabilized) normal equation for the site effects and
+subtract them. The training grand means are re-added unless
+\code{zero_center = TRUE}.
+\item With unpenalized fitting (\code{regularization = 0}), a site with a single
+fitting row is fitted exactly: that row's corrected values carry no
+within-site information (with the default settings they equal the training
+grand means) and the site offset applied to new rows of that site rests on
+one observation. A warning is emitted in this case. A positive
+\code{regularization} shrinks the site coefficients and avoids the exact fit;
+alternatively, merge or exclude very small sites.
+\item \code{subgroup} restricts the rows used to \strong{fit} the site effects (e.g.
+controls only); the correction is applied to all rows. It is only used by
+\code{"partial_corr"} blocks and can be given as task row ids (numeric), as the
+name of a logical column, or as \verb{list(column = <character(1)>, values = <vector>)}
+selecting rows whose \code{column} value is in \code{values}. Row ids and columns
+travel with the data, so the selection is resampling-safe: ids of rows
+outside the current training set are ignored, while ids that do not exist
+in the task's backend (e.g. row positions of a task whose row ids are not
+\verb{1..n}) are an error. A logical vector is interpreted positionally (one
+entry per row of the training task) and is therefore only suitable for
+direct use outside resampling.
 }
 
 \strong{ComBat (\code{"combat"}, via \pkg{neuroCombat}) - now with \code{mod} support}
 \itemize{
 \item Trains using \code{neuroCombat(dat = t(X), batch = site, mod = MM, ...)}, where
-\code{MM = model.matrix(~ ., data = covariates)}; character covariates are
-auto-factorized. ComBat accepts \strong{one} batch vector, but \strong{many covariates}.
+\code{MM = model.matrix(~ ., data = covariates)}; character and logical
+covariates are factorized. Only site and covariate levels observed in the
+training rows are used, so training folds that lack a site (e.g.
+leave-site-out resampling) are supported; at least two observed batches
+are required. ComBat accepts \strong{one} batch vector, but \strong{many covariates}.
 We store the returned \code{estimates}, the valid batch levels, the \code{site_var},
 and the list of \code{covariates}.
 \item At predict, we apply \code{neuroCombatFromTraining(dat, batch, estimates)}.
@@ -59,23 +98,46 @@ the batch-effect removal at predict-time uses the training covariate-effect
 estimates only and does NOT re-apply the covariate model to new observations.
 \strong{A \code{warning()} is emitted at predict-time} whenever \code{covariates} is non-empty
 to alert users of this limitation. If predict-time covariate correction matters,
-consider using \code{"partial_corr"} instead.
+consider using \code{"partial_corr"} instead. Covariates, including a target
+column, are therefore only used to estimate the batch parameters from the
+training rows; prediction never reads them and applies the same batch
+adjustment to every row of a batch. In unbalanced designs, preserving a
+group variable during batch correction can exaggerate downstream group
+differences (Nygaard et al., 2016).
 Unseen batches can be handled with
 \code{combat_unknown = "noop"} (skip) or \code{"baseline"} (map to \code{ref_batch}).
 }
 
-\strong{DIR (\code{"dir"}, via \pkg{fairmodels})}
+\strong{DIR (\code{"dir"}, geometric disparate impact repair)}
 \itemize{
-\item Applies distribution repair per block with the given \code{lambda}.
-\item Prediction uses feature- and group-specific repair maps fitted on training
-observations, with linear interpolation between observed values and constant
-repair shifts beyond the training range. It never re-estimates distributions
-from prediction data. Missing or unseen protected groups are rejected.
+\item Implements the geometric repair of Feldman et al. (2015) per feature:
+\deqn{x \mapsto (1 - \lambda) x + \lambda Q_{med}(F_g(x)),}{x -> (1 - lambda) x + lambda * Q_med(F_g(x)),}
+where \eqn{F_g} is the empirical distribution function of the training
+values of protected group \eqn{g} (linear interpolation between order
+statistics, mid-ranks for ties; the inverse of type-7 quantiles) and
+\eqn{Q_{med}}{Q_med} is the pointwise median of the groups' type-7 quantile
+functions. The repair is rank-preserving within groups, continuous in
+\code{lambda}, the identity at \code{lambda = 0}, and it does not quantize the data.
+\item The fitted map of each feature and group is the piecewise-linear
+interpolant of this transform through the group's training values; the
+training output is the map evaluated at the training values. Prediction
+evaluates the same maps by linear interpolation, carrying the repair shift
+at the nearest boundary forward beyond the training range (out-of-range
+values are shifted, not clipped). The maps are exact at the training
+values; between them they approximate the exact transform, and the
+approximation is coarsest for groups with few training rows next to much
+larger groups, whose quantile functions vary between a small group's
+knots. Distributions are never re-estimated from prediction data. For
+\code{lambda > 0}, every group needs at least two distinct training values per
+feature. Missing or unseen protected groups are rejected at prediction.
 }
 
-The operator preserves targets, reconstructs a backend with stable row ids,
-and (by default) \strong{drops} all site/covariate columns referenced in \code{site_correction}
-unless \code{keep_site_col = TRUE}.
+The operator updates the task in place (\code{Task$select()} / \code{Task$cbind()}, as
+in \link[mlr3pipelines:PipeOpTaskPreproc]{mlr3pipelines::PipeOpTaskPreproc}): corrected features are returned as
+numeric columns, and column information, backend keys and all column roles
+stay consistent. By default, all site/covariate columns referenced in
+\code{site_correction} are removed from the features unless \code{keep_site_col = TRUE}
+(other roles of these columns are kept).
 }
 \section{Construction}{
 
@@ -107,26 +169,40 @@ Missing block => \code{"partial_corr"}.
 \item{\strong{Partial-correlation}}{
 \itemize{
 \item \code{unknown_site} (\code{"other"|"baseline"}): Predict-time strategy for an
-unseen \strong{categorical} site under \code{"partial_corr"}. Default \code{"other"}.
-\item \code{zero_center} (\code{logical(1)}): Re-add grand means? Default \code{FALSE}.
+unseen or missing site when the \code{"partial_corr"} spec is a \strong{single
+categorical} column. Ignored for multi-column or numeric designs,
+which reject unseen levels. Default \code{"other"}.
+\item \code{zero_center} (\code{logical(1)}): If \code{TRUE}, return the site-corrected
+values centred at zero. If \code{FALSE} (default), add the training grand
+means (column means of all training rows, stored in
+\verb{$state$per_block[[b]]$means}) back, so the corrected features stay on
+the original scale.
 \item \code{revertflag} (\code{logical(1)}): Add instead of subtract the site effect.
 \item \code{regularization} (\code{numeric(1)}): Ridge penalty to stabilize the site
-regression. A value of \code{0} requests unpenalized least squares.
-\item \code{subgroup} (\code{logical()}/\code{integer()}): Optional row subset for fitting.
+regression (the intercept is not penalized). A value of \code{0} requests
+unpenalized least squares.
+\item \code{subgroup} (\code{integer()}/\code{character(1)}/\code{list()}/\code{logical()}):
+Optional subset of training rows used to fit the site effects: task
+row ids, the name of a logical column, \code{list(column = , values = )},
+or a positional logical vector (not resampling-safe). Only used by
+\code{"partial_corr"} blocks. Default \code{NULL} (all training rows).
 }
 }
 \item{\strong{ComBat (neuroCombat)}}{
 \itemize{
 \item \code{eb} (\code{logical(1)}): Empirical Bayes shrinkage. Default \code{TRUE}.
 \item \code{mean_only} (\code{logical(1)}): Adjust means only. Default \code{FALSE}.
-\item \code{ref_batch} (\code{character(1)} or \code{NULL}): Optional reference.
+\item \code{ref_batch} (\code{character(1)} or \code{NULL}): Optional reference batch;
+must be observed in the training rows.
 \item \code{combat_unknown} (\code{"noop"|"baseline"}): Predict-time policy for
 unseen batches. Default \code{"noop"}.
 }
 }
-\item{\strong{DIR (fairmodels)}}{
+\item{\strong{DIR}}{
 \itemize{
-\item \code{lambda} (\code{numeric(1)} in [0,1]): Repair strength. Default \code{0.5}.
+\item \code{lambda} (\code{numeric(1)} in [0,1]): Repair strength of the
+geometric repair; \code{0} is the identity and \code{1} maps every group onto
+the median distribution. Default \code{0.5}.
 }
 }
 \item{\strong{Misc}}{
@@ -150,7 +226,8 @@ A named list with:
 \item \code{design_kind}, \code{design_cols}, \code{beta}, \code{means}, \code{zero_center}, \code{revert} (partial_corr).
 \item \code{site_var} (\code{character(1)}), \code{covariates} (\code{character()}), \code{site_lvls},
 \code{estimates}, \code{ref_batch} (combat).
-\item \code{lambda}, \code{site_lvls} (dir).
+\item \code{lambda}, \code{site_lvls}, \code{repair_maps} (dir; per feature and group,
+the training values \code{x} and the repair shifts \code{shift}).
 }
 \item \code{unknown_site}, \code{keep_site_col}.
 }
@@ -201,10 +278,20 @@ if (requireNamespace("neuroCombat", quietly = TRUE)) {
 }
 
 }
+\references{
+Feldman, M., Friedler, S. A., Moeller, J., Scheidegger, C., and
+Venkatasubramanian, S. (2015). Certifying and removing disparate impact.
+\emph{Proceedings of the 21th ACM SIGKDD International Conference on Knowledge
+Discovery and Data Mining}, 259-268. \doi{10.1145/2783258.2783311}
+
+Nygaard, V., Rodland, E. A., and Hovig, E. (2016). Methods that remove batch
+effects while retaining group differences may lead to exaggerated
+confidence in downstream analyses. \emph{Biostatistics}, 17(1), 29-39.
+\doi{10.1093/biostatistics/kxv027}
+}
 \seealso{
 \link[mlr3pipelines:PipeOpTaskPreproc]{mlr3pipelines::PipeOpTaskPreproc},
-\link[neuroCombat:neuroCombat]{neuroCombat::neuroCombat} / \link[neuroCombat:neuroCombatFromTraining]{neuroCombat::neuroCombatFromTraining},
-\link[fairmodels:disparate_impact_remover]{fairmodels::disparate_impact_remover}.
+\link[neuroCombat:neuroCombat]{neuroCombat::neuroCombat} / \link[neuroCombat:neuroCombatFromTraining]{neuroCombat::neuroCombatFromTraining}.
 
 Other PipeOps: 
 \code{\link{PipeOpMBsPLS}},

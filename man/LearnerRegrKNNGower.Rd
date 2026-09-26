@@ -30,7 +30,8 @@ Default: \code{"inverse"}.}
 \item{\code{min_feature_frac}}{\code{numeric(1)} in \verb{[0,1]}. Minimum fraction of
 comparable features required for a neighbour. Default: \code{0.2}.}
 \item{\code{na_handling}}{\code{character(1)}. \code{"pairwise"} (skip missing values
-per feature) or \code{"fail"}. Default: \code{"pairwise"}.}
+per feature) or \code{"fail"} to error if training or prediction features
+contain \code{NA}. Default: \code{"pairwise"}.}
 }
 }
 

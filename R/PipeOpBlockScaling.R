@@ -13,7 +13,10 @@
 #'    optionally also divide the block by `sqrt(p_b)`.
 #'
 #' The operator learns scaling parameters on the **training task** and applies
-#' them to any new data, ensuring no leakage in resampling.
+#' them to any new data, ensuring no leakage in resampling. Scaled features are
+#' replaced in place (as in [mlr3pipelines::PipeOpTaskPreproc]), so column
+#' information, keys and all column roles of the output task stay consistent;
+#' scaled integer features are returned as numeric features.
 #'
 #' @section Parameters:
 #' * `blocks` (`list`): named list mapping block names to feature columns.
@@ -81,12 +84,17 @@ PipeOpBlockScaling = R6::R6Class(
       mb_resolve_blocks(dt, blocks, numeric_only = TRUE, non_constant = FALSE)
     },
 
+    .scaled_columns = function(blocks, scalers) {
+      unique(unlist(lapply(names(blocks), function(bn) {
+        if (identical(scalers[[bn]]$type, "none")) character(0) else blocks[[bn]]
+      }), use.names = FALSE))
+    },
+
     .train_task = function(task) {
       pv = utils::modifyList(paradox::default_values(self$param_set), self$param_set$get_values(tags = "train"), keep.null = TRUE)
       verbose = isTRUE(pv$verbose)
 
-      task_copy = task$clone()
-      dt = task_copy$data(rows = task_copy$row_ids, cols = task_copy$feature_names)
+      dt = task$data(rows = task$row_ids, cols = task$feature_names)
 
       blocks = private$.collect_blocks(dt, pv$blocks, task = task, verbose = verbose)
       blocks = Filter(length, blocks)
@@ -169,33 +177,10 @@ PipeOpBlockScaling = R6::R6Class(
         scalers  = scalers
       )
 
-      # Rebuild task backend preserving targets and other non-feature roles
-      row_ids = task$row_ids
-      pk_col = mb_make_backend_key_name(c(names(dt), task$col_info$id), "..row_id_blockscale")
-      dt[, (pk_col) := row_ids]
-
-      roles_orig = task$col_roles
-      nonfeat_roles = setdiff(names(roles_orig), "feature")
-      extra_cols = unique(unlist(roles_orig[nonfeat_roles], use.names = FALSE))
-      extra_cols = setdiff(extra_cols, names(dt))
-
-      if (length(extra_cols)) {
-        extra_dt = task$data(rows = task$row_ids, cols = extra_cols)
-        dt_out = cbind(dt, extra_dt)
-      } else {
-        dt_out = dt
-      }
-
-      new_task = task_copy$clone()
-      new_task$backend = mlr3::as_data_backend(dt_out, primary_key = pk_col)
-
-      present = names(dt_out)
-      new_roles = roles_orig
-      new_roles$feature = intersect(task$feature_names, setdiff(present, pk_col))
-      for (rn in names(new_roles)) new_roles[[rn]] = intersect(new_roles[[rn]], present)
-      new_task$col_roles = new_roles
-
-      new_task
+      # Replace scaled features in place so that column information, keys and
+      # roles stay consistent with the backend.
+      mb_task_replace_features(task, dt, changed = private$.scaled_columns(blocks, scalers))
+      task
     },
 
     .predict_task = function(task) {
@@ -204,8 +189,7 @@ PipeOpBlockScaling = R6::R6Class(
       eps = st$eps
       div_p = st$div_p
 
-      task_copy = task$clone()
-      dt = task_copy$data(rows = task_copy$row_ids, cols = task_copy$feature_names)
+      dt = task$data(rows = task$row_ids, cols = task$feature_names)
 
       # Ensure training-time columns exist
       mb_assert_columns_present(
@@ -292,33 +276,8 @@ PipeOpBlockScaling = R6::R6Class(
         }
       }
 
-      # Rebuild task preserving targets and other non-feature roles
-      row_ids = task$row_ids
-      pk_col = mb_make_backend_key_name(c(names(dt), task$col_info$id), "..row_id_blockscale")
-      dt[, (pk_col) := row_ids]
-
-      roles_orig = task$col_roles
-      nonfeat_roles = setdiff(names(roles_orig), "feature")
-      extra_cols = unique(unlist(roles_orig[nonfeat_roles], use.names = FALSE))
-      extra_cols = setdiff(extra_cols, names(dt))
-
-      if (length(extra_cols)) {
-        extra_dt = task$data(rows = task$row_ids, cols = extra_cols)
-        dt_out = cbind(dt, extra_dt)
-      } else {
-        dt_out = dt
-      }
-
-      new_task = task_copy$clone()
-      new_task$backend = mlr3::as_data_backend(dt_out, primary_key = pk_col)
-
-      present = names(dt_out)
-      new_roles = roles_orig
-      new_roles$feature = intersect(task$feature_names, setdiff(present, pk_col))
-      for (rn in names(new_roles)) new_roles[[rn]] = intersect(new_roles[[rn]], present)
-      new_task$col_roles = new_roles
-
-      new_task
+      mb_task_replace_features(task, dt, changed = private$.scaled_columns(st$blocks, st$scalers))
+      task
     }
   )
 )

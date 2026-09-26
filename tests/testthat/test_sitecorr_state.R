@@ -124,8 +124,7 @@ test_that("PipeOpSiteCorrection - combat method (if installed)", {
   expect_equal(po$state$per_block$b1$method, "combat")
 })
 
-test_that("PipeOpSiteCorrection - dir method (if installed)", {
-  testthat::skip_if_not_installed("fairmodels")
+test_that("PipeOpSiteCorrection - dir method", {
 
   set.seed(1)
   n = 50

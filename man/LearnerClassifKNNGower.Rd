@@ -24,8 +24,12 @@ k-Nearest Neighbours with Gower Distance - Classification
 \item \strong{Categorical}: integer-coded with \code{0 = NA}, \verb{1..L = known levels},
 and \verb{-1 = unseen test level} (forces mismatch).
 \item \strong{Ordered}: integer codes \verb{1..L} scaled to \verb{[0, 1]} as
-\code{(code - 1)/(L - 1)}; \code{NA} skipped pairwise.
+\code{(code - 1)/(L - 1)}; \code{NA} and levels unseen in training are skipped
+pairwise (also for single-level ordered features).
 }
+
+The encoder is shared with \link{LearnerRegrKNNGower}; ranges and level sets are
+fitted on the training data and reused unchanged at prediction.
 
 If no neighbour has sufficient comparable features, prediction now errors
 explicitly instead of silently reverting to training class priors.
@@ -40,8 +44,8 @@ explicitly instead of silently reverting to training class priors.
 total features (numeric + categorical + ordered) that must be
 comparable for a neighbour to be eligible. Default: \code{0.2}.}
 \item{\code{na_handling}}{\code{character(1)}. \code{"pairwise"} to skip per-feature
-missing values (Gower), or \code{"fail"} to error if training features
-contain \code{NA}. Default: \code{"pairwise"}.}
+missing values (Gower), or \code{"fail"} to error if training or prediction
+features contain \code{NA}. Default: \code{"pairwise"}.}
 }
 }
 

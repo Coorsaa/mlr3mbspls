@@ -17,7 +17,10 @@ optionally also divide the block by \code{sqrt(p_b)}.
 }
 
 The operator learns scaling parameters on the \strong{training task} and applies
-them to any new data, ensuring no leakage in resampling.
+them to any new data, ensuring no leakage in resampling. Scaled features are
+replaced in place (as in \link[mlr3pipelines:PipeOpTaskPreproc]{mlr3pipelines::PipeOpTaskPreproc}), so column
+information, keys and all column roles of the output task stay consistent;
+scaled integer features are returned as numeric features.
 }
 \details{
 Block-wise Scaling PipeOp for mlr3pipelines

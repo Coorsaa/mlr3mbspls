@@ -12,13 +12,15 @@ test_that("PipeOpBlockScaling preserves supervised targets on train and predict"
   out_train = po$train(list(task))[[1L]]
   expect_true(inherits(out_train, "TaskClassif"))
   expect_equal(out_train$target_names, task$target_names)
-  expect_true(all(task$target_names %in% out_train$col_info$id))
+  expect_true(all(task$target_names %in% out_train$backend$colnames))
+  expect_equal(out_train$truth(), task$truth())
   expect_equal(out_train$class_names, task$class_names)
 
   out_pred = po$predict(list(task))[[1L]]
   expect_true(inherits(out_pred, "TaskClassif"))
   expect_equal(out_pred$target_names, task$target_names)
-  expect_true(all(task$target_names %in% out_pred$col_info$id))
+  expect_true(all(task$target_names %in% out_pred$backend$colnames))
+  expect_equal(out_pred$truth(), task$truth())
   expect_equal(out_pred$class_names, task$class_names)
 })
 
@@ -130,4 +132,53 @@ test_that("block scaling preserves targets colliding with internal key names", {
   pipeop = PipeOpBlockScaling$new()
   expect_equal(pipeop$train(list(task))[[1L]]$truth(), task$truth())
   expect_equal(pipeop$predict(list(task))[[1L]]$truth(), task$truth())
+})
+
+
+test_that("block scaling output tasks keep column information consistent", {
+  set.seed(56)
+  n = 60L
+  data = data.frame(
+    x = rnorm(n, 5), xi = sample(1:20, n, replace = TRUE), z = sample(1:5, n, replace = TRUE),
+    g = rep(seq_len(12L), 5L), y = factor(rep(c("a", "b", "b"), n / 3L))
+  )
+  task = mlr3::TaskClassif$new("blockscale_colinfo", data, target = "y")
+  task$set_col_roles("g", "group")
+  task$labels = c(x = "x label")
+  pipeop = PipeOpBlockScaling$new(param_vals = list(
+    blocks = list(b1 = c("x", "xi")), method = "feature_zscore"
+  ))
+  for (out in list(pipeop$train(list(task))[[1L]], pipeop$predict(list(task))[[1L]])) {
+    expect_true(setequal(out$col_info$id, out$backend$colnames))
+    expect_identical(out$feature_names, task$feature_names)
+    expect_identical(out$feature_types[id == "xi", type], "numeric")
+    expect_identical(out$feature_types[id == "z", type], "integer")
+    expect_identical(out$col_roles$group, "g")
+    expect_identical(unname(out$labels[["x"]]), "x label")
+    expect_equal(out$truth(), task$truth())
+    expect_true(is.double(out$data(cols = "xi")$xi))
+    expect_silent(out$data(cols = out$backend$primary_key))
+  }
+
+  unscaled = PipeOpBlockScaling$new(param_vals = list(
+    blocks = list(b1 = c("x", "xi")), method = "none"
+  ))$train(list(task))[[1L]]
+  expect_identical(unscaled$feature_types[id == "xi", type], "integer")
+  expect_equal(unscaled$data(cols = "xi")$xi, data$xi)
+
+  graph = mlr3pipelines::`%>>%`(
+    mlr3pipelines::po("blockscale", blocks = list(b1 = c("x", "xi")), method = "unit_ssq"),
+    mlr3pipelines::po("scale", affect_columns = mlr3pipelines::selector_type("numeric"))
+  )
+  scaled = graph$train(task)[[1L]]
+  expect_equal(unname(colMeans(scaled$data(cols = c("x", "xi")))), c(0, 0))
+
+  ungrouped = task$clone()
+  ungrouped$col_roles$group = character(0)
+  balancing = mlr3pipelines::`%>>%`(
+    mlr3pipelines::po("blockscale", blocks = list(b1 = c("x", "xi"))),
+    mlr3pipelines::po("classbalancing", adjust = "minor", reference = "major")
+  )
+  balanced = balancing$train(ungrouped)[[1L]]
+  expect_equal(as.integer(table(balanced$truth())), c(40L, 40L))
 })

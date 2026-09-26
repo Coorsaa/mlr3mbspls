@@ -8,7 +8,7 @@
 #' row filter that replaces ad-hoc filtering inside other PipeOps.
 #'
 #' Filtering is applied only during training. Prediction passes every row
-#' through unchanged, regardless of whether target values are available.
+#' through, regardless of whether target values are available.
 #'
 #' @section Parameters:
 #' Hyperparameters are defined in the object's \code{param_set} and can be set
@@ -23,8 +23,9 @@
 #'   Defaults to the task's first target via \code{task$target_names[1]}.
 #' @param invert \code{logical(1)}. If \code{TRUE}, invert the selection.
 #' @param drop_unused_levels \code{logical(1)}. If \code{TRUE} (default),
-#'   drop unused factor levels on \emph{non-target} factor columns after filtering.
-#'   The target's level set is controlled explicitly (see Details).
+#'   drop unused factor levels on factor \emph{feature} columns after filtering
+#'   and re-apply these training level sets at prediction (see Details).
+#'   The target's level set is controlled explicitly.
 #' @param drop_stratum \code{logical(1)}. If \code{TRUE} (default \code{FALSE}),
 #'   remove the \code{"stratum"} role from columns that are neither features nor targets.
 #'
@@ -39,6 +40,28 @@
 #' }
 #' Some learners still require \emph{two observed classes} in the training data;
 #' this PipeOp only guarantees the metadata (level set), not the label balance.
+#'
+#' For a \code{TaskClassif}, the \code{"twoclass"}/\code{"multiclass"} property
+#' is updated to the new target level set, so that, e.g., a three-class task
+#' filtered to two labels can be passed to learners that only support binary
+#' tasks. With mlr3 < 1.7.0 this update is only possible when every level of the
+#' new target level set is observed in the retained rows; a padded level set
+#' with unobserved levels then keeps the property of the input task. The target
+#' of prediction tasks is left unchanged, so such a learner can only predict
+#' tasks whose target has two levels.
+#'
+#' With \code{drop_unused_levels = TRUE}, the levels of every factor feature
+#' column are reduced to those observed in the retained training rows; target
+#' columns are never touched, so the padded target level set is kept. The
+#' resulting level sets are stored in the state and applied to the same columns
+#' at prediction, so training and prediction tasks share the same column
+#' information for downstream learners. As in
+#' \code{mlr3pipelines::PipeOpFixFactors}, prediction values of levels that were
+#' not observed in the training rows become \code{NA}. Factor columns without a
+#' feature role, such as a site column read by \code{PipeOpSiteCorrection} or
+#' group and stratum columns, are left unchanged, so later PipeOps still see
+#' their original values (e.g., the labels of unseen sites). Set
+#' \code{drop_unused_levels = FALSE} to keep all levels unchanged.
 #'
 #' @return A \code{PipeOpTargetLabelFilter}.
 #'
@@ -98,7 +121,7 @@ PipeOpTargetLabelFilter = R6::R6Class(
 
       # A disabled filter also accepts tasks without a target.
       if (is.null(pv$labels)) {
-        return(task)
+        return(list(task = task, factor_levels = NULL))
       }
 
       # Determine target column
@@ -113,12 +136,7 @@ PipeOpTargetLabelFilter = R6::R6Class(
             self$id
           ), call. = FALSE)
         }
-        return(task)
-      }
-
-      # If no labels were provided -> pass-through
-      if (is.null(pv$labels)) {
-        return(task)
+        return(list(task = task, factor_levels = NULL))
       }
 
       # Compute keep mask from current data
@@ -176,31 +194,93 @@ PipeOpTargetLabelFilter = R6::R6Class(
         levlist[[trg]] = desired
         task$set_levels(levlist)
 
-        # Optionally drop unused levels on *other* factor columns
-        if (isTRUE(pv$drop_unused_levels)) {
-          ci = task$col_info
-          other_fct = setdiff(ci$id[ci$type %in% c("factor", "ordered")], trg)
-          if (length(other_fct)) task$droplevels(cols = other_fct)
-        }
-
         # Keep 'positive' valid if this is a classification task
         if (inherits(task, "TaskClassif")) {
+          if (length(desired) >= 2L) {
+            private$.refresh_class_property(task, trg)
+          }
           pos = tryCatch(task$positive, error = function(e) NA_character_)
           if (!is.na(pos) && !(pos %in% desired) && length(desired)) {
             task$positive = desired[1L]
           }
         }
-
-      } else {
-        # Non-factor target: optionally drop unused levels in the rest
-        if (isTRUE(pv$drop_unused_levels)) task$droplevels()
       }
 
-      task
+      # Optionally drop unused levels on factor feature columns
+      factor_levels = NULL
+      if (isTRUE(pv$drop_unused_levels)) {
+        factor_levels = private$.drop_feature_levels(task)
+      }
+
+      list(task = task, factor_levels = factor_levels)
     },
 
-    .train_task = function(task) private$.apply_filter(task, stage = "train"),
-    .predict_task = function(task) task,
+    # Updates the "twoclass"/"multiclass" property of a TaskClassif after its
+    # target level set was changed; Task$set_levels() does not update it.
+    .refresh_class_property = function(task, trg) {
+      if (utils::packageVersion("mlr3") >= "1.7.0") {
+        # droplevels() forwards `cols` here: no level set changes, only the
+        # property is updated.
+        task$droplevels(cols = character(0L))
+        return(invisible(TRUE))
+      }
+      # Older versions of TaskClassif$droplevels() ignore `cols` and drop the
+      # unused levels of every factor column. This leaves the target level set
+      # intact only if all of its levels are observed.
+      observed = task$backend$distinct(rows = task$row_ids, cols = trg)[[1L]]
+      if (!all(task$class_names %in% as.character(observed))) {
+        return(invisible(FALSE))
+      }
+      ci = task$col_info
+      other = setdiff(ci$id[ci$type %in% c("factor", "ordered")], task$target_names)
+      before = task$levels(other)
+      task$droplevels()
+      if (length(other)) {
+        changed = !unlist(Map(identical, before, task$levels(other)[names(before)]))
+        if (any(changed)) {
+          task$set_levels(before[changed])
+        }
+      }
+      invisible(TRUE)
+    },
+
+    # Reduces the levels of factor feature columns to those observed in the
+    # current rows and returns them. Targets and columns without a feature role
+    # are never touched: TaskClassif$droplevels() ignores `cols` in some mlr3
+    # versions and would also drop the padded target levels.
+    .drop_feature_levels = function(task) {
+      ci = task$col_info
+      cols = intersect(task$feature_names, ci$id[ci$type %in% c("factor", "ordered")])
+      if (!length(cols)) {
+        return(NULL)
+      }
+      observed = task$backend$distinct(rows = task$row_ids, cols = cols)
+      levels = Map(function(lv, obs) lv[lv %in% as.character(obs)],
+        task$levels(cols), observed[cols])
+      task$set_levels(levels)
+      levels
+    },
+
+    .train_task = function(task) {
+      filtered = private$.apply_filter(task, stage = "train")
+      self$state = list(factor_levels = filtered$factor_levels)
+      filtered$task
+    },
+
+    # Rows are never filtered at prediction; the feature level sets learned
+    # during training are re-applied so that column information matches.
+    .predict_task = function(task) {
+      levels = self$state$factor_levels
+      if (length(levels)) {
+        ci = task$col_info
+        cols = intersect(names(levels), ci$id[ci$type %in% c("factor", "ordered")])
+        cols = intersect(cols, task$feature_names)
+        if (length(cols)) {
+          task$set_levels(levels[cols])
+        }
+      }
+      task
+    },
 
     .additional_phash_input = function() {
       vals = self$param_set$values

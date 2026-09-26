@@ -21,7 +21,8 @@
 #'   \item{`min_feature_frac`}{`numeric(1)` in `[0,1]`. Minimum fraction of
 #'     comparable features required for a neighbour. Default: `0.2`.}
 #'   \item{`na_handling`}{`character(1)`. `"pairwise"` (skip missing values
-#'     per feature) or `"fail"`. Default: `"pairwise"`.}
+#'     per feature) or `"fail"` to error if training or prediction features
+#'     contain `NA`. Default: `"pairwise"`.}
 #' }
 #'
 #' @section Prediction:
@@ -76,91 +77,6 @@ LearnerRegrKNNGower = R6::R6Class("LearnerRegrKNNGower",
   ),
   private = list(
 
-    # same encoder as in the classif learner
-    .encode_blocks = function(df, num_cols, cat_cols, ord_cols, ref = NULL) {
-      n = nrow(df)
-
-      # numeric
-      if (length(num_cols)) {
-        Xn = as.matrix(df[, num_cols, with = FALSE])
-        storage.mode(Xn) = "double"
-        if (is.null(ref)) {
-          r_min = suppressWarnings(apply(Xn, 2, min, na.rm = TRUE))
-          r_max = suppressWarnings(apply(Xn, 2, max, na.rm = TRUE))
-          rng = r_max - r_min
-          rng[!is.finite(rng) | rng <= 0] = 1.0
-        } else {
-          rng = ref$ranges_num
-        }
-      } else {
-        Xn = matrix(numeric(0), nrow = n, ncol = 0)
-        rng = numeric(0)
-      }
-
-      # categorical
-      if (length(cat_cols)) {
-        if (is.null(ref)) {
-          cat_levels = lapply(cat_cols, function(cn) levels(as.factor(df[[cn]])))
-        } else {
-          cat_levels = ref$cat_levels
-        }
-        Xc = matrix(0L, nrow = n, ncol = length(cat_cols))
-        for (j in seq_along(cat_cols)) {
-          x = df[[cat_cols[j]]]
-          lv = cat_levels[[j]]
-          if (is.null(ref)) {
-            code = as.integer(factor(x, levels = lv))
-            code[is.na(code)] = 0L
-          } else {
-            m = match(as.character(x), lv)
-            code = ifelse(is.na(x), 0L, ifelse(is.na(m), -1L, as.integer(m)))
-          }
-          Xc[, j] = code
-        }
-        storage.mode(Xc) = "integer"
-      } else {
-        Xc = matrix(integer(0), nrow = n, ncol = 0)
-        cat_levels = list()
-      }
-
-      # ordered -> [0,1]
-      if (length(ord_cols)) {
-        if (is.null(ref)) {
-          ord_levels = lapply(ord_cols, function(cn) levels(as.ordered(df[[cn]])))
-        } else {
-          ord_levels = ref$ord_levels
-        }
-        Xo = matrix(NA_real_, nrow = n, ncol = length(ord_cols))
-        for (j in seq_along(ord_cols)) {
-          x = df[[ord_cols[j]]]
-          lv = ord_levels[[j]]
-          if (is.null(ref)) {
-            code = as.integer(as.ordered(x))
-          } else {
-            m = match(as.character(x), lv)
-            code = ifelse(is.na(x), NA_integer_, as.integer(m))
-          }
-          L = length(lv)
-          if (L <= 1L) {
-            Xo[, j] = ifelse(is.na(code), NA_real_, 0)
-          } else {
-            Xo[, j] = (as.numeric(code) - 1) / (L - 1)
-          }
-        }
-        storage.mode(Xo) = "double"
-      } else {
-        Xo = matrix(numeric(0), nrow = n, ncol = 0)
-        ord_levels = list()
-      }
-
-      list(
-        Xnum = Xn, Xcat = Xc, Xord = Xo,
-        ranges_num = as.numeric(rng),
-        cat_levels = cat_levels,
-        ord_levels = ord_levels
-      )
-    },
-
     .train = function(task) {
       pv = self$param_set$get_values(tags = "train")
       y = task$truth()
@@ -183,7 +99,7 @@ LearnerRegrKNNGower = R6::R6Class("LearnerRegrKNNGower",
       cat_cols = types[type %in% c("factor"), id]
       ord_cols = types[type %in% c("ordered"), id]
 
-      enc = private$.encode_blocks(df, num_cols, cat_cols, ord_cols, ref = NULL)
+      enc = knn_gower_encode_blocks(df, num_cols, cat_cols, ord_cols, ref = NULL)
 
       y_num = as.numeric(y)
       y_var = stats::var(y_num, na.rm = TRUE)
@@ -215,7 +131,7 @@ LearnerRegrKNNGower = R6::R6Class("LearnerRegrKNNGower",
       if (identical(pv$na_handling, "fail") && anyNA(df)) {
         stop("Prediction data contain missing features (na_handling = 'fail').")
       }
-      enc_te = private$.encode_blocks(
+      enc_te = knn_gower_encode_blocks(
         df,
         num_cols = st$num_cols,
         cat_cols = st$cat_cols,
