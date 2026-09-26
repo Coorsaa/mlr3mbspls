@@ -4,10 +4,6 @@ repos:
   - repo: https://github.com/lorenzwalthert/precommit
     rev: v0.4.3.9021
     hooks:
-      # - id: style-files
-      #   args: [--style_pkg=styler.mlr, --style_fun=mlr_style]
-      #   additional_dependencies:
-      #   - mlr-org/styler.mlr
       # - id: roxygenize
       #   additional_dependencies:
       #   -    checkmate
@@ -41,6 +37,17 @@ repos:
         exclude: '\.Rd'
   - repo: local
     hooks:
+      - id: forbid-local-working-notes
+        name: Keep local instructions and working notes out of commits
+        entry: Local instructions and working notes must remain untracked.
+        language: fail
+        files: '(^|/)(AGENTS\.md|\.agents/|\.codex/)|^inst/(AUDIT_REPORT|INFERENCE_RESEARCH)\.md$'
+      - id: mlr-style
+        name: Check repository-wide styler.mlr formatting
+        entry: Rscript tools/style.R --check
+        language: system
+        pass_filenames: false
+        files: '(^|/)(.*\.(R|Rmd|Rmarkdown|qmd|md)|CITATION)$'
       - id: forbid-to-commit
         name: Don't commit common R artifacts
         entry: Cannot commit .Rhistory, .RData, .Rds or .rds.

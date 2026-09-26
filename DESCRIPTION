@@ -1,6 +1,6 @@
 Package: mlr3mbspls
-Title: Multi-Block Sparse Partial Least Squares for mlr3
-Version: 0.3.4
+Title: Multi-Block Sparse Partial Least Squares for 'mlr3'
+Version: 0.4.0
 Authors@R: c(
         person("Stefan", "Coors", email = "mail@stefancoors.de", role = c("aut", "cre"),
             comment = c(ORCID = "0000-0002-7465-2146")),
@@ -14,12 +14,12 @@ Description: Integration of multi-block sparse partial least squares (MB-sPLS)
     It contains a complete native implementation of the MB-sPLS algorithm, fully
     integrated with the mlr3 ecosystem. It also includes multiblock task
     quality-control and model-summary helpers for reporting and interpretation.
-License: LGPL-3 + file LICENSE
+License: LGPL-3
 URL: https://mlr3.mlr-org.com, https://github.com/coorsaa/mlr3mbspls
 BugReports: https://github.com/coorsaa/mlr3mbspls/issues
 Encoding: UTF-8
 Config/testthat/edition: 3
-Config/testthat/parallel: true
+Config/testthat/parallel: false
 Roxygen: list(markdown = TRUE, r6 = TRUE)
 RoxygenNote: 7.3.3
 Depends:
@@ -61,9 +61,8 @@ Suggests:
     scales,
     stringr,
     testthat (>= 3.2.0),
-    tibble
-Remotes:
-    neuroCombat=github::Jfortin1/neuroCombat_Rpackage
+    tibble,
+    withr
 VignetteBuilder:
     knitr, rmarkdown
 LinkingTo:
