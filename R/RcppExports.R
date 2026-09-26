@@ -21,6 +21,10 @@ cpp_block_objective_oos <- function(X_blocks, W_list, spearman = FALSE, frobeniu
     .Call(`_mlr3mbspls_cpp_block_objective_oos`, X_blocks, W_list, spearman, frobenius)
 }
 
+cpp_mbspls_start_weights <- function(X_blocks, c_constraints) {
+    .Call(`_mlr3mbspls_cpp_mbspls_start_weights`, X_blocks, c_constraints)
+}
+
 cpp_mbspls_one_lv <- function(X_blocks, c_constraints, max_iter, tol, frobenius = FALSE, spearman = FALSE) {
     .Call(`_mlr3mbspls_cpp_mbspls_one_lv`, X_blocks, c_constraints, max_iter, tol, frobenius, spearman)
 }

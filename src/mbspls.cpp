@@ -450,6 +450,30 @@ arma::vec leading_psd_direction(Operator apply, arma::vec v, double scale) {
 // score space, so no p_b x sum(p_c) matrix is formed. Falls back to the
 // block's leading principal axis when the cross-covariance is numerically
 // zero.
+//
+// Diagonal of that operator for the centred columns x_j of X_b:
+// sum_c ||X_c' x_j||^2 / ||X_c||_F^2. It is only needed when the fixed start
+// vanishes, so its O(n p_b sum_c p_c) cost is incurred on degenerate inputs
+// only; columns are processed in chunks to bound memory.
+arma::vec cross_covariance_diagonal(const std::vector<arma::mat>& X,
+                                    const arma::vec& ss_centred,
+                                    int b) {
+  const arma::mat& Xb = X[b];
+  arma::vec diag(Xb.n_cols, arma::fill::zeros);
+  const arma::uword chunk = 256;
+  for (arma::uword first = 0; first < Xb.n_cols; first += chunk) {
+    const arma::uword last = std::min<arma::uword>(first + chunk, Xb.n_cols) - 1;
+    arma::mat U = Xb.cols(first, last);
+    U.each_row() -= arma::mean(U, 0);
+    for (int c = 0; c < static_cast<int>(X.size()); ++c) {
+      if (c == b || !(ss_centred(c) > 1e-12)) continue;
+      const arma::mat Y = X[c].t() * U;
+      diag.subvec(first, last) += arma::sum(Y % Y, 0).t() / ss_centred(c);
+    }
+  }
+  return diag;
+}
+
 arma::vec mbspls_start_direction(const std::vector<arma::mat>& X,
                                  const arma::vec& ss_centred,
                                  int b) {
@@ -466,15 +490,6 @@ arma::vec mbspls_start_direction(const std::vector<arma::mat>& X,
     if (c != b && ss_centred(c) > 1e-12) ++n_other;
   }
 
-  // The fixed start can be orthogonal to the range of a low-rank operator, so
-  // a vanishing first step is retried from the unit vector of the block's
-  // highest-variance column before the operator is declared degenerate. For
-  // the principal-axis operator that start never vanishes when ss_b > 0.
-  const arma::uword j_star = arma::index_max(arma::var(Xb, 0, 0));
-  arma::vec e_star(p, arma::fill::zeros);
-  e_star(j_star) = 1.0;
-  const std::vector<arma::vec> starts = {fixed_start_vector(p), e_star};
-
   arma::vec v;
   if (n_other > 0) {
     const auto cross_covariance = [&](const arma::vec& w) {
@@ -487,12 +502,31 @@ arma::vec mbspls_start_direction(const std::vector<arma::mat>& X,
       }
       return arma::vec(Xb.t() * y);
     };
-    for (const arma::vec& start : starts) {
-      v = leading_psd_direction(cross_covariance, start, ss_b * n_other);
+    const double scale = ss_b * n_other;
+    v = leading_psd_direction(cross_covariance, fixed_start_vector(p), scale);
+    if (!v.is_empty()) return v;
+    // The fixed start can be orthogonal to the range of a low-rank operator.
+    // A basis vector at the largest diagonal entry cannot vanish: the norm of
+    // its image is at least that entry, which is positive whenever the
+    // cross-covariance is non-zero, so shared signal is found even when it
+    // lives in low-variance columns next to stronger independent noise.
+    const arma::vec diag = cross_covariance_diagonal(X, ss_centred, b);
+    const arma::uword j_cross = arma::index_max(diag);
+    if (diag(j_cross) > 1e-12 * scale) {
+      arma::vec e_cross(p, arma::fill::zeros);
+      e_cross(j_cross) = 1.0;
+      v = leading_psd_direction(cross_covariance, e_cross, scale);
       if (!v.is_empty()) return v;
     }
   }
 
+  // No cross-block covariance: use the block's leading principal axis. The
+  // unit vector of the highest-variance column cannot vanish for it when
+  // ss_b > 0, so it backs up the fixed start.
+  const arma::uword j_star = arma::index_max(arma::var(Xb, 0, 0));
+  arma::vec e_star(p, arma::fill::zeros);
+  e_star(j_star) = 1.0;
+  const std::vector<arma::vec> starts = {fixed_start_vector(p), e_star};
   const auto principal_axis = [&](const arma::vec& w) {
     return arma::vec(Xb.t() * centered_scores(Xb, w));
   };
@@ -645,6 +679,38 @@ OneLvFit mbspls_fit_one_lv(const std::vector<arma::mat>& X,
 // ─────────────────────────────────────────────────────────────────────
 //  EXPORTED FUNCTIONS - R Interface (using core functions internally)
 // ─────────────────────────────────────────────────────────────────────
+
+// Deterministic start weights of the one-component solver (internal; lets
+// tests inspect the initialisation that cpp_mbspls_one_lv() iterates from).
+// [[Rcpp::export(rng = false)]]
+Rcpp::List cpp_mbspls_start_weights(const Rcpp::List& X_blocks,
+                                    const arma::vec&  c_constraints)
+{
+  const int B = X_blocks.size();
+  if (B < 2) Rcpp::stop("cpp_mbspls_start_weights: at least 2 blocks are required.");
+  if (static_cast<int>(c_constraints.n_elem) != B) {
+    Rcpp::stop("c_constraints length must match number of blocks");
+  }
+  if (!c_constraints.is_finite() || arma::any(c_constraints < 1.0)) {
+    Rcpp::stop("cpp_mbspls_start_weights: every sparsity constraint must be finite and at least 1.");
+  }
+  std::vector<Rcpp::NumericMatrix> X_keep;
+  std::vector<arma::mat> X;
+  X_keep.reserve(B);
+  X.reserve(B);
+  for (int b = 0; b < B; ++b) {
+    X_keep.push_back(Rcpp::NumericMatrix(X_blocks[b]));
+    Rcpp::NumericMatrix& Xr = X_keep.back();
+    X.emplace_back(Xr.begin(), Xr.nrow(), Xr.ncol(), false, true);
+    if (!is_valid_matrix(X.back()) || X.back().n_rows != X[0].n_rows) {
+      Rcpp::stop("Invalid or misaligned matrix in block " + std::to_string(b + 1));
+    }
+  }
+  const std::vector<arma::vec> W = mbspls_initial_weights(X, c_constraints);
+  Rcpp::List out(B);
+  for (int b = 0; b < B; ++b) out[b] = W[b];
+  return out;
+}
 
 // The fit is a deterministic function of the data and settings; it does not
 // draw from R's RNG.

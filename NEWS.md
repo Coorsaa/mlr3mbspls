@@ -20,8 +20,12 @@ versions.
   block's centred cross-covariance with the other blocks, and no longer draw
   random numbers. MB-sPLS fits therefore do not depend on `seed_train`,
   `analysis_seed` or the session RNG. `seed_train` now only affects the
-  permutations of the training diagnostic. The overall sign is fixed so that
-  the largest weight of the first block is positive.
+  permutations of the training diagnostic. If the fixed power-iteration
+  vector misses the cross-covariance (e.g. shared signal in low-variance
+  columns next to stronger independent noise), the start is recomputed from
+  the column with the largest cross-block covariance before falling back to
+  the block's principal axis. The overall sign is fixed so that the largest
+  weight of the first block is positive.
 - Convergence is declared when no block weight vector changes by `tol` or more
   between two sweeps; previously the solver stopped on the change in the
   reported objective. `PipeOpMBsPLS`, `PipeOpMBsPLSXY`, the refits of

@@ -101,6 +101,17 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// cpp_mbspls_start_weights
+Rcpp::List cpp_mbspls_start_weights(const Rcpp::List& X_blocks, const arma::vec& c_constraints);
+RcppExport SEXP _mlr3mbspls_cpp_mbspls_start_weights(SEXP X_blocksSEXP, SEXP c_constraintsSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::traits::input_parameter< const Rcpp::List& >::type X_blocks(X_blocksSEXP);
+    Rcpp::traits::input_parameter< const arma::vec& >::type c_constraints(c_constraintsSEXP);
+    rcpp_result_gen = Rcpp::wrap(cpp_mbspls_start_weights(X_blocks, c_constraints));
+    return rcpp_result_gen;
+END_RCPP
+}
 // cpp_mbspls_one_lv
 Rcpp::List cpp_mbspls_one_lv(const Rcpp::List& X_blocks, const arma::vec& c_constraints, int max_iter, double tol, bool frobenius, bool spearman);
 RcppExport SEXP _mlr3mbspls_cpp_mbspls_one_lv(SEXP X_blocksSEXP, SEXP c_constraintsSEXP, SEXP max_iterSEXP, SEXP tolSEXP, SEXP frobeniusSEXP, SEXP spearmanSEXP) {
@@ -257,6 +268,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_mlr3mbspls_cpp_mbspca_one_lv", (DL_FUNC) &_mlr3mbspls_cpp_mbspca_one_lv, 4},
     {"_mlr3mbspls_perm_test_component_mbspca", (DL_FUNC) &_mlr3mbspls_perm_test_component_mbspca, 7},
     {"_mlr3mbspls_cpp_block_objective_oos", (DL_FUNC) &_mlr3mbspls_cpp_block_objective_oos, 4},
+    {"_mlr3mbspls_cpp_mbspls_start_weights", (DL_FUNC) &_mlr3mbspls_cpp_mbspls_start_weights, 2},
     {"_mlr3mbspls_cpp_mbspls_one_lv", (DL_FUNC) &_mlr3mbspls_cpp_mbspls_one_lv, 6},
     {"_mlr3mbspls_perm_test_component", (DL_FUNC) &_mlr3mbspls_perm_test_component, 9},
     {"_mlr3mbspls_cpp_mbspls_multi_lv", (DL_FUNC) &_mlr3mbspls_cpp_mbspls_multi_lv, 10},

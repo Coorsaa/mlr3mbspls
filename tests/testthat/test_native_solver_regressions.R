@@ -376,3 +376,29 @@ test_that("the deterministic start handles loadings orthogonal to its fixed vect
   expect_equal(fit$objective, 1, tolerance = 1e-10)
   expect_equal(abs(sum(fit$W[[1L]] * loading)), 1, tolerance = 1e-8)
 })
+
+test_that("the deterministic start finds shared signal next to stronger noise", {
+  # Fixed start vector of the native power iteration for p = 3.
+  fixed = c(0.77842531981737617, 0.10848671456603001, 0.61829172259531684)
+  loading = c(-fixed[[2L]], fixed[[1L]])
+  loading = loading / sqrt(sum(loading^2))
+  set.seed(13L)
+  basis = qr.Q(qr(scale(matrix(stats::rnorm(30L * 3L), 30L), scale = FALSE)))
+  signal = basis[, 1L]
+  # Low-variance shared signal whose loading is orthogonal to the fixed
+  # vector, next to a dominant noise column orthogonal to everything else:
+  # the fixed start and the highest-variance column both miss the signal.
+  blocks = list(
+    cbind(signal * loading[[1L]], signal * loading[[2L]], 10 * basis[, 2L]),
+    cbind(signal * loading[[1L]], signal * loading[[2L]], 10 * basis[, 3L])
+  )
+  start = mlr3mbspls:::cpp_mbspls_start_weights(blocks, rep(sqrt(3), 2L))
+  for (b in 1:2) {
+    expect_lt(abs(start[[b]][[3L]]), 1e-8)
+    expect_equal(abs(stats::cor(drop(blocks[[b]] %*% start[[b]]), signal)), 1,
+      tolerance = 1e-10)
+  }
+  fit = mlr3mbspls:::cpp_mbspls_one_lv(blocks, rep(sqrt(3), 2L), 600L, 1e-4)
+  expect_true(fit$converged)
+  expect_equal(fit$objective, 1, tolerance = 1e-10)
+})
