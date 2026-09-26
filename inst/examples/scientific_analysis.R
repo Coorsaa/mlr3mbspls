@@ -74,30 +74,42 @@ site_correction_methods = list(
   block_c = "partial_corr"
 )
 
-# Build the validation learner.
-# Bootstrap selection is disabled during validation.
-gl_nested = mbspls_graph_learner(
-  learner = lrn("clust.kmeans", centers = n_clusters),
-  task = task_train,
-  site_correction = site_correction,
-  site_correction_methods = site_correction_methods,
-  ncomp = n_components,
-  performance_metric = "mac",
-  permutation_test = FALSE,
-  bootstrap = FALSE,
-  bootstrap_selection = FALSE,
-  B = 1L,
-  val_test = "none"
-)
+# Build the analysis pipeline: site correction, MB-sPLS, bootstrap stability
+# selection of block features, and k-means on the stable latent variables. The
+# same configuration is validated, tuned, and fitted below. The MB-sPLS fit is
+# deterministic, and the fixed seed_bootstrap gives every bootstrap replicate
+# its own RNG stream.
+make_learner = function(c_matrix = NULL) {
+  mbspls_graph_learner(
+    learner = lrn("clust.kmeans", centers = n_clusters),
+    task = task_train,
+    site_correction = site_correction,
+    site_correction_methods = site_correction_methods,
+    ncomp = n_components,
+    c_matrix = c_matrix,
+    performance_metric = "mac",
+    permutation_test = FALSE,
+    val_test = "none",
+    bootstrap = TRUE,
+    bootstrap_selection = TRUE,
+    selection_method = "ci",
+    B = bootstrap_replicates,
+    seed_bootstrap = 2027L,
+    workers = 1L
+  )
+}
 
-# Define outer and inner resampling.
+# Define outer and inner resampling. A single holdout split keeps the example
+# fast; use k-fold or repeated outer resampling in an analysis.
 rs_outer = rsmp("holdout")
 rs_inner = rsmp("holdout")
 
-# Estimate held-out latent correlation and explained variance.
+# Estimate held-out latent correlation and explained variance. Each outer
+# fold tunes the sparsity and reruns bootstrap selection on its own training
+# rows, so the estimate covers the complete pipeline.
 nested_result = mbspls_nested_cv(
   task = task_train,
-  graphlearner = gl_nested,
+  graphlearner = make_learner(),
   rs_outer = rs_outer,
   rs_inner = rs_inner,
   ncomp = n_components,
@@ -105,27 +117,20 @@ nested_result = mbspls_nested_cv(
   tuning_early_stop = FALSE,
   performance_metric = "mac",
   val_test = "none",
-  n_perm_tuning = 3L,
   store_payload = FALSE
 )
 
-# Inspect the validation summary before interpreting the final model.
+# Inspect the validation results before interpreting the final model.
+# measure_test_n_undefined counts components whose held-out latent correlation
+# was undefined (fewer than two blocks with non-degenerate scores); they score
+# zero.
+print(nested_result$results[, .(
+  split,
+  measure_test,
+  mac_lv1_test,
+  measure_test_n_undefined
+)])
 print(nested_result$summary_table)
-
-# Build a learner for final sparsity tuning.
-gl_tune = mbspls_graph_learner(
-  learner = lrn("clust.kmeans", centers = n_clusters),
-  task = task_train,
-  site_correction = site_correction,
-  site_correction_methods = site_correction_methods,
-  ncomp = n_components,
-  performance_metric = "mac",
-  permutation_test = FALSE,
-  bootstrap = FALSE,
-  bootstrap_selection = FALSE,
-  B = 1L,
-  val_test = "none"
-)
 
 # Tune the block-wise sparsity matrix on all training samples.
 tuner = TunerSeqMBsPLS$new(
@@ -134,14 +139,13 @@ tuner = TunerSeqMBsPLS$new(
   resampling = rsmp("holdout"),
   parallel = "none",
   early_stopping = FALSE,
-  n_perm = 3L,
   performance_metric = "mac"
 )
 
 # Define the final tuning instance.
 tuning_instance = ti(
   task = task_train,
-  learner = gl_tune,
+  learner = make_learner(),
   resampling = rsmp("insample"),
   measure = msr("mbspls.mac_evwt"),
   terminator = bbotk::trm("evals", n_evals = 1)
@@ -150,29 +154,15 @@ tuning_instance = ti(
 # Run the sequential component-wise tuner.
 tuner$optimize(tuning_instance)
 
-# Inspect the selected sparsity matrix.
+# Inspect the selected sparsity matrix. Its inner score was maximised on the
+# same folds and is optimistic; the nested estimate above is the performance
+# estimate.
 c_matrix_final = tuning_instance$result$learner_param_vals[[1]]$c_matrix
 print(c_matrix_final)
+print(tuning_instance$result_y)
 
 # Fit the final model with bootstrap stability selection.
-gl_final = mbspls_graph_learner(
-  learner = lrn("clust.kmeans", centers = n_clusters),
-  task = task_train,
-  site_correction = site_correction,
-  site_correction_methods = site_correction_methods,
-  ncomp = n_components,
-  c_matrix = c_matrix_final,
-  performance_metric = "mac",
-  permutation_test = FALSE,
-  bootstrap = TRUE,
-  bootstrap_selection = TRUE,
-  selection_method = "ci",
-  B = bootstrap_replicates,
-  val_test = "none",
-  seed_train = 2026L,
-  seed_bootstrap = 2027L,
-  workers = 1L
-)
+gl_final = make_learner(c_matrix = c_matrix_final)
 
 # Train the final graph learner.
 gl_final$train(task_train)
@@ -186,18 +176,23 @@ cluster_summary = data.table(cluster = as.character(pred_train$partition))
 cluster_summary = cluster_summary[, .N, by = cluster][order(cluster)]
 print(cluster_summary)
 
-# Extract model summaries for reporting.
+# Extract model summaries for reporting. The component table reports the
+# training objective and explained variance; conditional_p_value and
+# p_value_scope are NA because the train-time permutation diagnostic is off.
 model_summary = mbspls_model_summary(gl_final)
 print(model_summary$overview)
 print(model_summary$components)
 print(model_summary$blocks)
+print(gl_final$model$mbspls$converged)
 
-# Inspect the strongest absolute feature weights.
+# Inspect the strongest absolute training weights.
 weight_summary = copy(model_summary$weights)
 weight_summary[, abs_weight := abs(weight)]
 print(weight_summary[order(-abs_weight)][1:12])
 
-# Inspect bootstrap stability if available.
+# Inspect bootstrap stability: aligned bootstrap means, percentile intervals,
+# selection frequencies, and the stable weights that define the LV features
+# passed to k-means.
 if (!is.null(model_summary$stability)) {
   stability_summary = copy(model_summary$stability)
   print(stability_summary[order(component, block, -freq)][1:12])
@@ -211,8 +206,11 @@ task_test = task_multiblock_synthetic(
   id = "synthetic_precision_medicine_test"
 )
 
-# Compute out-of-sample explained variance and latent correlation.
+# Compute out-of-sample explained variance and latent correlation of the
+# stability-selected weights the pipeline uses. A component whose stable
+# weights keep fewer than two blocks has no cross-block correlation (NaN).
 external_eval = mbspls_eval_new_data(gl_final, task_test)
+print(external_eval$weights_source)
 print(external_eval$ev_comp)
 print(external_eval$ev_block)
 print(external_eval$mac_comp)
@@ -238,7 +236,7 @@ plot_weights_stable = autoplot(
 )
 print(plot_weights_stable)
 
-# Plot bootstrap confidence intervals for feature weights.
+# Plot bootstrap percentile intervals for feature weights.
 plot_weight_ci = mbspls_plot_block_weight_ci(
   gl_final,
   source = "bootstrap",
@@ -302,6 +300,7 @@ if (requireNamespace("igraph", quietly = TRUE) &&
 stopifnot(inherits(gl_final, "GraphLearner"))
 stopifnot(!is.null(gl_final$model))
 stopifnot(is.matrix(c_matrix_final))
+stopifnot(identical(external_eval$weights_source, "stable_ci"))
 stopifnot(length(external_eval$ev_comp) == n_components)
 stopifnot(inherits(plot_weights_raw, "ggplot"))
 stopifnot(inherits(plot_weights_stable, "ggplot"))

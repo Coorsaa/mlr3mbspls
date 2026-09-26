@@ -40,12 +40,15 @@ The sequence mirrors a typical analysis run:
 1. Load the packaged synthetic multi-block task.
 2. Run and plot the supported permutation tests.
 3. Show descriptive bootstrap uncertainty.
-4. Inspect task quality and define site correction.
-5. Clone the analysis task and run nested CV.
-6. Retune `c_matrix` on all rows.
-7. Fit final raw/stability modes.
-8. Plot validation and stability results.
-9. Inspect the results in memory.
+4. Inspect task quality.
+5. Define site correction.
+6. Clone the analysis task.
+7. Define raw and stability-selection pipelines and validate each with nested
+   CV.
+8. Retune `c_matrix` on all rows.
+9. Fit the final pipelines and compare what the selection modes change.
+10. Plot validation and stability results.
+11. Inspect the results in memory.
 
 # Setup
 
@@ -57,9 +60,9 @@ study's valid exchangeability units. `mb_permutation_test()` provides that
 complete-analysis engine; `mbspls_permutation_test()` provides a fixed,
 pre-specified omnibus MB-sPLS test. Frozen LC score associations may be tested
 with `mb_lc_confirmation_test()` only on genuinely untouched confirmation
-observations; its Holm-adjusted p-values concern replication, not generic LC2+
-population rank. See `STATISTICAL_VALIDITY.md` and
-`MODEL_CARD.md` in the installed package.
+observations; with `reference_signs` from discovery its Holm-adjusted p-values
+concern directional replication, not generic LC2+ population rank. See
+`STATISTICAL_VALIDITY.md` and `MODEL_CARD.md` in the installed package.
 
 ```{r setup, message=FALSE}
 library(mlr3)
@@ -70,6 +73,10 @@ library(mlr3learners)
 library(mlr3mbspls)
 library(data.table)
 library(ggplot2)
+
+lgr::lgr$set_threshold("warn")
+lgr::get_logger("mlr3")$set_threshold("warn")
+lgr::get_logger("bbotk")$set_threshold("warn")
 
 set.seed(42)
 
@@ -83,28 +90,32 @@ cfg = list(
   outer_folds = 2L,
   tuner_budget = 2L,
   n_perm = 99L,
-  n_perm_tuning = 20L,
   bootstrap_B = 20L,
   bootstrap_summary_B = 199L,
   confirmation_n = 80L,
   frequency_threshold = 0.5,
-  perf_metric = "mac"
+  perf_metric = "mac",
+  seed_bootstrap = 12L,
+  seed_tuning = 7L,
+  seed_final = 8L
 )
 ```
 
 # 1) Load Packaged Synthetic Task
 
 This task is included in the package and is designed specifically for reproducible MB-sPLS workflows.
-Start by checking dimensions and the stored block mapping.
+Start by checking dimensions, the stored block mapping, and the site variable.
 
 ```{r input}
 task_source = tsk("mbspls_synthetic_blocks")
 dt_demo = as.data.table(task_source$data(cols = task_source$feature_names))
 blocks = task_source$block_features()
+site = task_source$data(cols = "site_batch")[[1L]]
 
 dim(dt_demo)
 head(dt_demo)
 blocks
+table(site)
 ```
 
 # 2) Supported Permutation Inference
@@ -118,15 +129,33 @@ workflow.
 The 99 permutations used here keep the rendered example brief and give a
 minimum attainable p-value of 0.01. Use at least 999 for a routine 0.05 analysis
 and more when the required Monte Carlo precision or multiplicity-adjusted
-decision threshold demands it.
+decision threshold demands it. With few exchangeable units or small strata, the
+number of distinct permutations, not `n_perm`, limits the attainable p-value to
+about one over that number. Every result stores this permutation group size
+(`log_permutation_group_size`), and a warning is raised when `n_perm` reaches
+it.
+
+## Site as a nuisance variable
+
+The synthetic generator adds the same site shift to every feature of every
+block, so `site_batch` alone creates dependence between the blocks, and later
+sections correct all blocks for it. An unrestricted shuffle tests marginal
+block independence, which a shared site or scanner shift can reject on its own.
+The tests below therefore permute rows within sites (`strata = site`). They
+test independence of the blocks conditional on site and assume that rows are
+exchangeable within each site. Residualising the blocks on site and then
+shuffling freely is not automatically valid; see the permutation-test section
+of `STATISTICAL_VALIDITY.md` and the details of `mb_permutation_test()`.
 
 ## Fixed MB-sPLS omnibus and target-block tests
 
 `mbspls_permutation_test()` implements four pre-specified statistics. The two
-`global_*` tests address complete block independence. The two `target_*` tests
-address independence of the pre-specified target `block_c` from the remaining
-blocks. Each call repeats standardisation and the complete sequential MB-sPLS
-fit on every shuffle.
+`global_*` tests address block independence. The two `target_*` tests address
+independence of the pre-specified target `block_c` from the remaining blocks.
+Standardisation is refitted inside every observed and permuted fit. The `*_sum`
+statistics refit every component on every shuffle; the `*_lc1` statistics
+refit LC1 only, because sequential extraction fits LC1 before any deflation,
+and report later components from one fit to the observed data.
 
 ```{r fixed-permutation-tests}
 raw_blocks = lapply(blocks, function(cols) {
@@ -147,8 +176,8 @@ mb_tests = lapply(names(mb_test_specs), function(test_name) {
     ncomp = cfg$ncomp,
     statistic = specification$statistic,
     n_perm = cfg$n_perm,
-    seed = specification$seed,
-    analysis_seed = 11L
+    strata = site,
+    seed = specification$seed
   )
   if (!is.null(specification$target_block)) {
     arguments$target_block = specification$target_block
@@ -166,11 +195,33 @@ mb_test_results = rbindlist(lapply(names(mb_tests), function(test_name) {
     observed = test$statistic,
     p_value = test$p_value,
     exceedances = test$exceedances,
-    n_perm = test$n_perm
+    n_perm = test$n_perm,
+    mc_conf_high = test$monte_carlo_conf_high,
+    n_strata = test$n_strata
   )
 }))
 mb_test_results
 ```
+
+The printed header labels these results as fixed-specification tests: their
+p-values are valid because the statistic, `ncomp`, the default dense sparsity
+budgets, standardisation, and solver settings were fixed without looking at
+the tested alignment. Sparsity or component counts tuned on the same data
+require the complete-analysis route below.
+
+The MB-sPLS solver starts from a deterministic cross-covariance
+initialisation, so `analysis_seed` does not change these statistics. The calls
+keep its default, and the printed seeds record both the permutation seed and
+the analysis seed for the report. When an analysis callback contains
+stochastic steps, the analysis seed is part of the definition of the
+statistic: fix it before looking at the data and never choose among seeds
+after seeing results. The analysis seed selects the L'Ecuyer-CMRG generator,
+so callbacks that use forked parallelism remain reproducible.
+
+The Monte Carlo line gives the exact 95% Clopper-Pearson interval for the
+exceedance probability `b / B`. Report this interval as the Monte Carlo
+precision: with no exceedance in 99 permutations its upper bound is still about
+0.037.
 
 These four calls expose the complete API in one vignette. A real analysis must
 pre-specify the statistic that matches its scientific null. Running several
@@ -182,7 +233,8 @@ multiplicity strategy.
 When preprocessing, filtering, tuning, or feature selection depends on the
 tested block alignment, it belongs inside `mb_permutation_test()`. This compact
 callback refits scaling and reselects the largest absolute cross-block feature
-correlation for the observed data and every permutation.
+correlation for the observed data and every permutation. It draws no random
+numbers, so the analysis seed is irrelevant here.
 
 ```{r complete-analysis-test}
 complete_analysis = function(current_blocks) {
@@ -216,11 +268,11 @@ complete_test = mb_permutation_test(
   analysis = complete_analysis,
   permute_blocks = names(raw_blocks)[-1L],
   n_perm = cfg$n_perm,
+  strata = site,
   seed = 105L,
-  analysis_seed = 11L,
   null_hypothesis = paste(
-    "No cross-block feature association is present under independent",
-    "row exchangeability."
+    "No cross-block feature association is present under row",
+    "exchangeability within site."
   )
 )
 
@@ -231,7 +283,8 @@ complete_test$observed_result$selected_pair
 ## Permutation null-distribution plots
 
 Each vertical line is the observed statistic; each histogram is the sampled
-null distribution generated by the corresponding complete refit.
+null distribution generated by refitting the corresponding analysis on every
+within-site shuffle.
 
 ```{r permutation-null-plots, fig.height=7, fig.width=8}
 all_permutation_tests = c(mb_tests, list(adaptive_max = complete_test))
@@ -263,7 +316,7 @@ permutation_plot = ggplot(
   labs(
     x = "Statistic under the null",
     y = "Permutation count",
-    title = "Complete-refit permutation distributions",
+    title = "Within-site permutation distributions",
     subtitle = "Red line: observed statistic"
   ) +
   theme_minimal(base_size = 11)
@@ -275,8 +328,20 @@ permutation_plot
 Individual frozen LC score associations can be tested only in genuinely
 untouched confirmation observations. The following simulated confirmation
 scores are independent of the earlier fitting by construction: LC1 shares a
-signal across blocks, while LC2 is null. In a real study, every score definition
-must instead come from a completely frozen discovery transformation.
+signal across blocks, while LC2 is null. They contain no site effect, so rows
+are permuted without strata; confirmation scores from a multisite cohort would
+need the same design restrictions as above. In a real study, every score
+definition must instead come from a completely frozen discovery
+transformation.
+
+Frozen weights fix the sign of every block score, so a confirmation
+correlation of the opposite sign contradicts discovery rather than replicating
+it. `reference_signs` gives the expected sign of each pairwise score
+correlation, recycled across LCs here. In a real study, take the signs from the
+discovery data, for example from the pairwise correlations of the training
+block scores of each frozen LC. Each LC is then tested one-sided in the
+discovery direction. Without `reference_signs`, the statistic is unsigned and
+the test establishes dependence in either direction, not replication.
 
 ```{r lc-confirmation-test}
 set.seed(20260831L)
@@ -300,6 +365,11 @@ lc_confirmation = mb_lc_confirmation_test(
   scores = confirmation_scores,
   independent_confirmation = TRUE,
   permute_blocks = c("block_b", "block_c"),
+  reference_signs = c(
+    "block_a:block_b" = 1,
+    "block_a:block_c" = 1,
+    "block_b:block_c" = 1
+  ),
   n_perm = cfg$n_perm,
   seed = 106L,
   keep_null = TRUE
@@ -308,8 +378,13 @@ lc_confirmation
 ```
 
 Raw p-values use `(b + 1) / (B + 1)` and the displayed decisions use Holm
-adjustment across the complete two-LC family. These are confirmation claims for
-fixed scores, not evidence that the population cross-block rank is at least two.
+adjustment across the complete two-LC family. The statistic is the mean
+sign-oriented correlation; LC2, which is null by construction, gets a large
+p-value here. These are directional confirmation claims for fixed
+scores, not evidence that the population cross-block rank is at least two. The
+`monte_carlo_conf_low` and `monte_carlo_conf_high` columns give the exact 95%
+Clopper-Pearson interval for each exceedance probability, the Monte Carlo
+precision to report.
 
 ```{r lc-confirmation-plot, fig.height=4.5, fig.width=7}
 lc_null = rbindlist(lapply(seq_along(lc_confirmation$tests), function(component) {
@@ -332,7 +407,7 @@ lc_confirmation_plot = ggplot(lc_null, aes(x = null_statistic)) +
   ) +
   facet_wrap(vars(component), scales = "free") +
   labs(
-    x = "Confirmation statistic under the null",
+    x = "Mean sign-oriented correlation under the null",
     y = "Permutation count",
     title = "Frozen LC confirmation tests",
     subtitle = "Red line: observed fixed-score association"
@@ -369,7 +444,10 @@ bootstrap_summary = mb_bootstrap_summary(
   conf = 0.95,
   type = "percentile"
 )
-bootstrap_summary
+bootstrap_summary[c(
+  "estimate", "bias", "standard_error", "conf_low", "conf_high",
+  "interval_type", "p_value", "p_value_note"
+)]
 ```
 
 ```{r bootstrap-plot, fig.height=4.5, fig.width=7}
@@ -410,6 +488,9 @@ qc$issues
 # 5) Define Site Correction
 
 The block assignment already lives on the task, so only the site-correction policy needs to be declared here.
+Declared block names are resolved against the columns the MB-sPLS node
+receives: a factor declared in a block would claim its encoded dummy columns,
+and a column may belong to one block only.
 
 ```{r blocks}
 site_correction = list(block_a = "site_batch", block_b = "site_batch", block_c = "site_batch")
@@ -429,71 +510,146 @@ task_train
 length(task_train$feature_names)
 ```
 
-# 7) Nested CV (Primary Validation)
+# 7) Pipelines and Nested CV (Primary Validation)
 
-This stage estimates held-out performance; it does not by itself perform a
-null-hypothesis test.
-Bootstrap selection is intentionally disabled here to evaluate core model generalization under nested resampling.
+The analysis compares three pipelines. All share preprocessing, site
+correction, and the MB-sPLS fit; they differ only in what reaches the k-means
+learner:
 
-```{r nested-cv}
-gl_nested = ppl(
-  "mbspls_graph_learner",
-  learner = lrn("clust.kmeans", centers = cfg$centers),
-  task = task_train,
-  site_correction = site_correction,
-  site_correction_methods = site_correction_methods,
-  ncomp = cfg$ncomp,
-  performance_metric = cfg$perf_metric,
-  permutation_test = FALSE,
-  bootstrap = FALSE,
-  bootstrap_selection = FALSE,
-  B = 1L,
-  val_test = "none"
+- `raw`: the MB-sPLS latent variables (LVs) of the training weights;
+- `stable_ci`: LVs recomputed from the features whose bootstrap percentile
+  interval excludes zero;
+- `stable_frequency`: LVs recomputed from the features selected in at least
+  `frequency_threshold` of the bootstrap replicates.
+
+The MB-sPLS node always emits the LVs of its training weights.
+`predict_weights` only selects the weights evaluated in its prediction payload,
+which the measures and `mbspls_eval_new_data()` read; each pipeline evaluates
+the weights its own LVs use. In the stable pipelines,
+`PipeOpMBsPLSBootstrapSelect` replaces the raw LVs by the stable LVs at
+training and at prediction. It aligns replicate signs separately for every
+block and, if the task had an mlr3 `group` role (for example repeated visits
+of one participant), would resample whole groups. The explicit
+`seed_bootstrap` gives every replicate its own RNG stream; the default `NULL`
+uses the session RNG, which `set.seed()` makes reproducible.
+
+```{r pipelines}
+modes = list(
+  raw = list(selection = FALSE, selection_method = "ci", predict_weights = "raw"),
+  stable_ci = list(selection = TRUE, selection_method = "ci", predict_weights = "stable_ci"),
+  stable_frequency = list(
+    selection = TRUE,
+    selection_method = "frequency",
+    predict_weights = "stable_frequency"
+  )
 )
 
+make_mode_learner = function(mode, c_matrix = NULL) {
+  mode_spec = modes[[mode]]
+  ppl(
+    "mbspls_graph_learner",
+    learner = lrn("clust.kmeans", centers = cfg$centers),
+    task = task_train,
+    site_correction = site_correction,
+    site_correction_methods = site_correction_methods,
+    ncomp = cfg$ncomp,
+    c_matrix = c_matrix,
+    performance_metric = cfg$perf_metric,
+    permutation_test = FALSE,
+    predict_weights = mode_spec$predict_weights,
+    val_test = "none",
+    bootstrap = mode_spec$selection,
+    store_train_blocks = TRUE,
+    bootstrap_selection = mode_spec$selection,
+    selection_method = mode_spec$selection_method,
+    frequency_threshold = cfg$frequency_threshold,
+    B = cfg$bootstrap_B,
+    seed_bootstrap = cfg$seed_bootstrap
+  )
+}
+```
+
+Nested CV estimates held-out performance; it does not by itself perform a
+null-hypothesis test. Each outer fold tunes `c_matrix` on its analysis rows
+and trains the complete pipeline there, including bootstrap selection for the
+stable pipelines, before scoring the assessment rows. Every node with a log
+environment gets a fresh one per fold, so the outer estimate covers the
+complete configured pipeline. The random search draws its candidates from the
+session RNG, so each nested CV starts from the same seed; with the
+deterministic MB-sPLS fit and the fixed `seed_bootstrap`, all pipelines then
+tune the same `c_matrix` in each fold and differ only in the selection step.
+
+```{r nested-cv}
 rs_outer = rsmp("cv", folds = cfg$outer_folds)
 rs_inner = rsmp("cv", folds = cfg$inner_folds)
 rs_outer$instantiate(task_train)
 
-nested_cv = mbspls_nested_cv(
-  task = task_train,
-  graphlearner = gl_nested,
-  rs_outer = rs_outer,
-  rs_inner = rs_inner,
-  ncomp = cfg$ncomp,
-  tuner_budget = cfg$tuner_budget,
-  tuning_early_stop = FALSE,
-  performance_metric = cfg$perf_metric,
-  val_test = "none",
-  n_perm_tuning = cfg$n_perm_tuning,
-  store_payload = TRUE
+nested_cv = list()
+for (mode in names(modes)) {
+  set.seed(cfg$seed_tuning)
+  nested_cv[[mode]] = mbspls_nested_cv(
+    task = task_train,
+    graphlearner = make_mode_learner(mode),
+    rs_outer = rs_outer,
+    rs_inner = rs_inner,
+    ncomp = cfg$ncomp,
+    tuner_budget = cfg$tuner_budget,
+    tuning_early_stop = FALSE,
+    performance_metric = cfg$perf_metric,
+    val_test = "none",
+    store_payload = TRUE
+  )
+}
+
+# Same seed, deterministic fit: every pipeline tuned the same c_matrix per fold.
+stopifnot(
+  identical(nested_cv$raw$c_mats, nested_cv$stable_ci$c_mats),
+  identical(nested_cv$raw$c_mats, nested_cv$stable_frequency$c_mats)
 )
 
-nested_cv$summary_table
+nested_results = rbindlist(lapply(names(nested_cv), function(mode) {
+  result = nested_cv[[mode]]
+  result$results[, .(
+    mode = mode,
+    split,
+    weights_evaluated = vapply(result$payloads, `[[`, character(1L), "weights_source"),
+    measure_test,
+    mac_lv1_test,
+    measure_test_n_undefined
+  )]
+}))
+nested_results
+
+nested_summary = rbindlist(lapply(names(nested_cv), function(mode) {
+  nested_cv[[mode]]$summary_table[, .(mode = mode, metric, mean, sd, n_defined)]
+}))
+nested_summary
 ```
 
-The nested summary is the key validation output and should be inspected before any final-model interpretation.
+`measure_test` is the held-out EV-weighted MAC (`mbspls.mac_evwt`) of the
+weights each pipeline evaluates. `measure_test_n_undefined` counts components
+whose held-out association is undefined, for example because stability
+selection left fewer than two blocks; such components score zero. With two
+outer folds on 90 rows these estimates are very noisy, and choosing the best
+pipeline from them would be a further selection step that this nested CV does
+not cover. Use more outer folds or repeats, and pre-specify the pipeline, in a
+real analysis.
 
 # 8) Retune c_matrix on All Rows
 
 After nested validation, retune on the full training task to obtain a single final sparsity pattern (`c_matrix_final`).
-This matrix is then reused across all final modes for comparability.
+This matrix is then reused across all final pipelines for comparability.
+
+`TunerSeqMBsPLS` resolves the same block columns as the final `PipeOpMBsPLS`,
+centres every inner training fold with its own means, and scores the fold
+payloads itself, so this `ti()` instance does not need stored models. When the
+package measures are scored through `resample()`, `benchmark()`, or `tune()`,
+set `store_models = TRUE`. `early_stopping = TRUE` would add a
+permutation-based stopping heuristic; it reuses the inner folds that selected
+`c`, so it is optimistic, and its `perm_alpha` is a cutoff, not an error rate.
 
 ```{r tune}
-gl_tune = ppl(
-  "mbspls_graph_learner",
-  learner = lrn("clust.kmeans", centers = cfg$centers),
-  task = task_train,
-  site_correction = site_correction,
-  site_correction_methods = site_correction_methods,
-  ncomp = cfg$ncomp,
-  performance_metric = cfg$perf_metric,
-  permutation_test = FALSE,
-  bootstrap = FALSE,
-  bootstrap_selection = FALSE,
-  B = 1L,
-  val_test = "none"
-)
+gl_tune = make_mode_learner("raw")
 
 tuner = TunerSeqMBsPLS$new(
   tuner = "random_search",
@@ -501,7 +657,6 @@ tuner = TunerSeqMBsPLS$new(
   resampling = rsmp("cv", folds = cfg$inner_folds),
   parallel = "none",
   early_stopping = FALSE,
-  n_perm = cfg$n_perm_tuning,
   performance_metric = cfg$perf_metric
 )
 
@@ -513,95 +668,86 @@ instance = ti(
   terminator = trm("evals", n_evals = 1)
 )
 
+set.seed(cfg$seed_tuning)
 tuner$optimize(instance)
 c_matrix_final = instance$result$learner_param_vals[[1]]$c_matrix
 c_matrix_final
+instance$result_y
 ```
 
 At this point, `c_matrix_final` is the most important object to inspect.
 It controls feature sparsity per block and per component in the final fits.
+`instance$result_y` is the inner-resampling score of the selected candidate.
+It was maximised on the same folds and is therefore optimistic; the nested CV
+above is the performance estimate.
 
-For supervised analyses, the package also provides `mbspls_model_summary()` to extract compact reporting tables from fitted MB-sPLS, MB-sPLS-XY, or MB-sPCA models.
+# 9) Final Fits and What the Selection Modes Change
 
-# 9) Final Fits (raw / stable_ci / stable_frequency)
-
-Final fitting creates three representations:
-
-- `raw`: direct MB-sPLS weights
-- `stable_ci`: CI-filtered bootstrap-stable weights
-- `stable_frequency`: frequency-filtered bootstrap-stable weights
-
-Bootstrap selection is activated here for stability reporting. The preceding
-outer-fold estimates evaluate the raw representation, not these additional
-selection procedures. To estimate performance for a stability-filtered
-pipeline, repeat bootstrap selection inside every relevant training split and
-evaluate that complete pipeline on held-out observations.
+The three final pipelines use `c_matrix_final`, the same bootstrap seed, and
+the same k-means seed. The raw pipeline passes the training LVs to k-means;
+the two stable pipelines pass the stable LVs of their selection mode.
 
 ```{r final-fits}
-modes = list(
-  raw = list(selection = "none", predict_weights = "raw", threshold = NA_real_),
-  stable_ci = list(selection = "ci", predict_weights = "stable_ci", threshold = NA_real_),
-  stable_frequency = list(selection = "frequency", predict_weights = "stable_frequency", threshold = 0.5)
-)
-
 final_models = list()
-final_train_summary = list()
-final_train_predictions = list()
+final_summary = list()
+final_clusters = list()
 
-for (mode_name in names(modes)) {
-  mode_spec = modes[[mode_name]]
-
-  gl_final = ppl(
-    "mbspls_graph_learner",
-    learner = lrn("clust.kmeans", centers = cfg$centers),
-    blocks = blocks,
-    site_correction = site_correction,
-    site_correction_methods = site_correction_methods,
-    ncomp = cfg$ncomp,
-    performance_metric = cfg$perf_metric,
-    permutation_test = FALSE,
-    bootstrap = TRUE,
-    bootstrap_selection = mode_spec$selection != "none",
-    B = cfg$bootstrap_B,
-    val_test = "none",
-    selection_method = if (mode_spec$selection == "frequency") "frequency" else "ci",
-    frequency_threshold = if (is.na(mode_spec$threshold)) cfg$frequency_threshold else mode_spec$threshold
-  )
-
-  gl_final$param_set$values$mbspls.c_matrix = c_matrix_final
-  if (!is.null(gl_final$graph$pipeops$mbspls)) {
-    gl_final$graph$pipeops$mbspls$param_set$values$c_matrix = c_matrix_final
-    gl_final$graph$pipeops$mbspls$param_set$values$predict_weights = mode_spec$predict_weights
-    gl_final$graph$pipeops$mbspls$param_set$values$store_train_blocks = TRUE
-  }
-
+for (mode in names(modes)) {
+  gl_final = make_mode_learner(mode, c_matrix = c_matrix_final)
+  set.seed(cfg$seed_final)
   gl_final$train(task_train)
-  pred_train = gl_final$predict(task_train)
+  prediction = gl_final$predict(task_train)
 
-  state = gl_final$model$mbspls
-  mac_comp = as.numeric(state$obj_vec)
-  ev_comp = as.numeric(state$ev_comp)
+  # Payload of the weights this pipeline evaluates.
+  evaluated = mbspls_eval_new_data(gl_final, task_train)
+  n_selected = vapply(evaluated$weights, function(component) {
+    sum(vapply(component, function(w) sum(w != 0), integer(1L)))
+  }, integer(1L))
+  blocks_kept = vapply(evaluated$weights, function(component) {
+    kept = vapply(component, function(w) any(w != 0), logical(1L))
+    paste(names(component)[kept], collapse = ", ")
+  }, character(1L))
 
-  summary_dt = data.table(
-    mode = mode_name,
-    component = sprintf("LC_%02d", seq_along(mac_comp)),
-    train_objective = mac_comp,
-    train_ev = ev_comp
+  final_summary[[mode]] = data.table(
+    mode = mode,
+    component = names(evaluated$weights),
+    raw_objective = as.numeric(gl_final$model$mbspls$obj_vec),
+    weights_evaluated = evaluated$weights_source,
+    n_selected = n_selected,
+    blocks_kept = blocks_kept,
+    train_mac = as.numeric(evaluated$mac_comp),
+    train_ev = as.numeric(evaluated$ev_comp)
   )
-
-  final_models[[mode_name]] = gl_final
-  final_train_summary[[mode_name]] = summary_dt
-  final_train_predictions[[mode_name]] = data.table(
-    row_id = pred_train$row_ids,
-    cluster = as.character(pred_train$partition)
-  )
+  final_clusters[[mode]] = as.character(prediction$partition)
+  final_models[[mode]] = gl_final
 }
 
-final_train_summary = rbindlist(final_train_summary)
-final_train_summary
+# One shared MB-sPLS fit: the raw objectives agree across pipelines.
+stopifnot(
+  identical(final_models$raw$model$mbspls$obj_vec, final_models$stable_ci$model$mbspls$obj_vec),
+  identical(final_models$raw$model$mbspls$obj_vec, final_models$stable_frequency$model$mbspls$obj_vec)
+)
+
+final_summary = rbindlist(final_summary)
+final_summary
+
+lapply(final_models, function(gl) gl$model$clust.kmeans$train_task$feature_names)
+table(raw = final_clusters$raw, stable_ci = final_clusters$stable_ci)
+table(raw = final_clusters$raw, stable_frequency = final_clusters$stable_frequency)
 ```
 
-Comparing the three mode summaries is a practical way to assess how stability filtering changes component strength and downstream clustering.
+All pipelines share one MB-sPLS fit, so `raw_objective` is identical by
+construction. The mode-specific columns describe the weights each pipeline
+evaluates: how many features and which blocks the stability filter kept, and
+the resulting training-row MAC and explained variance. A `NaN` MAC means that
+fewer than two blocks were kept for that component, so no cross-block
+association is defined. When the filter keeps every feature with a non-zero
+training weight, as a lenient frequency threshold can, the stable pipeline
+reproduces the raw one. These in-sample values are optimistic descriptions,
+not performance estimates. The LV features and cross-tabulations show how the
+filter changes what k-means sees and how the clustering changes. An honest
+comparison of the pipelines requires the selection to be repeated inside
+resampling, as in the nested CV of section 7.
 
 # 10) Visualize Validation and Stability
 
@@ -609,32 +755,30 @@ The outer-fold plot shows assessment performance only. It is not a permutation
 test and is not interchangeable with the null-distribution plots above.
 
 ```{r nested-cv-plot, fig.height=4.5, fig.width=7}
-nested_plot_data = nested_cv$results[
-  , .(split = factor(split), assessment_score = measure_test)
+nested_plot_data = nested_results[
+  , .(mode, split = factor(split), assessment_score = measure_test)
 ]
 nested_plot = ggplot(
   nested_plot_data,
-  aes(x = split, y = assessment_score)
+  aes(x = split, y = assessment_score, fill = mode)
 ) +
-  geom_col(fill = "#5B9BD5", width = 0.7) +
-  geom_hline(
-    yintercept = mean(nested_plot_data$assessment_score),
-    linetype = "dashed",
-    linewidth = 0.6
-  ) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  scale_fill_manual(values = c("#5B9BD5", "#70AD47", "#ED7D31")) +
   labs(
     x = "Outer fold",
     y = "EV-weighted MAC",
+    fill = "Pipeline",
     title = "Nested-CV assessment performance",
-    subtitle = "Dashed line: mean across outer folds"
+    subtitle = "Each outer fold reruns tuning and bootstrap selection"
   ) +
   theme_minimal(base_size = 11)
 nested_plot
 ```
 
-The next plot shows sign-aligned bootstrap means, percentile intervals, and
-selection-frequency opacity. These are stability summaries rather than
-feature-level significance tests.
+The next plot shows the bootstrap means, percentile intervals, and
+selection-frequency opacity of the `stable_ci` pipeline. Replicate weights are
+sign-aligned separately for every block. These are stability summaries rather
+than feature-level significance tests.
 
 ```{r weight-stability-plot, fig.height=7.5, fig.width=12}
 weight_stability_plot = mbspls_plot_block_weight_ci(
@@ -667,10 +811,17 @@ The analysis does not write results to the working directory. Rendering uses
 temporary plot files; nested-CV results, fitted models, summaries, predictions,
 and runtime versions remain available in the current R session.
 
+`mbspls_model_summary()` extracts reporting tables from fitted MB-sPLS,
+MB-sPLS-XY, or MB-sPCA models. Its `conditional_p_value` column holds the
+train-time permutation diagnostic (`permutation_test = TRUE`), which conditions
+on the fitted preprocessing and hyperparameters; `p_value_scope` states that
+scope. Both are `NA` here because the diagnostic was not run.
+
 ```{r inspect-results}
 names(final_models)
-head(final_train_summary)
-head(final_train_predictions$raw)
+mbspls_model_summary(final_models$raw)$components
+final_models$raw$model$mbspls$converged
+head(data.table(row_id = task_train$row_ids, cluster = final_clusters$raw))
 
 runtime_versions = data.table(
   package = c("R", "mlr3", "mlr3mbspls"),
@@ -692,12 +843,15 @@ At any point, inspect objects such as:
 - `mb_test_results`
 - `complete_test`
 - `lc_confirmation$results`
+- `lc_confirmation$pairwise_correlations`
 - `bootstrap_summary`
 - `task_train`
-- `nested_cv$summary_table`
+- `nested_results`
+- `nested_summary`
 - `c_matrix_final`
-- `final_train_summary`
-- `final_train_predictions`
+- `final_summary`
+- `final_clusters`
 - `final_models$raw$model$mbspls`
+- `final_models$stable_ci$model$mbspls_bootstrap_select`
 
 This keeps the workflow easy to debug while remaining fully executable end-to-end.
