@@ -70,6 +70,8 @@
 #'   direct use outside resampling.
 #'
 #' **ComBat (`"combat"`, via \pkg{neuroCombat}) - now with `mod` support**
+#' - \pkg{neuroCombat} is distributed on GitHub only; install it with
+#'   `remotes::install_github("Jfortin1/neuroCombat_Rpackage")`.
 #' - Trains using `neuroCombat(dat = t(X), batch = site, mod = MM, ...)`, where
 #'   `MM = model.matrix(~ ., data = covariates)`; character and logical
 #'   covariates are factorized. Only site and covariate levels observed in the
@@ -938,7 +940,7 @@ PipeOpSiteCorrection = R6::R6Class(
 
         } else if (identical(method, "combat")) {
 
-          if (!have_neuro) stop("ComBat requires 'neuroCombat'.")
+          if (!have_neuro) .sitecorr_neurocombat_missing("ComBat")
 
           # Build mod from covariates (if any), using only levels observed in
           # the training rows.
@@ -1273,7 +1275,7 @@ PipeOpSiteCorrection = R6::R6Class(
           dt[, (Xcols) := as.data.table(Xcorr)]
 
         } else if (identical(info$method, "combat")) {
-          if (!requireNamespace("neuroCombat", quietly = TRUE)) stop("ComBat predict requires 'neuroCombat'.")
+          if (!requireNamespace("neuroCombat", quietly = TRUE)) .sitecorr_neurocombat_missing("ComBat prediction")
 
           # Warn if training used covariates: neuroCombatFromTraining does not apply
           # the covariate model to new data, so predict-time covariate effects are
@@ -1367,3 +1369,16 @@ PipeOpSiteCorrection = R6::R6Class(
     }
   )
 )
+
+# neuroCombat is distributed on GitHub only; point users to the revision used
+# in continuous integration.
+.sitecorr_neurocombat_missing = function(context) {
+  stop(sprintf(
+    paste0(
+      "%s requires the GitHub-only package 'neuroCombat'. Install it with ",
+      "remotes::install_github(",
+      "\"Jfortin1/neuroCombat_Rpackage@fbec46a61bc92bedb450b0e44addae4ce6afa934\")."
+    ),
+    context
+  ), call. = FALSE)
+}

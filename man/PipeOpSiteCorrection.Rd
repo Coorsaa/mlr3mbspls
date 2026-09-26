@@ -83,6 +83,8 @@ direct use outside resampling.
 
 \strong{ComBat (\code{"combat"}, via \pkg{neuroCombat}) - now with \code{mod} support}
 \itemize{
+\item \pkg{neuroCombat} is distributed on GitHub only; install it with
+\code{remotes::install_github("Jfortin1/neuroCombat_Rpackage")}.
 \item Trains using \code{neuroCombat(dat = t(X), batch = site, mod = MM, ...)}, where
 \code{MM = model.matrix(~ ., data = covariates)}; character and logical
 covariates are factorized. Only site and covariate levels observed in the
