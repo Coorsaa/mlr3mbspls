@@ -1,9 +1,9 @@
 #' Flip signs of MB-sPLS weights/loadings/scores
 #'
 #' @description
-#' MB-sPLS identifies the weights of every component and block only up to
-#' sign: the criterion depends on absolute (or squared) cross-block
-#' correlations. Flipping a block's weights together with its loadings and
+#' The reported MB-sPLS criteria depend only on absolute (or squared)
+#' cross-block correlations, so they do not identify the sign of a block's
+#' weights. Flipping a block's weights together with its loadings and
 #' scores therefore leaves the fit, the objective and explained variances
 #' unchanged, and can be used to orient components for reporting. Per-block
 #' sign matrices keep the fit unchanged only for such sign-invariant criteria.

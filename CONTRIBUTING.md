@@ -72,4 +72,32 @@ remotes::install_github(
 regenerates the Rcpp wrappers, formats the repository, regenerates the
 documentation, builds the source archive, checks that it contains no local
 files, and installs it. Add `--test` to run the tests against the installed
-archive and `--clean` to remove compiled objects and old archives first.
+archive, `--vignettes` to build the vignettes, and `--clean` to remove compiled
+objects and old archives first.
+
+## Tests and validation
+
+Rebuild the native code after changing `src/`, and run the package tests and
+`R CMD check` on the built archive. Changes that affect fitted results need a
+regression test. MB-sPLS fits do not depend on seeds, so tests can compare
+fitted weights and objectives directly.
+
+When changing permutation code or complete-analysis inference, also run the
+simulation scripts installed in `validation/`:
+
+```sh
+# Number of simulations, then number of permutations (both optional)
+Rscript "$(Rscript -e 'cat(system.file("validation", "null_behavior.R", package = "mlr3mbspls"))')" 400 199
+
+# Size set through environment variables (both optional)
+MBSPLS_VALIDATION_N_SIM=200 MBSPLS_VALIDATION_N_PERM=99 \
+  Rscript -e 'source(system.file("validation", "omnibus_permutation.R", package = "mlr3mbspls"))'
+```
+
+`null_behavior.R` reads its positional arguments only when the installed file
+is run directly with `Rscript`, as above; sourcing it uses the defaults of 400
+simulations (at least 100) and 199 permutations (at least 19).
+`omnibus_permutation.R` reads `MBSPLS_VALIDATION_N_SIM` (default 200, at least
+20) and `MBSPLS_VALIDATION_N_PERM` (default 99, at least 59). Both scripts stop
+when a pre-specified bound fails. They check the implemented calculations in
+small reference scenarios; they do not validate a study-specific design.

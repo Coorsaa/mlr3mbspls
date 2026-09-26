@@ -41,12 +41,14 @@ that setting rather than ordinary random cross-validation.
 ## Leakage and model selection
 
 - Which operations are fitted separately in each analysis split:
+- Block definitions after encoding (resolved columns per block):
 - Imputation, transformations, variance filters, and block weights:
-- Site/batch correction and whether assessment data influence its fit:
+- Site/batch correction, whether assessment data influence its fit, and
+  whether outcome or group variables were preserved as covariates:
 - Feature selection, component count, sparsity, and all other tuning:
 - Class balancing, case weights, calibration, and threshold selection:
 - Confirmation that final performance uses only outer-fold or external
-  predictions, never the inner tuning scores:
+  predictions, never the inner tuning scores or early-stopping p-values:
 - Confirmation that any permutation reruns the complete data-dependent pipeline
   using a design-valid exchangeability scheme:
 
@@ -57,7 +59,12 @@ that setting rather than ordinary random cross-validation.
 - Sensitivity, specificity, predictive values, and threshold source:
 - Proper scores and calibration intercept/slope with uncertainty:
 - Participant-level out-of-fold or external predictions retained:
-- Bootstrap sampling unit, interval method, and effective replicate count:
+- Bootstrap sampling unit (group role or explicit groups), interval method,
+  and effective replicate count:
+- Permutation null, exchangeability restrictions, permutation and analysis
+  seeds, and exact Monte Carlo interval of each reported p-value:
+- Conditional diagnostics (train-time or fixed-weight p-values) reported as
+  such, not as full-pipeline inference:
 - Subgroup sample sizes, calibration, uncertainty, and fairness definition:
 - External, temporal, and site/scanner transport results:
 - Decision-curve or other utility analysis with defensible consequences:
@@ -68,11 +75,17 @@ or clinical net benefit.
 
 ## MB-sPLS interpretation and stability
 
-- Component matching and sign-alignment rule across resamples:
+- Component matching and per-block sign-alignment rule across resamples:
 - Ambiguous component matches, swaps, and rejected replicates:
 - Feature and block selection frequencies and sign-aligned intervals:
-- Sensitivity to correlated predictors, sparsity choices, and preprocessing:
+- Solver convergence and sensitivity of the fitted weights, a local optimum of
+  a non-convex criterion, to sparsity choices, correlated predictors, and
+  preprocessing:
 - Multiplicity strategy and independent replication status:
+- Direction of replication: discovery `reference_signs` used for the
+  confirmation test and the signed pairwise correlations (with more than two
+  blocks the directional statistic averages over block pairs), or a statement
+  that only dependence in either direction was tested:
 - Language preventing selected loadings from being labelled causal mechanisms,
   biomarkers, or individually actionable features without separate evidence:
 
