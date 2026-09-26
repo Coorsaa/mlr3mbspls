@@ -444,7 +444,7 @@ versions.
 
 - Package version 0.4.0 with a modernised `CITATION`. testthat subprocess
   parallelism is disabled for portable installed-archive checks.
-- `clue` and `fairmodels` were removed from Suggests. `neuroCombat`, needed
+- `fairmodels` was removed from Suggests. `neuroCombat`, needed
   only for ComBat site correction, is available from GitHub only; it stays in
   Suggests without a `Remotes` field, and `R CMD check --as-cran` notes it as a
   suggested package outside the mainstream repositories. Install the revision
