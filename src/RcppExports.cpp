@@ -106,7 +106,6 @@ Rcpp::List cpp_mbspls_one_lv(const Rcpp::List& X_blocks, const arma::vec& c_cons
 RcppExport SEXP _mlr3mbspls_cpp_mbspls_one_lv(SEXP X_blocksSEXP, SEXP c_constraintsSEXP, SEXP max_iterSEXP, SEXP tolSEXP, SEXP frobeniusSEXP, SEXP spearmanSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< const Rcpp::List& >::type X_blocks(X_blocksSEXP);
     Rcpp::traits::input_parameter< const arma::vec& >::type c_constraints(c_constraintsSEXP);
     Rcpp::traits::input_parameter< int >::type max_iter(max_iterSEXP);
@@ -175,20 +174,6 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
-// cpp_ev_test
-Rcpp::List cpp_ev_test(const Rcpp::List& X_test, const Rcpp::List& weights, const Rcpp::List& loadings, int ncomp);
-RcppExport SEXP _mlr3mbspls_cpp_ev_test(SEXP X_testSEXP, SEXP weightsSEXP, SEXP loadingsSEXP, SEXP ncompSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const Rcpp::List& >::type X_test(X_testSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::List& >::type weights(weightsSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::List& >::type loadings(loadingsSEXP);
-    Rcpp::traits::input_parameter< int >::type ncomp(ncompSEXP);
-    rcpp_result_gen = Rcpp::wrap(cpp_ev_test(X_test, weights, loadings, ncomp));
-    return rcpp_result_gen;
-END_RCPP
-}
 // cpp_compute_test_ev_core
 Rcpp::List cpp_compute_test_ev_core(const Rcpp::List& X_blocks_test, const Rcpp::List& W_all, const Rcpp::List& P_all, bool deflate, bool spearman, bool frobenius, double eps_var, bool use_train_loadings, int clamp_mode);
 RcppExport SEXP _mlr3mbspls_cpp_compute_test_ev_core(SEXP X_blocks_testSEXP, SEXP W_allSEXP, SEXP P_allSEXP, SEXP deflateSEXP, SEXP spearmanSEXP, SEXP frobeniusSEXP, SEXP eps_varSEXP, SEXP use_train_loadingsSEXP, SEXP clamp_modeSEXP) {
@@ -205,43 +190,6 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< bool >::type use_train_loadings(use_train_loadingsSEXP);
     Rcpp::traits::input_parameter< int >::type clamp_mode(clamp_modeSEXP);
     rcpp_result_gen = Rcpp::wrap(cpp_compute_test_ev_core(X_blocks_test, W_all, P_all, deflate, spearman, frobenius, eps_var, use_train_loadings, clamp_mode));
-    return rcpp_result_gen;
-END_RCPP
-}
-// cpp_mbspls_bootstrap
-Rcpp::List cpp_mbspls_bootstrap(const Rcpp::List& X_blocks, const arma::vec& c_constraints, const Rcpp::List& W_ref, int R, bool spearman, bool frobenius, int max_iter, double tol, bool store_weights);
-RcppExport SEXP _mlr3mbspls_cpp_mbspls_bootstrap(SEXP X_blocksSEXP, SEXP c_constraintsSEXP, SEXP W_refSEXP, SEXP RSEXP, SEXP spearmanSEXP, SEXP frobeniusSEXP, SEXP max_iterSEXP, SEXP tolSEXP, SEXP store_weightsSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const Rcpp::List& >::type X_blocks(X_blocksSEXP);
-    Rcpp::traits::input_parameter< const arma::vec& >::type c_constraints(c_constraintsSEXP);
-    Rcpp::traits::input_parameter< const Rcpp::List& >::type W_ref(W_refSEXP);
-    Rcpp::traits::input_parameter< int >::type R(RSEXP);
-    Rcpp::traits::input_parameter< bool >::type spearman(spearmanSEXP);
-    Rcpp::traits::input_parameter< bool >::type frobenius(frobeniusSEXP);
-    Rcpp::traits::input_parameter< int >::type max_iter(max_iterSEXP);
-    Rcpp::traits::input_parameter< double >::type tol(tolSEXP);
-    Rcpp::traits::input_parameter< bool >::type store_weights(store_weightsSEXP);
-    rcpp_result_gen = Rcpp::wrap(cpp_mbspls_bootstrap(X_blocks, c_constraints, W_ref, R, spearman, frobenius, max_iter, tol, store_weights));
-    return rcpp_result_gen;
-END_RCPP
-}
-// cpp_bootstrap_latent_correlation
-double cpp_bootstrap_latent_correlation(const arma::mat& weights_matrix, const arma::ivec& component_idx, const arma::ivec& block_idx, int n_blocks, int n_components, bool spearman, double min_var, bool frobenius);
-RcppExport SEXP _mlr3mbspls_cpp_bootstrap_latent_correlation(SEXP weights_matrixSEXP, SEXP component_idxSEXP, SEXP block_idxSEXP, SEXP n_blocksSEXP, SEXP n_componentsSEXP, SEXP spearmanSEXP, SEXP min_varSEXP, SEXP frobeniusSEXP) {
-BEGIN_RCPP
-    Rcpp::RObject rcpp_result_gen;
-    Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< const arma::mat& >::type weights_matrix(weights_matrixSEXP);
-    Rcpp::traits::input_parameter< const arma::ivec& >::type component_idx(component_idxSEXP);
-    Rcpp::traits::input_parameter< const arma::ivec& >::type block_idx(block_idxSEXP);
-    Rcpp::traits::input_parameter< int >::type n_blocks(n_blocksSEXP);
-    Rcpp::traits::input_parameter< int >::type n_components(n_componentsSEXP);
-    Rcpp::traits::input_parameter< bool >::type spearman(spearmanSEXP);
-    Rcpp::traits::input_parameter< double >::type min_var(min_varSEXP);
-    Rcpp::traits::input_parameter< bool >::type frobenius(frobeniusSEXP);
-    rcpp_result_gen = Rcpp::wrap(cpp_bootstrap_latent_correlation(weights_matrix, component_idx, block_idx, n_blocks, n_components, spearman, min_var, frobenius));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -313,10 +261,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_mlr3mbspls_perm_test_component", (DL_FUNC) &_mlr3mbspls_perm_test_component, 9},
     {"_mlr3mbspls_cpp_mbspls_multi_lv", (DL_FUNC) &_mlr3mbspls_cpp_mbspls_multi_lv, 10},
     {"_mlr3mbspls_cpp_mbspls_multi_lv_cmatrix", (DL_FUNC) &_mlr3mbspls_cpp_mbspls_multi_lv_cmatrix, 9},
-    {"_mlr3mbspls_cpp_ev_test", (DL_FUNC) &_mlr3mbspls_cpp_ev_test, 4},
     {"_mlr3mbspls_cpp_compute_test_ev_core", (DL_FUNC) &_mlr3mbspls_cpp_compute_test_ev_core, 9},
-    {"_mlr3mbspls_cpp_mbspls_bootstrap", (DL_FUNC) &_mlr3mbspls_cpp_mbspls_bootstrap, 9},
-    {"_mlr3mbspls_cpp_bootstrap_latent_correlation", (DL_FUNC) &_mlr3mbspls_cpp_bootstrap_latent_correlation, 8},
     {"_mlr3mbspls_cpp_perm_test_oos", (DL_FUNC) &_mlr3mbspls_cpp_perm_test_oos, 7},
     {"_mlr3mbspls_cpp_bootstrap_test_oos", (DL_FUNC) &_mlr3mbspls_cpp_bootstrap_test_oos, 6},
     {"_mlr3mbspls_cpp_lm_coeff_ridge", (DL_FUNC) &_mlr3mbspls_cpp_lm_coeff_ridge, 4},

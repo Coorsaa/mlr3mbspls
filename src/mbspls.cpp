@@ -6,21 +6,21 @@
 //  Functions exported to R:
 //    • cpp_mbspls_one_lv()              - one-component solver
 //    • cpp_mbspls_multi_lv()            - multi-component solver
+//    • cpp_mbspls_multi_lv_cmatrix()    - multi-component solver with a
+//                                         per-component sparsity matrix
+//  The one-component solver uses Gauss-Seidel block updates from a
+//  deterministic cross-covariance start, so fits do not depend on the RNG.
 // =====================================================================
-#ifndef MBSPLS_L2_BETA
-#define MBSPLS_L2_BETA 0.5   // β_b default; 0.5 makes w = soft(g, α) exactly
-#endif
-
 #define ARMA_DONT_ALIGN_MEMORY
 #include <RcppArmadillo.h>
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <utility>  // std::pair
 
 using arma::uvec;
 using arma::vec;
 using arma::mat;
-using arma::cube;
 using std::size_t;
 
 // ─────────────────────────────────────────────────────────────────────
@@ -39,19 +39,6 @@ inline bool is_valid_vector(const arma::vec& v) {
   if (v.n_elem == 0) return false;
   if (!v.is_finite()) return false;
   return true;
-}
-
-inline arma::vec safe_normalize(const arma::vec& v) {
-  if (!is_valid_vector(v)) {
-    Rcpp::stop("safe_normalize: received a non-finite or empty vector.");
-  }
-
-  double norm_val = arma::norm(v, 2);
-  if (!std::isfinite(norm_val) || norm_val < 1e-12) {
-    Rcpp::stop("safe_normalize: vector norm is numerically zero; cannot normalize weights.");
-  }
-
-  return v / norm_val;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -314,31 +301,6 @@ inline bool deflate_block(arma::mat&      X_b,
 }
 
 
-// ---- Weight normalization controls ---------------------------------
-#ifndef MBSPLS_WEIGHT_NORM
-// 0: none, 1: L1 (sum|w| = 1), 2: L2 (||w||2 = 1), 3: maxabs (max|w| = 1)
-#define MBSPLS_WEIGHT_NORM 2
-#endif
-
-#ifndef MBSPLS_NORM_EPS
-#define MBSPLS_NORM_EPS 1e-12
-#endif
-
-inline void mbspls_apply_weight_norm(arma::vec &w) {
-#if MBSPLS_WEIGHT_NORM==1
-  double l1 = arma::accu(arma::abs(w));
-  if (std::isfinite(l1) && l1 > MBSPLS_NORM_EPS) w /= l1;
-#elif MBSPLS_WEIGHT_NORM==2
-  double l2 = arma::norm(w, 2);
-  if (std::isfinite(l2) && l2 > MBSPLS_NORM_EPS) w /= l2;
-#elif MBSPLS_WEIGHT_NORM==3
-  double m = (w.is_empty() ? 0.0 : arma::abs(w).max());
-  if (std::isfinite(m) && m > MBSPLS_NORM_EPS) w /= m;
-#else
-  (void)w; // no-op
-#endif
-}
-
 // ─────────────────────────────────────────────────────────────────────
 //  SOFT-THRESHOLDING UTILITIES
 // ─────────────────────────────────────────────────────────────────────
@@ -418,10 +380,257 @@ arma::vec pmd_update_bisection(const arma::vec& g,
 
 
 // ─────────────────────────────────────────────────────────────────────
+//  ONE-LV SOLVER CORE
+// ─────────────────────────────────────────────────────────────────────
+
+// Power iterations used by the deterministic start. They only need a good
+// basin, not a converged singular vector, so the cap keeps the start cheap
+// relative to the Gauss-Seidel solve that follows. Caps from 10 to 300 gave
+// the same final objectives in simulations, and 10 had the lowest total cost.
+#ifndef MBSPLS_INIT_MAX_ITER
+#define MBSPLS_INIT_MAX_ITER 10
+#endif
+
+#ifndef MBSPLS_INIT_TOL
+#define MBSPLS_INIT_TOL 1e-6
+#endif
+
+// Fixed dense start vector for the power iterations (splitmix64 sequence).
+// It never touches R's RNG. A data column or an all-ones vector can be
+// orthogonal to the leading singular vector for structured data (independent
+// feature groups, mixed-sign loadings); a generic dense vector is not.
+inline arma::vec fixed_start_vector(arma::uword p) {
+  arma::vec v(p);
+  std::uint64_t state = 0x2545F4914F6CDD1DULL;
+  for (arma::uword j = 0; j < p; ++j) {
+    state += 0x9E3779B97F4A7C15ULL;
+    std::uint64_t z = state;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+    z ^= (z >> 31);
+    v(j) = static_cast<double>(z >> 11) / 9007199254740992.0 - 0.5;
+  }
+  return v / arma::norm(v, 2);
+}
+
+inline arma::vec centered_scores(const arma::mat& Xb, const arma::vec& w) {
+  arma::vec t = Xb * w;
+  t -= arma::mean(t);
+  return t;
+}
+
+// Leading eigenvector of a positive semi-definite operator by power
+// iteration from the fixed start. Returns an empty vector when the operator
+// is numerically zero relative to `scale`.
+template <typename Operator>
+arma::vec leading_psd_direction(Operator apply, arma::uword p, double scale) {
+  arma::vec v = fixed_start_vector(p);
+  for (int it = 0; it < MBSPLS_INIT_MAX_ITER; ++it) {
+    arma::vec next = apply(v);
+    const double magnitude = arma::norm(next, 2);
+    if (!std::isfinite(magnitude) || magnitude <= 1e-12 * scale) {
+      return arma::vec();
+    }
+    next /= magnitude;
+    const double change = arma::norm(next - v, 2);
+    v = std::move(next);
+    if (change < MBSPLS_INIT_TOL) break;
+  }
+  return v;
+}
+
+// Start for block b: leading left singular vector of the centred
+// cross-covariance X_b' [X_c / ||X_c||_F]_{c != b}. Scaling each other block
+// to unit total variance mirrors the solver's target, in which every other
+// block contributes one z-scored score regardless of its size. The operator
+// v -> X_b' sum_c X_c X_c' X_b v / ||X_c||_F^2 runs through the n-dimensional
+// score space, so no p_b x sum(p_c) matrix is formed. Falls back to the
+// block's leading principal axis when the cross-covariance is numerically
+// zero.
+arma::vec mbspls_start_direction(const std::vector<arma::mat>& X,
+                                 const arma::vec& ss_centred,
+                                 int b) {
+  const int B = static_cast<int>(X.size());
+  const arma::mat& Xb = X[b];
+  const arma::uword p = Xb.n_cols;
+  const double ss_b = ss_centred(b);
+  if (!(std::isfinite(ss_b) && ss_b > 1e-12)) {
+    Rcpp::stop(std::string("cpp_mbspls_one_lv: cannot initialise block ") + std::to_string(b + 1) +
+               " because its centred data are numerically zero.");
+  }
+  int n_other = 0;
+  for (int c = 0; c < B; ++c) {
+    if (c != b && ss_centred(c) > 1e-12) ++n_other;
+  }
+
+  arma::vec v;
+  if (n_other > 0) {
+    v = leading_psd_direction([&](const arma::vec& w) {
+      const arma::vec u = centered_scores(Xb, w);
+      arma::vec y(u.n_elem, arma::fill::zeros);
+      for (int c = 0; c < B; ++c) {
+        if (c == b || !(ss_centred(c) > 1e-12)) continue;
+        const arma::vec yc = X[c].t() * u;
+        y += centered_scores(X[c], yc) / ss_centred(c);
+      }
+      return arma::vec(Xb.t() * y);
+    }, p, ss_b * n_other);
+    if (!v.is_empty()) return v;
+  }
+
+  v = leading_psd_direction([&](const arma::vec& w) {
+    return arma::vec(Xb.t() * centered_scores(Xb, w));
+  }, p, ss_b);
+  if (!v.is_empty()) return v;
+
+  Rcpp::stop(std::string("cpp_mbspls_one_lv: cannot initialise block ") + std::to_string(b + 1) +
+             " because its centred data are numerically zero.");
+}
+
+// Deterministic start: project each block's start direction onto the
+// sparsity constraint set, then orient block scores coherently so that
+// oppositely signed blocks cannot cancel in the first cross-block target.
+std::vector<arma::vec> mbspls_initial_weights(const std::vector<arma::mat>& X,
+                                              const arma::vec& c_constraints) {
+  const int B = static_cast<int>(X.size());
+  const arma::uword n = X[0].n_rows;
+  arma::vec ss_centred(B);
+  for (int b = 0; b < B; ++b) {
+    ss_centred(b) = (n - 1.0) * arma::accu(arma::var(X[b], 0, 0));
+  }
+  std::vector<arma::vec> W(B);
+  arma::vec consensus(n, arma::fill::zeros);
+  for (int b = 0; b < B; ++b) {
+    W[b] = pmd_update_bisection(mbspls_start_direction(X, ss_centred, b), c_constraints(b));
+    const arma::vec t = centered_scores(X[b], W[b]);
+    const double sd = arma::norm(t, 2);
+    if (!std::isfinite(sd) || sd < 1e-12) continue;
+    if (arma::dot(t, consensus) < 0.0) {
+      W[b] = -W[b];
+      consensus -= t / sd;
+    } else {
+      consensus += t / sd;
+    }
+  }
+  return W;
+}
+
+// Refresh one block's score column and validity after its weight update,
+// using the same variance rule as compute_scores_core(). Sparse weights only
+// touch their support columns.
+inline void refresh_block_score(ScoreMatrix& scores,
+                                const arma::mat& Xb,
+                                const arma::vec& wb,
+                                int b) {
+  const arma::uvec support = arma::find(wb);
+  const arma::vec t = (2 * support.n_elem < wb.n_elem)
+    ? arma::vec(Xb.cols(support) * wb.elem(support))
+    : arma::vec(Xb * wb);
+  const double v = arma::var(t);
+  const bool ok = t.is_finite() && std::isfinite(v) && v > 1e-12;
+  if (ok) {
+    scores.T.col(b) = t;
+  } else {
+    scores.T.col(b).zeros();
+  }
+  if (ok != scores.valid_blocks[b]) {
+    scores.n_valid += ok ? 1 : -1;
+    scores.valid_blocks[b] = ok;
+  }
+}
+
+// Global sign convention: flip all blocks jointly (never individually, which
+// would change the relative block orientation) so that the largest-magnitude
+// weight of the first block is positive; ties resolve to the lowest index.
+inline void canonicalise_global_sign(std::vector<arma::vec>& W) {
+  if (W.empty() || W[0].is_empty()) return;
+  const arma::uword at = arma::index_max(arma::abs(W[0]));
+  if (W[0](at) < 0.0) {
+    for (auto& w : W) w = -w;
+  }
+}
+
+struct OneLvFit {
+  std::vector<arma::vec> W;
+  bool converged;
+  int iterations;
+};
+
+// One-component MB-sPLS by block-coordinate (Gauss-Seidel) sweeps. Each
+// block is updated towards the mean z-scored score of the other blocks at
+// their latest values, and its own score is refreshed before the next block's
+// target is built. Convergence is declared on the weights,
+// max_b ||w_b - w_b_prev||_2 < tol, not on the sign-invariant objective.
+// Every caller (the exported one-LV routine, the multi-LV routines and the
+// permutation refits) uses this function, so they share the deterministic
+// start and the stopping rule.
+OneLvFit mbspls_fit_one_lv(const std::vector<arma::mat>& X,
+                           const arma::vec& c_constraints,
+                           int max_iter,
+                           double tol) {
+  const int B = static_cast<int>(X.size());
+  if (B < 2) Rcpp::stop("cpp_mbspls_one_lv: at least 2 blocks are required to define a cross-block latent variable; got " + std::to_string(B) + ".");
+  if (static_cast<int>(c_constraints.n_elem) != B) Rcpp::stop("c_constraints length must match number of blocks");
+  if (max_iter < 1) Rcpp::stop("cpp_mbspls_one_lv: max_iter must be at least 1.");
+  if (!std::isfinite(tol) || tol <= 0.0) Rcpp::stop("cpp_mbspls_one_lv: tol must be finite and positive.");
+  if (!c_constraints.is_finite() || arma::any(c_constraints < 1.0)) {
+    Rcpp::stop("cpp_mbspls_one_lv: every sparsity constraint must be finite and at least 1.");
+  }
+  for (int b = 1; b < B; ++b) {
+    if (X[b].n_rows != X[0].n_rows) Rcpp::stop("Inconsistent sample sizes across blocks");
+  }
+  if (X[0].n_rows < 3) Rcpp::stop("Need at least 3 samples");
+
+  OneLvFit fit;
+  fit.W = mbspls_initial_weights(X, c_constraints);
+  fit.converged = false;
+  fit.iterations = 0;
+
+  ScoreMatrix scores = compute_scores_core(X, fit.W);
+
+  for (int it = 0; it < max_iter; ++it) {
+    double max_change = 0.0;
+
+    for (int b = 0; b < B; ++b) {
+      arma::vec target = build_target_score_core(scores, b);
+
+      if (arma::norm(target, 2) < 1e-12) {
+        Rcpp::stop(std::string("cpp_mbspls_one_lv: no valid cross-block target score could be formed for block ") + std::to_string(b + 1) + ". Check that at least two blocks contain informative, non-degenerate signals.");
+      }
+
+      arma::vec grad = X[b].t() * target;
+
+      if (!is_valid_vector(grad)) {
+        Rcpp::stop(std::string("cpp_mbspls_one_lv: gradient became non-finite for block ") + std::to_string(b + 1) + ".");
+      }
+
+      // Enforce L2 = 1 and L1 <= c via bisection (PMD update)
+      arma::vec w_new = pmd_update_bisection(grad, c_constraints(b));
+      max_change = std::max(max_change, arma::norm(w_new - fit.W[b], 2));
+      fit.W[b] = std::move(w_new);
+      refresh_block_score(scores, X[b], fit.W[b], b);
+    }
+
+    fit.iterations = it + 1;
+    if (max_change < tol) {
+      log_info("     one-LV solver converged after " + std::to_string(it + 1) + " iterations");
+      fit.converged = true;
+      break;
+    }
+  }
+
+  canonicalise_global_sign(fit.W);
+  return fit;
+}
+
+
+// ─────────────────────────────────────────────────────────────────────
 //  EXPORTED FUNCTIONS - R Interface (using core functions internally)
 // ─────────────────────────────────────────────────────────────────────
 
-// [[Rcpp::export]]
+// The fit is a deterministic function of the data and settings; it does not
+// draw from R's RNG.
+// [[Rcpp::export(rng = false)]]
 Rcpp::List cpp_mbspls_one_lv(const Rcpp::List&  X_blocks,
                              const arma::vec&   c_constraints,
                              int                max_iter,
@@ -434,197 +643,52 @@ Rcpp::List cpp_mbspls_one_lv(const Rcpp::List&  X_blocks,
   const int B = X_blocks.size();
 
   if (B < 2) Rcpp::stop("cpp_mbspls_one_lv: at least 2 blocks are required to define a cross-block latent variable; got " + std::to_string(B) + ".");
-  if (c_constraints.n_elem != B) Rcpp::stop("c_constraints length must match number of blocks");
-  if (max_iter < 1) Rcpp::stop("cpp_mbspls_one_lv: max_iter must be at least 1.");
-  if (!std::isfinite(tol) || tol <= 0.0) Rcpp::stop("cpp_mbspls_one_lv: tol must be finite and positive.");
-  if (!c_constraints.is_finite() || arma::any(c_constraints < 1.0)) {
-    Rcpp::stop("cpp_mbspls_one_lv: every sparsity constraint must be finite and at least 1.");
-  }
 
+  // Keep the (possibly coerced) R matrices protected for the whole call; the
+  // Armadillo views below do not own their memory.
+  std::vector<Rcpp::NumericMatrix> X_keep;
   std::vector<arma::mat> X;
-  std::vector<arma::mat> Xt;
+  X_keep.reserve(B);
   X.reserve(B);
-  Xt.reserve(B);
-  int n = -1;
-  
+  arma::uword n = 0;
+
   for (int b = 0; b < B; ++b) {
-    Rcpp::NumericMatrix Xr = X_blocks[b];
-    arma::mat Xi(Xr.begin(), Xr.nrow(), Xr.ncol(), false, true);
-    if (!is_valid_matrix(Xi)) {
+    X_keep.push_back(Rcpp::NumericMatrix(X_blocks[b]));
+    Rcpp::NumericMatrix& Xr = X_keep.back();
+    X.emplace_back(Xr.begin(), Xr.nrow(), Xr.ncol(), false, true);
+    if (!is_valid_matrix(X.back())) {
       Rcpp::stop("Invalid matrix in block " + std::to_string(b + 1));
     }
-    
-    if (n == -1) {
-      n = Xi.n_rows;
-    } else if (Xi.n_rows != n) {
+
+    if (b == 0) {
+      n = X.back().n_rows;
+    } else if (X.back().n_rows != n) {
       Rcpp::stop("Inconsistent sample sizes across blocks");
     }
-    
+
     if (n < 3) Rcpp::stop("Need at least 3 samples");
-    X.emplace_back(Xr.begin(), Xr.nrow(), Xr.ncol(), false, true);
-    Xt.emplace_back(X.back().t());
   }
 
-  // Initialize weights
-  std::vector<arma::vec> W(B);
-  for (int b = 0; b < B; ++b) {
-    W[b] = arma::randn<arma::vec>(X[b].n_cols);
-    W[b] = safe_normalize(W[b]);
-  }
-
-  double obj_old = -1e6;
-  bool converged = false;
-
-  for (int it = 0; it < max_iter; ++it) {
-    
-    // CORE: Use standardized score computation
-    ScoreMatrix current_scores = compute_scores_core(X, W);
-
-    for (int b = 0; b < B; ++b) {
-      // CORE: Use standardized target building
-      arma::vec target = build_target_score_core(current_scores, b);
-      
-      if (arma::norm(target, 2) < 1e-12) {
-        Rcpp::stop(std::string("cpp_mbspls_one_lv: no valid cross-block target score could be formed for block ") + std::to_string(b + 1) + ". Check that at least two blocks contain informative, non-degenerate signals.");
-      }
-
-      arma::vec grad = Xt[b] * target;
-
-      if (!is_valid_vector(grad)) {
-        Rcpp::stop(std::string("cpp_mbspls_one_lv: gradient became non-finite for block ") + std::to_string(b + 1) + ".");
-      }
-
-      // Enforce L2 = 1 and L1 ≈ c via bisection (PMD update)
-      W[b] = pmd_update_bisection(grad, c_constraints(b));
-
-    }
-
-    // CORE: Use standardized objective computation
-    double obj = compute_objective_direct_core(X, W, spearman, frobenius);
-
-    if (std::abs(obj - obj_old) < tol) {
-      log_info("     one-LV solver converged after " + std::to_string(it+1) + " iterations");
-      converged = true;
-      break;
-    }
-    obj_old = obj;
-  }
+  const OneLvFit fit = mbspls_fit_one_lv(X, c_constraints, max_iter, tol);
 
   // Build final results using core computation
-  ScoreMatrix final_scores = compute_scores_core(X, W);
+  const ScoreMatrix final_scores = compute_scores_core(X, fit.W);
   const double final_objective =
-    compute_objective_direct_core(X, W, spearman, frobenius);
+    compute_block_objective_core(final_scores, spearman, frobenius);
 
-  Rcpp::List W_out(B); 
+  Rcpp::List W_out(B);
   for (int b = 0; b < B; ++b) {
-    W_out[b] = W[b];
+    W_out[b] = fit.W[b];
   }
 
   return Rcpp::List::create(
-    Rcpp::_["W"]         = W_out,
-    Rcpp::_["T_mat"]     = final_scores.T,
-    Rcpp::_["objective"] = final_objective,
-    Rcpp::_["converged"] = converged
+    Rcpp::_["W"]          = W_out,
+    Rcpp::_["T_mat"]      = final_scores.T,
+    Rcpp::_["objective"]  = final_objective,
+    Rcpp::_["converged"]  = fit.converged,
+    Rcpp::_["iterations"] = fit.iterations
   );
 }
-
-// // Procrustes function (from original)
-// // [[Rcpp::export(rng = false)]]
-// arma::mat orth_procrustes(const arma::mat &A, const arma::mat &B) {
-//   if (A.n_rows != B.n_rows || A.n_cols != B.n_cols)
-//     Rcpp::stop("A and B must have identical shape for Procrustes rotation");
-
-//   arma::mat U, V; arma::vec s;
-//   arma::svd_econ(U, s, V, A.t() * B);
-
-//   arma::mat R = V * U.t();
-//   if (arma::det(R) < 0) {
-//     V.col(V.n_cols - 1) *= -1.0;
-//     R = V * U.t();
-//   }
-//   return R;
-// }
-
-// // [[Rcpp::export]]
-// double perm_test_component(
-//     const std::vector<arma::mat> &X_orig,
-//     const std::vector<arma::vec> &W_orig,
-//     const arma::vec             &c_vec,
-//     int                           n_perm   = 1000,
-//     bool                          spearman = false,
-//     int                           max_iter = 500,
-//     double                        tol      = 1e-4,
-//     double                        early_stop_threshold = 0.05,
-//     bool                          frobenius = false
-//   )
-// {
-//   const int B = static_cast<int>(X_orig.size());
-//   const int n = static_cast<int>(X_orig[0].n_rows);
-
-//   // Reference: scores & objective on the original, aligned blocks
-//   ScoreMatrix ref_scores = compute_scores_core(X_orig, W_orig);
-//   arma::mat T_ref = ref_scores.T;
-//   T_ref.each_row() -= arma::mean(T_ref, 0);
-//   const double obj_ref = compute_block_objective_core(ref_scores, spearman, frobenius);
-
-//   int ge = 0;
-
-//   for (int p = 0; p < n_perm; ++p) {
-//     // ────────────────────────────────────────────────────────────────
-//     // Permute ALL blocks independently to break cross-block alignment
-//     // ────────────────────────────────────────────────────────────────
-//     std::vector<arma::mat> X = X_orig;
-//     for (int b = 0; b < B; ++b) {
-//       arma::uvec idx = arma::shuffle(arma::regspace<arma::uvec>(0, n - 1));
-//       X[b] = X[b].rows(idx);
-//     }
-
-//     // Optional early-stop on running p-value
-//     if (p > 100 && p % 50 == 0) {
-//       double current_p = static_cast<double>(ge + 1) / (p + 1);
-//       if (current_p > early_stop_threshold) {
-//         return current_p;
-//       }
-//     }
-
-//     // Fit one-LV to the permuted blocks
-//     Rcpp::List X_list(B);
-//     for (int b = 0; b < B; ++b) X_list[b] = X[b];
-
-//     try {
-//       Rcpp::List fit = cpp_mbspls_one_lv(X_list, c_vec, max_iter, tol, frobenius);
-
-//       // Unwrap weights
-//       std::vector<arma::vec> Wp(B);
-//       Rcpp::List Wtmp = fit["W"];
-//       for (int b = 0; b < B; ++b) Wp[b] = Rcpp::as<arma::vec>(Wtmp[b]);
-
-//       // Compute & mean-center permuted scores
-//       ScoreMatrix perm_scores = compute_scores_core(X, Wp);
-//       arma::mat T_perm = perm_scores.T;
-//       T_perm.each_row() -= arma::mean(T_perm, 0);
-
-//       // Procrustes align to reference scores to remove sign/rotation ambiguity
-//       arma::mat R = orth_procrustes(T_ref, T_perm);
-//       T_perm = T_perm * R;
-
-//       // Evaluate objective on aligned permuted scores
-//       ScoreMatrix aligned_scores(n, B);
-//       aligned_scores.T = T_perm;
-//       aligned_scores.valid_blocks = perm_scores.valid_blocks;
-//       aligned_scores.n_valid = perm_scores.n_valid;
-
-//       double obj_perm = compute_block_objective_core(aligned_scores, spearman, frobenius);
-//       if (obj_perm >= obj_ref - 100.0 * std::numeric_limits<double>::epsilon() * std::abs(obj_ref)) ++ge;
-
-//     } catch (...) {
-//       // If a replicate fails to fit, skip it
-//       continue;
-//     }
-//   }
-
-//   return (ge + 1.0) / (n_perm + 1.0);
-// }
 
 // [[Rcpp::export]]
 double perm_test_component(
@@ -677,22 +741,13 @@ double perm_test_component(
       X[b] = X[b].rows(idx);
     }
 
-    // Fit one-LV to the permuted blocks using the SAME penalties
-    Rcpp::List X_list(B);
-    for (int b = 0; b < B; ++b) X_list[b] = X[b];
-
+    // Refit one LV to the permuted blocks with the SAME penalties, start and
+    // stopping rule as the observed fit
     try {
-      Rcpp::List fit = cpp_mbspls_one_lv(
-        X_list, c_vec, max_iter, tol, frobenius, spearman
-      );
-
-      // Unwrap weights
-      std::vector<arma::vec> Wp(B);
-      Rcpp::List Wtmp = fit["W"];
-      for (int b = 0; b < B; ++b) Wp[b] = Rcpp::as<arma::vec>(Wtmp[b]);
+      const OneLvFit fit = mbspls_fit_one_lv(X, c_vec, max_iter, tol);
 
       // Evaluate the SAME statistic on permuted fit — NO rotations/Procrustes
-      const double obj_perm = compute_objective_direct_core(X, Wp, spearman, frobenius);
+      const double obj_perm = compute_objective_direct_core(X, fit.W, spearman, frobenius);
 
       if (obj_perm >= obj_ref - 100.0 * std::numeric_limits<double>::epsilon() * std::abs(obj_ref)) ++ge;
 
@@ -745,6 +800,8 @@ Rcpp::List cpp_mbspls_multi_lv(const Rcpp::List&  X_blocks,
   std::vector<double> obj_vec, p_vec;
   std::vector<arma::vec> ev_block_list;
   std::vector<double>   ev_comp_list;
+  std::vector<bool>     converged_list;
+  std::vector<int>      iterations_list;
 
   for (int k = 0; k < K; ++k) {
     log_info("⏩  extracting component " + std::to_string(k + 1));
@@ -759,21 +816,14 @@ Rcpp::List cpp_mbspls_multi_lv(const Rcpp::List&  X_blocks,
     }
     if (!all_valid) break;
 
-    Rcpp::List X_list(B); 
-    for (int b = 0; b < B; ++b) X_list[b] = X[b];
-    
-    Rcpp::List fit;
+    OneLvFit fit;
     try {
-      fit = cpp_mbspls_one_lv(
-        X_list, c_constraints, max_iter, tol, frobenius, spearman
-      );
+      fit = mbspls_fit_one_lv(X, c_constraints, max_iter, tol);
     } catch (const std::exception &e) {
       Rcpp::stop(std::string("Component extraction failed at component ") + std::to_string(k + 1) + ": " + e.what());
     }
 
-    std::vector<arma::vec> Wk(B);
-    Rcpp::List Wtmp = fit["W"];
-    for (int b = 0; b < B; ++b) Wk[b] = Rcpp::as<arma::vec>(Wtmp[b]);
+    const std::vector<arma::vec>& Wk = fit.W;
 
     // CORE: Use standardized objective computation
     double obj_k = compute_objective_direct_core(X, Wk, spearman, frobenius);
@@ -836,6 +886,8 @@ Rcpp::List cpp_mbspls_multi_lv(const Rcpp::List&  X_blocks,
     p_vec.push_back(p_val);
     ev_block_list.push_back(ev_block);
     ev_comp_list.push_back(ev_comp);
+    converged_list.push_back(fit.converged);
+    iterations_list.push_back(fit.iterations);
 
     /* ---------- stop right after LV-1 if it was not significant ---------- */
     if (do_perm && !keep_it) {       // this can only be k == 0
@@ -879,7 +931,9 @@ Rcpp::List cpp_mbspls_multi_lv(const Rcpp::List&  X_blocks,
     Rcpp::_["objective"]  = obj_vec,
     Rcpp::_["p_values"]   = p_vec,
     Rcpp::_["ev_block"]   = ev_block_mat,
-    Rcpp::_["ev_comp"]    = ev_comp_vec
+    Rcpp::_["ev_comp"]    = ev_comp_vec,
+    Rcpp::_["converged"]  = Rcpp::wrap(converged_list),
+    Rcpp::_["iterations"] = Rcpp::wrap(iterations_list)
   );
 }
 
@@ -927,6 +981,8 @@ Rcpp::List cpp_mbspls_multi_lv_cmatrix(const Rcpp::List&  X_blocks,
   std::vector<double> obj_vec, p_vec;
   std::vector<arma::vec> ev_block_list;
   std::vector<double>   ev_comp_list;
+  std::vector<bool>     converged_list;
+  std::vector<int>      iterations_list;
 
   for (int k = 0; k < K; ++k) {
     log_info("⏩  extracting component " + std::to_string(k + 1));
@@ -937,23 +993,14 @@ Rcpp::List cpp_mbspls_multi_lv_cmatrix(const Rcpp::List&  X_blocks,
       Rcpp::stop("Unexpected c_matrix column length at component %d", k + 1);
 
     // Fit one LV on the *current* (already-deflated up to k-1) blocks
-    Rcpp::List X_list(B);
-    for (int b = 0; b < B; ++b) X_list[b] = X[b];
-
-    Rcpp::List fit;
+    OneLvFit fit;
     try {
-      // IMPORTANT: pass spearman through
-      fit = cpp_mbspls_one_lv(X_list, c_vec, max_iter, tol, frobenius, spearman);
+      fit = mbspls_fit_one_lv(X, c_vec, max_iter, tol);
     } catch (const std::exception &e) {
       Rcpp::stop(std::string("Component extraction failed at component ") + std::to_string(k + 1) + ": " + e.what());
     }
 
-    // Unwrap weights
-    std::vector<arma::vec> Wk(B);
-    {
-      Rcpp::List Wtmp = fit["W"];
-      for (int b = 0; b < B; ++b) Wk[b] = Rcpp::as<arma::vec>(Wtmp[b]);
-    }
+    const std::vector<arma::vec>& Wk = fit.W;
 
     // Objective for bookkeeping
     const double obj_k = compute_objective_direct_core(X, Wk, spearman, frobenius);
@@ -1023,6 +1070,8 @@ Rcpp::List cpp_mbspls_multi_lv_cmatrix(const Rcpp::List&  X_blocks,
     p_vec.push_back(p_val);
     ev_block_list.push_back(ev_block);
     ev_comp_list.push_back(ev_comp);
+    converged_list.push_back(fit.converged);
+    iterations_list.push_back(fit.iterations);
 
     // If LV-1 was not significant: keep it but stop afterwards
     if (do_perm && !keep_it) {
@@ -1066,76 +1115,12 @@ Rcpp::List cpp_mbspls_multi_lv_cmatrix(const Rcpp::List&  X_blocks,
     Rcpp::_["objective"]  = obj_vec,
     Rcpp::_["p_values"]   = p_vec,
     Rcpp::_["ev_block"]   = ev_block_mat,
-    Rcpp::_["ev_comp"]    = ev_comp_vec
+    Rcpp::_["ev_comp"]    = ev_comp_vec,
+    Rcpp::_["converged"]  = Rcpp::wrap(converged_list),
+    Rcpp::_["iterations"] = Rcpp::wrap(iterations_list)
   );
 }
 
-
-// [[Rcpp::export]]
-Rcpp::List cpp_ev_test(const Rcpp::List&  X_test,
-                       const Rcpp::List&  weights,
-                       const Rcpp::List&  loadings,
-                       int                ncomp)
-{
-  const int B = X_test.size();
-  
-  if (B == 0 || ncomp <= 0) {
-    return Rcpp::List::create(
-      Rcpp::_["block"] = arma::vec(B, arma::fill::zeros),
-      Rcpp::_["total"] = 0.0);
-  }
-  
-  arma::vec ss_tot(B, arma::fill::zeros), ss_exp(B, arma::fill::zeros);
-
-  std::vector<arma::mat> X(B);
-  for (int b = 0; b < B; ++b) {
-    X[b] = Rcpp::as<arma::mat>(X_test[b]);
-    ss_tot(b) = arma::accu(arma::square(X[b]));
-  }
-
-  // Loop over components
-  for (int k = 0; k < ncomp; ++k) {
-    // Unwrap weights / loadings for component k
-    Rcpp::List Wk_l = weights[k], Pk_l = loadings[k];
-    std::vector<arma::vec> Wk(B), Pk(B);
-    for (int b = 0; b < B; ++b) {
-      Wk[b] = Rcpp::as<arma::vec>(Wk_l[b]);
-      Pk[b] = Rcpp::as<arma::vec>(Pk_l[b]);
-    }
-
-    // Project + deflate
-    for (int b = 0; b < B; ++b) {
-      if (Wk[b].is_empty()) continue;
-      arma::vec tb = X[b] * Wk[b];
-      double norm2 = arma::dot(tb, tb);
-      if (norm2 < 1e-12) continue;
-
-      ss_exp(b) += norm2 * arma::dot(Pk[b], Pk[b]);
-      X[b] -= tb * Pk[b].t();  // Deflate for next component
-    }
-  }
-
-  arma::vec ev_block = arma::vec(B, arma::fill::zeros);
-  double ss_all = arma::accu(ss_tot);
-  
-  // Calculate EV with simple finite checks
-  for (int b = 0; b < B; ++b) {
-    if (ss_tot(b) > 1e-12) {
-      double ratio = ss_exp(b) / ss_tot(b);
-      ev_block(b) = std::isfinite(ratio) ? std::max(0.0, std::min(1.0, ratio)) : 0.0;
-    }
-  }
-
-  double ev_total = 0.0;
-  if (ss_all > 1e-12) {
-    double ratio = arma::accu(ss_exp) / ss_all;
-    ev_total = std::isfinite(ratio) ? std::max(0.0, std::min(1.0, ratio)) : 0.0;
-  }
-
-  return Rcpp::List::create(
-    Rcpp::_["block"] = ev_block,
-    Rcpp::_["total"] = ev_total);
-}
 
 // [[Rcpp::export]]
 Rcpp::List cpp_compute_test_ev_core(const Rcpp::List& X_blocks_test,
@@ -1316,254 +1301,6 @@ Rcpp::List cpp_compute_test_ev_core(const Rcpp::List& X_blocks_test,
     Rcpp::_["valid_block"] = valid_out,
     Rcpp::_["T_mat"] = T_mat
   );
-}
-
-// Bootstrap stability selection
-// [[Rcpp::export]]
-Rcpp::List cpp_mbspls_bootstrap(const Rcpp::List&  X_blocks,
-                                const arma::vec&   c_constraints,
-                                const Rcpp::List&  W_ref,
-                                int                R             = 500,
-                                bool               spearman      = false,
-                                bool               frobenius     = false,
-                                int                max_iter      = 500,
-                                double             tol           = 1e-6,
-                                bool               store_weights = true) {
-
-  const int B = X_blocks.size();
-  const int K = W_ref.size();
-  if (B == 0 || K == 0)
-    Rcpp::stop("empty input - need at least one block and one component");
-
-  if (static_cast<int>(c_constraints.n_elem) != B)
-    Rcpp::stop("c_constraints length must match number of blocks");
-
-  // Basic sizes
-  arma::mat X0 = Rcpp::as<arma::mat>(X_blocks[0]);
-  const int n = X0.n_rows;
-  if (n < 3)
-    Rcpp::stop("need at least 3 samples");
-
-  std::vector<int> block_sizes(B);
-  int Ptot = 0;
-  for (int b = 0; b < B; ++b) {
-    arma::mat Xi = Rcpp::as<arma::mat>(X_blocks[b]);
-    if (Xi.n_rows != n)
-      Rcpp::stop("inconsistent sample size across blocks");
-    block_sizes[b] = Xi.n_cols;
-    Ptot += Xi.n_cols;
-  }
-
-  // Flatten reference weights
-  std::vector<arma::vec> w_ref_flat(K);
-  for (int k = 0; k < K; ++k) {
-    Rcpp::List Wk = W_ref[k];
-    if (static_cast<int>(Wk.size()) != B)
-      Rcpp::stop("reference W wrong size");
-
-    arma::vec flat(Ptot, arma::fill::zeros);
-    int off = 0;
-    for (int b = 0; b < B; ++b) {
-      arma::vec wb = Rcpp::as<arma::vec>(Wk[b]);
-      if (static_cast<int>(wb.n_elem) != block_sizes[b])
-        Rcpp::stop("W size mismatch");
-      flat.subvec(off, off + wb.n_elem - 1) = wb;
-      off += wb.n_elem;
-    }
-    w_ref_flat[k] = flat;
-  }
-
-  // Containers
-  arma::mat sel_freq(Ptot, K, arma::fill::zeros);
-  arma::cube weight_store;
-  if (store_weights)
-    weight_store.set_size(Ptot, K, R);  // Dense cube only on request
-
-  int ok_runs = 0;
-
-  // Bootstrap loop
-  for (int r = 0; r < R; ++r) {
-    try {
-      // 1. Resample indices (with replacement)
-      arma::uvec idx = arma::randi<arma::uvec>(n, arma::distr_param(0, n - 1));
-
-      // 2. Materialise resampled blocks
-      Rcpp::List X_star(B);
-      for (int b = 0; b < B; ++b) {
-        arma::mat Xb = Rcpp::as<arma::mat>(X_blocks[b]);
-        X_star[b] = arma::mat(Xb.rows(idx));
-      }
-
-      // 3. Fit MB-sPLS on resampled data
-      Rcpp::List fit = cpp_mbspls_multi_lv(
-        /* X_blocks */     X_star,
-        /* c_constraints */c_constraints,
-        /* K */            K,
-        /* max_iter */     max_iter,
-        /* tol */          tol,
-        /* spearman */     spearman,
-        /* do_perm */      false,
-        /* n_perm */       100,
-        /* alpha */        0.05,
-        /* frobenius */    frobenius
-      );
-
-      Rcpp::List fitW = fit["W"];
-      const int Kfit = fitW.size();
-
-      // 4. Collect weights & selection freq.
-      for (int k = 0; k < std::min(K, Kfit); ++k) {
-        Rcpp::List Wk = fitW[k];
-
-        arma::vec flat(Ptot, arma::fill::zeros);
-        int off = 0;
-        for (int b = 0; b < B; ++b) {
-          arma::vec wb = Rcpp::as<arma::vec>(Wk[b]);
-          flat.subvec(off, off + wb.n_elem - 1) = wb;
-          off += wb.n_elem;
-        }
-        // Sign match
-        if (arma::dot(flat, w_ref_flat[k]) < 0)
-          flat = -flat;
-
-        if (store_weights)
-          weight_store.slice(ok_runs).col(k) = flat;
-
-        sel_freq.col(k) += arma::conv_to<arma::vec>::from(
-                             arma::abs(flat) > 1e-12);
-      }
-
-      ++ok_runs;
-
-    } catch (const std::exception &e) {
-      Rcpp::stop(std::string("Bootstrap replicate ") + std::to_string(r + 1) +
-                 " failed while refitting MB-sPLS: " + e.what());
-    }
-  }
-
-  // Post-processing
-  if (ok_runs == 0)
-    Rcpp::stop("All bootstrap replicates failed.");
-
-  sel_freq /= ok_runs;
-
-  if (store_weights)
-    weight_store = weight_store.slices(0, ok_runs - 1);  // Shrink to filled
-
-  // Build return list
-  Rcpp::List out = Rcpp::List::create(
-    Rcpp::Named("freq")            = sel_freq,
-    Rcpp::Named("successful_runs") = ok_runs
-  );
-
-  if (store_weights)
-    out.push_back(Rcpp::wrap(weight_store), "weights");
-  else
-    out.push_back(R_NilValue, "weights");
-
-  return out;
-}
-
-// Bootstrap latent correlation
-// [[Rcpp::export]]
-double cpp_bootstrap_latent_correlation(const arma::mat&  weights_matrix,
-                                        const arma::ivec& component_idx,
-                                        const arma::ivec& block_idx,
-                                        int               n_blocks,
-                                        int               n_components,
-                                        bool              spearman   = false,
-                                        double            min_var    = 1e-12,
-                                        bool              frobenius  = false)    // ← NEW
-{
-  if (n_blocks < 2) {
-    Rcpp::stop("cpp_bootstrap_latent_correlation: need at least two blocks to compute a latent correlation.");
-  }
-
-  double acc          = 0.0;        // collects  Σ|r|  or  Σr²
-  int    n_comparisons = 0;
-  
-  // Process each component
-  for (int k = 1; k <= n_components; ++k) {
-    // Find features belonging to this component
-    arma::uvec comp_mask = arma::find(component_idx == k);
-    if (comp_mask.n_elem == 0) continue;
-    
-    // Group by blocks for this component
-    std::vector<arma::vec> block_weights(n_blocks);
-    std::vector<bool> block_has_data(n_blocks, false);
-    
-    for (arma::uword i = 0; i < comp_mask.n_elem; ++i) {
-      arma::uword feat_idx = comp_mask(i);
-      int block_id = block_idx(feat_idx) - 1; // Convert to 0-based
-      
-      if (block_id >= 0 && block_id < n_blocks) {
-        if (!block_has_data[block_id]) {
-          block_weights[block_id] = arma::vec();
-          block_has_data[block_id] = true;
-        }
-        
-        // Collect weights for this block (use absolute values)
-        double weight_val = std::abs(weights_matrix(feat_idx, 0));
-        block_weights[block_id] = arma::join_cols(block_weights[block_id], 
-                                                  arma::vec{weight_val});
-      }
-    }
-    
-    // Count blocks with sufficient data
-    std::vector<int> valid_blocks;
-    for (int b = 0; b < n_blocks; ++b) {
-      if (block_has_data[b] && block_weights[b].n_elem >= 3) {
-        double var_b = arma::var(block_weights[b]);
-        if (var_b > min_var) {
-          valid_blocks.push_back(b);
-        }
-      }
-    }
-    
-    // Compute pairwise correlations
-    if (valid_blocks.size() >= 2) {
-      for (size_t i = 0; i < valid_blocks.size() - 1; ++i) {
-        for (size_t j = i + 1; j < valid_blocks.size(); ++j) {
-          int b1 = valid_blocks[i];
-          int b2 = valid_blocks[j];
-          
-          arma::vec w1 = block_weights[b1];
-          arma::vec w2 = block_weights[b2];
-          if (w1.n_elem != w2.n_elem) {
-            Rcpp::stop(std::string("cpp_bootstrap_latent_correlation: block weight vectors have unequal lengths for component ") +
-                       std::to_string(k) + ", blocks " + std::to_string(b1 + 1) + " and " + std::to_string(b2 + 1) +
-                       ". Correlation is undefined without an explicit feature alignment.");
-          }
-          if (w1.n_elem >= 3) {
-            double cor_val = 0.0;
-            if (spearman) {
-              // Convert to ranks for Spearman
-              arma::vec r1 = arma::conv_to<arma::vec>::from(arma::sort_index(arma::sort_index(w1)));
-              arma::vec r2 = arma::conv_to<arma::vec>::from(arma::sort_index(arma::sort_index(w2)));
-              cor_val = arma::as_scalar(arma::cor(r1, r2));
-            } else {
-              cor_val = arma::as_scalar(arma::cor(w1, w2));
-            }
-            
-            if (std::isfinite(cor_val)) {
-              acc += frobenius ? cor_val * cor_val          // Σ r²
-                               : std::abs(cor_val);         // Σ |r|
-              ++n_comparisons;
-            }
-          }
-        }
-      }
-    }
-  }
-  
-  // Return performance based on measure, frobenius norm or mean absolute correlation
-  if (n_comparisons == 0) {
-    Rcpp::stop("cpp_bootstrap_latent_correlation: no valid block comparisons remain after feature grouping.");
-  }
-
-  return frobenius
-         ? std::sqrt(acc)                 // ‖R‖_F   (same convention as solver)
-         : acc / n_comparisons;           // ⟨|r|⟩
 }
 
 // ─────────────────────────────────────────────────────────────────────

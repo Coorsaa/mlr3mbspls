@@ -5,7 +5,8 @@
 //
 //  Exported to R (via Rcpp):
 //    * cpp_mbspca_one_lv()                  – one‑component solver
-//    * perm_test_component_mbspca()         – variance‑based permutation test
+//    * perm_test_component_mbspca()         – cross‑block permutation test
+//                                             on the variance statistic
 //
 //  Compile with:
 //    Rcpp::sourceCpp("src/mbspca.cpp"), or within an R package's src/
@@ -121,7 +122,16 @@ Rcpp::List cpp_mbspca_one_lv(const Rcpp::List   &X_blocks,
   );
 }
 
-// ─────────────────── permutation test (variance) ────────────────────
+// ──────────── cross-block permutation test (variance statistic) ─────────
+//
+// Statistic: variance explained by the refitted component,
+// ||sum_b X_b w_b||^2 / SS_tot. Null: the blocks are mutually independent.
+// Rows are permuted independently within each block, which keeps every
+// within-block covariance (and so each block's own ||X_b w_b||^2 maximum)
+// and destroys only the cross-block alignment. A component that carries
+// block-specific variance but no cross-block association is therefore not
+// significant. A single block is invariant under row permutation, so at
+// least two blocks are required.
 //
 // [[Rcpp::export]]
 double perm_test_component_mbspca(const Rcpp::List   &X_blocks,
@@ -134,6 +144,8 @@ double perm_test_component_mbspca(const Rcpp::List   &X_blocks,
 {
   const int B = X_blocks.size();
   if (!B) Rcpp::stop("perm_test_component_mbspca: X_blocks is empty.");
+  if (B < 2)
+    Rcpp::stop("perm_test_component_mbspca: the cross-block row-permutation null requires at least two blocks; a single block is invariant under row permutation.");
   if (W_list.size() != B)
     Rcpp::stop("perm_test_component_mbspca: W_list length must equal the number of blocks.");
   if (static_cast<int>(c_vec.n_elem) != B || !c_vec.is_finite() || arma::any(c_vec <= 0.0))
@@ -177,8 +189,8 @@ double perm_test_component_mbspca(const Rcpp::List   &X_blocks,
   /* permutation loop */
   int ge = 0;
   for (int p = 0; p < n_perm; ++p) {
-    /* permute rows of each block independently (preserving within-block covariance
-     * while destroying cross-block alignment - the correct null for MB-sPCA) */
+    /* permute rows of each block independently: within-block covariance is
+     * preserved and only the cross-block alignment is destroyed */
     std::vector<mat> Xp(B);
     for (int b = 0; b < B; ++b) {
       arma::uvec row_idx = arma::randperm(n);

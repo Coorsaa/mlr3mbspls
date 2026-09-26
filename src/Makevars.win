@@ -1,2 +1,6 @@
 CXX_STD = CXX17
+
+## Select the current Armadillo, as in src/Makevars.
+PKG_CPPFLAGS = -DARMA_USE_CURRENT
+
 PKG_LIBS = $(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)
