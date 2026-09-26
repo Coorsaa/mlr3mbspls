@@ -67,6 +67,10 @@ Unseen batches can be handled with
 \strong{DIR (\code{"dir"}, via \pkg{fairmodels})}
 \itemize{
 \item Applies distribution repair per block with the given \code{lambda}.
+\item Prediction uses feature- and group-specific repair maps fitted on training
+observations, with linear interpolation between observed values and constant
+repair shifts beyond the training range. It never re-estimates distributions
+from prediction data. Missing or unseen protected groups are rejected.
 }
 
 The operator preserves targets, reconstructs a backend with stable row ids,
@@ -107,7 +111,7 @@ unseen \strong{categorical} site under \code{"partial_corr"}. Default \code{"oth
 \item \code{zero_center} (\code{logical(1)}): Re-add grand means? Default \code{FALSE}.
 \item \code{revertflag} (\code{logical(1)}): Add instead of subtract the site effect.
 \item \code{regularization} (\code{numeric(1)}): Ridge penalty to stabilize the site
-regression (\code{0} => internally \code{1e-6}).
+regression. A value of \code{0} requests unpenalized least squares.
 \item \code{subgroup} (\code{logical()}/\code{integer()}): Optional row subset for fitting.
 }
 }
@@ -166,22 +170,34 @@ library(mlr3)
 library(mlr3pipelines)
 library(data.table)
 task = tsk("pima")
-# fake columns
-task$data[, site := sample(LETTERS[1:3], .N, TRUE)]
-task$data[, Age := rnorm(.N)]
-task$data[, Sex := sample(c("F", "M"), .N, TRUE)]
+if (requireNamespace("neuroCombat", quietly = TRUE)) {
+  numeric_features = task$feature_names
+  backend = task$data()
+  backend = backend[stats::complete.cases(backend)]
+  backend[, site := sample(LETTERS[1:3], .N, TRUE)]
+  backend[, age_adjustment := rnorm(.N)]
+  backend[, sex_adjustment := sample(c("F", "M"), .N, TRUE)]
+  task = TaskClassif$new(
+    "pima_site",
+    backend,
+    target = "diabetes",
+    positive = "pos"
+  )
 
-po_site = PipeOpSiteCorrection$new(param_vals = list(
-  blocks = list(num = task$feature_names),
-  site_correction = list(
-    num = list(site = "site", covariates = c("Age", "Sex")) # <-- ComBat with mod
-  ),
-  method = list(num = "combat"),
-  keep_site_col = FALSE,
-  combat_unknown = "noop"
-))
-g = po("copy") \%>>\% po_site
-g$train(task)
+  po_site = PipeOpSiteCorrection$new(param_vals = list(
+    blocks = list(num = numeric_features),
+    site_correction = list(
+      num = list(
+        site = "site",
+        covariates = c("age_adjustment", "sex_adjustment")
+      )
+    ),
+    method = list(num = "combat"),
+    keep_site_col = FALSE,
+    combat_unknown = "noop"
+  ))
+  as_graph(po_site)$train(task)
+}
 }
 
 }

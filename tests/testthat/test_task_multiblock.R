@@ -159,7 +159,12 @@ test_that("TaskMultiBlock syncs block metadata on rename and keeps blocks read-o
 
   expect_equal(task$blocks, list(a = c("a1_sfx", "a2"), b = "b1_sfx"))
   expect_equal(task$extra_args$blocks, list(a = c("a1_sfx", "a2"), b = "b1_sfx"))
-  expect_error(task$blocks <- list(a = "a1"), "read-only")
+  expect_error(
+    {
+      task$blocks = list(a = "a1")
+    },
+    "read-only"
+  )
 })
 
 
@@ -191,4 +196,26 @@ test_that("TaskMultiBlock matrix extraction fails loudly for non-numeric block f
     task$block_data(as_matrix = TRUE),
     "requires numeric, integer, or logical"
   )
+})
+
+test_that("potato adapter expands matrix-valued data-frame columns", {
+  testthat::skip_if_not_installed("multiblock")
+
+  task_regr = task_multiblock_potato(task_type = "regr", response = 1L)
+  expect_s3_class(task_regr, "TaskRegr")
+  expect_equal(task_regr$nrow, 26L)
+  expect_equal(task_regr$target_names, "y")
+  expect_setequal(
+    task_regr$block_names,
+    c("Chemical", "Compression", "NIRraw")
+  )
+  expect_equal(
+    lengths(task_regr$block_features()),
+    c(Chemical = 14L, Compression = 12L, NIRraw = 1050L)
+  )
+  expect_true(all(is.finite(task_regr$truth())))
+
+  task_clust = task_multiblock_potato(task_type = "clust")
+  expect_s3_class(task_clust, "TaskClust")
+  expect_equal(task_clust$nrow, 26L)
 })

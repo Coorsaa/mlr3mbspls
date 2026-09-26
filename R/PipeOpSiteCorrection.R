@@ -52,6 +52,10 @@
 #'
 #' **DIR (`"dir"`, via \pkg{fairmodels})**
 #' - Applies distribution repair per block with the given `lambda`.
+#' - Prediction uses feature- and group-specific repair maps fitted on training
+#'   observations, with linear interpolation between observed values and constant
+#'   repair shifts beyond the training range. It never re-estimates distributions
+#'   from prediction data. Missing or unseen protected groups are rejected.
 #'
 #' The operator preserves targets, reconstructs a backend with stable row ids,
 #' and (by default) **drops** all site/covariate columns referenced in `site_correction`
@@ -91,7 +95,7 @@
 #'       \item `zero_center` (`logical(1)`): Re-add grand means? Default `FALSE`.
 #'       \item `revertflag` (`logical(1)`): Add instead of subtract the site effect.
 #'       \item `regularization` (`numeric(1)`): Ridge penalty to stabilize the site
-#'         regression (`0` => internally `1e-6`).
+#'         regression. A value of `0` requests unpenalized least squares.
 #'       \item `subgroup` (`logical()`/`integer()`): Optional row subset for fitting.
 #'     }
 #'   }
@@ -148,22 +152,34 @@
 #' library(mlr3pipelines)
 #' library(data.table)
 #' task = tsk("pima")
-#' # fake columns
-#' task$data[, site := sample(LETTERS[1:3], .N, TRUE)]
-#' task$data[, Age := rnorm(.N)]
-#' task$data[, Sex := sample(c("F", "M"), .N, TRUE)]
+#' if (requireNamespace("neuroCombat", quietly = TRUE)) {
+#'   numeric_features = task$feature_names
+#'   backend = task$data()
+#'   backend = backend[stats::complete.cases(backend)]
+#'   backend[, site := sample(LETTERS[1:3], .N, TRUE)]
+#'   backend[, age_adjustment := rnorm(.N)]
+#'   backend[, sex_adjustment := sample(c("F", "M"), .N, TRUE)]
+#'   task = TaskClassif$new(
+#'     "pima_site",
+#'     backend,
+#'     target = "diabetes",
+#'     positive = "pos"
+#'   )
 #'
-#' po_site = PipeOpSiteCorrection$new(param_vals = list(
-#'   blocks = list(num = task$feature_names),
-#'   site_correction = list(
-#'     num = list(site = "site", covariates = c("Age", "Sex")) # <-- ComBat with mod
-#'   ),
-#'   method = list(num = "combat"),
-#'   keep_site_col = FALSE,
-#'   combat_unknown = "noop"
-#' ))
-#' g = po("copy") %>>% po_site
-#' g$train(task)
+#'   po_site = PipeOpSiteCorrection$new(param_vals = list(
+#'     blocks = list(num = numeric_features),
+#'     site_correction = list(
+#'       num = list(
+#'         site = "site",
+#'         covariates = c("age_adjustment", "sex_adjustment")
+#'       )
+#'     ),
+#'     method = list(num = "combat"),
+#'     keep_site_col = FALSE,
+#'     combat_unknown = "noop"
+#'   ))
+#'   as_graph(po_site)$train(task)
+#' }
 #' }
 #'
 #' @family PipeOps
@@ -247,24 +263,181 @@ PipeOpSiteCorrection = R6::R6Class(
       if (is.null(m)) "partial_corr" else as.character(m)
     },
 
+    .validate_named_map = function(value, name, block_names) {
+      if (is.null(value) || (is.list(value) && !length(value))) {
+        return(invisible(TRUE))
+      }
+      if (!is.list(value) || is.null(names(value)) ||
+        anyNA(names(value)) || any(!nzchar(names(value))) ||
+        anyDuplicated(names(value))) {
+        stop(sprintf(
+          "`%s` must be a named list with unique, non-empty block names.",
+          name
+        ), call. = FALSE)
+      }
+      unknown = setdiff(names(value), block_names)
+      if (length(unknown)) {
+        stop(sprintf(
+          "`%s` refers to unknown or unusable blocks: %s.",
+          name,
+          paste(unknown, collapse = ", ")
+        ), call. = FALSE)
+      }
+      invisible(TRUE)
+    },
+
+    .validate_subgroup = function(subgroup, n) {
+      if (is.null(subgroup)) {
+        return(rep.int(TRUE, n))
+      }
+      if (is.logical(subgroup)) {
+        if (length(subgroup) != n || anyNA(subgroup)) {
+          stop(
+            "`subgroup` must be a non-missing logical vector with one entry per training row.",
+            call. = FALSE
+          )
+        }
+        selected = subgroup
+      } else if (is.numeric(subgroup)) {
+        if (!length(subgroup) || anyNA(subgroup) ||
+          any(!is.finite(subgroup)) || any(subgroup != floor(subgroup)) ||
+          any(subgroup < 1L | subgroup > n)) {
+          stop(
+            "Numeric `subgroup` entries must be valid training-row positions.",
+            call. = FALSE
+          )
+        }
+        selected = seq_len(n) %in% as.integer(subgroup)
+      } else {
+        stop("`subgroup` must be NULL, logical, or integer-valued numeric.",
+          call. = FALSE)
+      }
+      if (sum(selected) < 2L) {
+        stop("`subgroup` must select at least two training rows.",
+          call. = FALSE)
+      }
+      selected
+    },
+
+    .prepare_design_data = function(data, schema = NULL, context) {
+      data = as.data.frame(data, stringsAsFactors = FALSE)
+      if (!ncol(data) || anyNA(data)) {
+        stop(sprintf(
+          "%s must contain at least one complete covariate column.",
+          context
+        ), call. = FALSE)
+      }
+
+      if (is.null(schema)) {
+        schema = lapply(names(data), function(name) {
+          value = data[[name]]
+          if (is.character(value) || is.factor(value) || is.logical(value)) {
+            observed = unique(as.character(value))
+            levels = if (is.factor(value)) {
+              levels(value)[levels(value) %in% observed]
+            } else {
+              sort(observed)
+            }
+            if (length(levels) < 2L) {
+              stop(sprintf(
+                "%s categorical covariate '%s' must have at least two observed levels.",
+                context,
+                name
+              ), call. = FALSE)
+            }
+            list(type = "factor", levels = levels, ordered = is.ordered(value))
+          } else if (is.numeric(value)) {
+            if (any(!is.finite(value))) {
+              stop(sprintf("%s covariate '%s' must be finite.", context, name),
+                call. = FALSE)
+            }
+            list(type = "numeric")
+          } else {
+            stop(sprintf(
+              "%s covariate '%s' has unsupported class '%s'.",
+              context,
+              name,
+              class(value)[[1L]]
+            ), call. = FALSE)
+          }
+        }) |>
+          stats::setNames(names(data))
+      } else {
+        if (!is.list(schema) || !identical(names(schema), names(data))) {
+          stop(sprintf("%s does not match the fitted covariate schema.", context),
+            call. = FALSE)
+        }
+      }
+
+      for (name in names(schema)) {
+        specification = schema[[name]]
+        if (identical(specification$type, "numeric")) {
+          if (!is.numeric(data[[name]]) || any(!is.finite(data[[name]]))) {
+            stop(sprintf("%s covariate '%s' must be finite numeric data.",
+              context, name), call. = FALSE)
+          }
+        } else if (identical(specification$type, "factor")) {
+          values = as.character(data[[name]])
+          unseen = setdiff(unique(values), specification$levels)
+          if (length(unseen)) {
+            stop(sprintf(
+              "%s covariate '%s' contains unseen levels: %s.",
+              context,
+              name,
+              paste(unseen, collapse = ", ")
+            ), call. = FALSE)
+          }
+          data[[name]] = factor(
+            values,
+            levels = specification$levels,
+            ordered = isTRUE(specification$ordered)
+          )
+        } else {
+          stop(sprintf("%s contains an invalid fitted covariate schema.",
+            context), call. = FALSE)
+        }
+      }
+
+      list(data = data, schema = schema)
+    },
+
     .encode_site = function(site_vec, known_levels, strategy = c("other", "baseline"), ref_level = NULL) {
       strategy = match.arg(strategy)
       s = as.character(site_vec)
-      fac = factor(s, levels = known_levels)
-      unseen = setdiff(unique(s), known_levels)
-      if (length(unseen)) {
-        if (strategy == "other") {
-          levels(fac) = c(levels(fac), ".other")
-          fac[s %in% unseen] = ".other"
-        } else {
-          baseline = if (is.null(ref_level)) known_levels[1L] else ref_level
-          fac[s %in% unseen] = baseline
-          fac = factor(fac, levels = known_levels)
+      unseen = is.na(s) | !s %in% known_levels
+      baseline = if (is.null(ref_level)) known_levels[[1L]] else ref_level
+      s[unseen] = baseline
+      # Explicit treatment coding freezes the reference level and is independent
+      # of global contrast options or literal site labels such as '.other'.
+      mm = matrix(1, nrow = length(s), ncol = length(known_levels),
+        dimnames = list(NULL, c("(Intercept)", paste0("site:", known_levels[-1L]))))
+      for (j in seq_along(known_levels)[-1L]) {
+        mm[, j] = as.numeric(s == known_levels[[j]])
+      }
+      if (identical(strategy, "other")) mm[unseen, ] = 0
+      mm
+    },
+
+    .apply_dir = function(X, protected, repair_maps) {
+      for (name in colnames(X)) {
+        for (group in unique(protected)) {
+          selected = protected == group
+          map = repair_maps[[name]][[group]]
+          if (is.null(map) || !length(map$x) ||
+            length(map$x) != length(map$shift) ||
+            any(!is.finite(c(map$x, map$shift)))) {
+            stop("DIR fitted repair map is missing or invalid.", call. = FALSE)
+          }
+          shift = if (length(map$x) == 1L) {
+            rep(map$shift, sum(selected))
+          } else {
+            stats::approx(map$x, map$shift, xout = X[selected, name],
+              rule = 2, ties = "ordered")$y
+          }
+          X[selected, name] = X[selected, name] + shift
         }
       }
-      mm = stats::model.matrix(~fac) # intercept + k-1 dummies
-      colnames(mm) = gsub("^fac", "", colnames(mm))
-      mm
+      X
     },
 
     .combat_valid_batches = function(est) {
@@ -273,7 +446,9 @@ PipeOpSiteCorrection = R6::R6Class(
         labs = rownames(est$gamma.hat)
       } else if (!is.null(est$gamma.star) && !is.null(rownames(est$gamma.star))) {
         labs = rownames(est$gamma.star)
-      } else if (!is.null(est$batch)) labs <- unique(as.character(est$batch))
+      } else if (!is.null(est$batch)) {
+        labs = unique(as.character(est$batch))
+      }
       unique(as.character(labs))
     },
 
@@ -285,6 +460,29 @@ PipeOpSiteCorrection = R6::R6Class(
         keep.null = TRUE)
 
       blocks = private$.validate_blocks(task, pv$blocks)
+      blocks = Filter(length, blocks)
+      if (!length(blocks)) {
+        stop("PipeOpSiteCorrection: no numeric features remain in any block.",
+          call. = FALSE)
+      }
+      private$.validate_named_map(
+        pv$site_correction, "site_correction", names(blocks)
+      )
+      private$.validate_named_map(pv$method, "method", names(blocks))
+      if (!is.null(pv$method)) {
+        invalid_methods = vapply(pv$method, function(value) {
+          !is.null(value) && (
+            length(value) != 1L || !is.character(value) || is.na(value) ||
+              !value %in% c("partial_corr", "combat", "dir")
+          )
+        }, logical(1L))
+        if (any(invalid_methods)) {
+          stop(sprintf(
+            "Invalid site-correction methods for blocks: %s.",
+            paste(names(pv$method)[invalid_methods], collapse = ", ")
+          ), call. = FALSE)
+        }
+      }
       if (is.null(pv$site_correction) || !length(pv$site_correction)) {
         self$state = list(
           blocks = blocks,
@@ -322,11 +520,7 @@ PipeOpSiteCorrection = R6::R6Class(
       have_fm = requireNamespace("fairmodels", quietly = TRUE)
       per_block = list()
 
-      idx_fit = if (is.null(pv$subgroup)) {
-        seq_len(nrow(dt))
-      } else {
-        if (is.logical(pv$subgroup)) pv$subgroup else seq_len(nrow(dt)) %in% pv$subgroup
-      }
+      idx_fit = private$.validate_subgroup(pv$subgroup, nrow(dt))
 
       blocks_eff = blocks # will hold features *excluding* any referenced site/covariate columns
 
@@ -348,6 +542,12 @@ PipeOpSiteCorrection = R6::R6Class(
               stop(sprintf("Block '%s' (combat): 'site' must be character(1).", bn))
             }
             combat_covs = as.character(xspec$covariates %||% character(0))
+            if (combat_site %in% combat_covs) {
+              stop(sprintf(
+                "Block '%s' (combat): the batch column must not also be a covariate.",
+                bn
+              ), call. = FALSE)
+            }
           } else {
             # backward compat: single string is the site
             # Emit a one-time warning so users know to update to list() format
@@ -365,10 +565,22 @@ PipeOpSiteCorrection = R6::R6Class(
           site_cols = as.character(xspec)
         }
 
-        if (!length(site_cols)) next
+        if (!length(site_cols) || anyNA(site_cols) || any(!nzchar(site_cols))) {
+          stop(sprintf(
+            "Block '%s': site/covariate specification must be non-empty and non-missing.",
+            bn
+          ), call. = FALSE)
+        }
+        site_cols = unique(site_cols)
         missing_sites = setdiff(site_cols, names(dt))
         if (length(missing_sites)) {
           stop(sprintf("Block '%s': missing referenced column(s): %s", bn, paste(missing_sites, collapse = ", ")))
+        }
+        if (anyNA(dt[, .SD, .SDcols = site_cols])) {
+          stop(sprintf(
+            "Block '%s': referenced site/covariate columns contain missing values.",
+            bn
+          ), call. = FALSE)
         }
 
         Xcols_raw = blocks[[bn]]
@@ -382,7 +594,11 @@ PipeOpSiteCorrection = R6::R6Class(
           lgr$info("Block '%s': no non-site features left after exclusion; skipping correction", bn)
           next
         }
-        X = as.matrix(dt[, .SD, .SDcols = Xcols])
+        X = .mb_numeric_matrix(
+          as.matrix(dt[, .SD, .SDcols = Xcols]),
+          sprintf("PipeOpSiteCorrection training block '%s'", bn)
+        )
+        colnames(X) = Xcols
 
         if (identical(method, "partial_corr")) {
 
@@ -390,26 +606,65 @@ PipeOpSiteCorrection = R6::R6Class(
           if (single_cat) {
             site_vec = dt[[site_cols]]
             site_lvls = levels(factor(site_vec))
+            if (length(site_lvls) < 2L) {
+              stop(sprintf(
+                "Block '%s' (partial_corr): categorical site '%s' must have at least two observed levels.",
+                bn,
+                site_cols
+              ), call. = FALSE)
+            }
             G_all = private$.encode_site(site_vec, site_lvls, strategy = "other")
             G_fit = G_all[idx_fit, , drop = FALSE]
             design_kind = "categorical"
+            design_schema = NULL
+            design_contrasts = NULL
           } else {
             Z_all = dt[, .SD, .SDcols = site_cols]
-            for (cc in names(Z_all)) if (is.character(Z_all[[cc]])) Z_all[, (cc) := factor(get(cc))]
-            G_all = stats::model.matrix(~., data = Z_all)
+            prepared = private$.prepare_design_data(
+              Z_all,
+              context = sprintf("Block '%s' (partial_corr) training design", bn)
+            )
+            G_all = stats::model.matrix(
+              ~.,
+              data = prepared$data,
+              na.action = stats::na.fail
+            )
             G_fit = G_all[idx_fit, , drop = FALSE]
             site_lvls = NULL
             design_kind = "matrix"
+            design_schema = prepared$schema
+            design_contrasts = attr(G_all, "contrasts")
           }
           design_cols = colnames(G_fit)
+          if (nrow(G_fit) < ncol(G_fit) && !(pv$regularization > 0)) {
+            stop(sprintf(
+              paste0(
+                "Block '%s' (partial_corr): the selected subgroup has fewer ",
+                "rows (%d) than design columns (%d); use a positive ",
+                "regularization value or a larger subgroup."
+              ),
+              bn,
+              nrow(G_fit),
+              ncol(G_fit)
+            ), call. = FALSE)
+          }
 
           lambda = pv$regularization %||% 0
+          if (lambda == 0 && qr(G_fit)$rank < ncol(G_fit)) {
+            stop(sprintf(
+              paste0(
+                "Block '%s' (partial_corr): the training design is rank deficient; ",
+                "remove redundant covariates, include every site in the fitting ",
+                "subgroup, or use positive regularization."
+              ), bn
+            ), call. = FALSE)
+          }
           if (lambda > 0) {
             beta = cpp_lm_coeff_ridge(
               as.matrix(G_fit),
               as.matrix(X[idx_fit, , drop = FALSE]),
               lambda,
-              which(colnames(G_fit) %in% c("(Intercept)")) - 1L
+              which(colnames(G_fit) %in% "(Intercept)")
             )
           } else {
             beta = cpp_lm_coeff(
@@ -423,19 +678,23 @@ PipeOpSiteCorrection = R6::R6Class(
 
           mu = colMeans(X, na.rm = TRUE)
           Xcorr = if (isTRUE(pv$revertflag)) X + G_all %*% beta else X - G_all %*% beta
-          if (!isTRUE(pv$zero_center)) Xcorr <- sweep(Xcorr, 2, mu, "+")
+          if (!isTRUE(pv$zero_center)) {
+            Xcorr = sweep(Xcorr, 2, mu, "+")
+          }
           dt[, (Xcols) := as.data.table(Xcorr)]
 
           per_block[[bn]] = list(
-            method      = "partial_corr",
-            site_cols   = site_cols,
+            method = "partial_corr",
+            site_cols = site_cols,
             design_cols = design_cols,
-            beta        = beta,
-            means       = mu,
+            beta = beta,
+            means = mu,
             zero_center = isTRUE(pv$zero_center),
-            revert      = isTRUE(pv$revertflag),
+            revert = isTRUE(pv$revertflag),
             design_kind = design_kind,
-            site_lvls   = site_lvls
+            site_lvls = site_lvls,
+            design_schema = design_schema,
+            design_contrasts = design_contrasts
           )
           blocks_eff[[bn]] = Xcols
 
@@ -492,19 +751,49 @@ PipeOpSiteCorrection = R6::R6Class(
             ), call. = FALSE)
           }
           dat = data.frame(dt[, .SD, .SDcols = Xcols], protected = prot_vec)
-          repaired = fairmodels::disparate_impact_remover(
-            data                  = dat,
-            protected             = prot_vec,
-            features_to_transform = Xcols,
-            lambda                = pv$lambda %||% 0.5
-          )
+          lambda = pv$lambda %||% 0.5
+          # fairmodels quantizes even at lambda = 0 and cannot repair a feature
+          # that is constant in any group; handle both cases explicitly.
+          if (lambda > 0) {
+            degenerate = vapply(Xcols, function(name) {
+              any(vapply(split(dat[[name]], prot_vec), function(values) {
+                length(unique(values)) < 2L
+              }, logical(1L)))
+            }, logical(1L))
+            if (any(degenerate)) {
+              stop(sprintf(
+                "Block '%s' (dir): each protected group needs at least two distinct training values for features: %s.",
+                bn, paste(Xcols[degenerate], collapse = ", ")
+              ), call. = FALSE)
+            }
+            repaired = fairmodels::disparate_impact_remover(
+              data = dat,
+              protected = prot_vec,
+              features_to_transform = Xcols,
+              lambda = lambda
+            )
+          } else {
+            repaired = dat
+          }
+          repair_maps = lapply(Xcols, function(name) {
+            maps = lapply(levels(prot_vec), function(group) {
+              idx = which(prot_vec == group)
+              idx = idx[order(dat[[name]][idx])]
+              idx = idx[!duplicated(dat[[name]][idx])]
+              list(x = dat[[name]][idx],
+                shift = repaired[[name]][idx] - dat[[name]][idx])
+            })
+            stats::setNames(maps, levels(prot_vec))
+          })
+          names(repair_maps) = Xcols
           dt[, (Xcols) := as.data.table(repaired[, Xcols, drop = FALSE])]
 
           per_block[[bn]] = list(
-            method    = "dir",
+            method = "dir",
             site_cols = site_cols,
             site_lvls = levels(prot_vec),
-            lambda    = pv$lambda %||% 0.5
+            lambda = lambda,
+            repair_maps = repair_maps
           )
           blocks_eff[[bn]] = Xcols
 
@@ -515,7 +804,7 @@ PipeOpSiteCorrection = R6::R6Class(
 
       out_dt = dt
       row_ids = task$row_ids
-      pk_col = mb_make_backend_key_name(names(out_dt), "..row_id_sitecorr")
+      pk_col = mb_make_backend_key_name(c(names(out_dt), task$col_info$id), "..row_id_sitecorr")
       out_dt[, (pk_col) := row_ids]
 
       # --- bring back all non-feature-role columns from the original task
@@ -571,7 +860,9 @@ PipeOpSiteCorrection = R6::R6Class(
         if (is.null(self$state$unknown_site)) "other" else self$state$unknown_site,
         {
           v = self$param_set$get_values(tags = "predict")$combat_unknown
-          if (is.null(v)) v <- self$param_set$get_values(tags = "train")$combat_unknown
+          if (is.null(v)) {
+            v = self$param_set$get_values(tags = "train")$combat_unknown
+          }
           if (is.null(v)) "noop" else v
         },
         as.character(isTRUE(self$state$keep_site_col))
@@ -592,7 +883,13 @@ PipeOpSiteCorrection = R6::R6Class(
         keep.null = TRUE)
 
       task_copy = task$clone()
-      site_cols_needed = unique(unlist(lapply(st$per_block, `[[`, "site_cols"), use.names = FALSE))
+      site_cols_needed = unique(unlist(lapply(st$per_block, function(info) {
+        if (identical(info$method, "combat")) {
+          info$site_var
+        } else {
+          info$site_cols
+        }
+      }), use.names = FALSE))
       cols_needed = unique(c(task_copy$feature_names, site_cols_needed))
       dt = task_copy$data(rows = task_copy$row_ids, cols = cols_needed)
 
@@ -614,7 +911,11 @@ PipeOpSiteCorrection = R6::R6Class(
         if (is.null(info)) next
 
         Xcols = st$blocks[[bn]]
-        X = as.matrix(dt[, .SD, .SDcols = Xcols])
+        X = .mb_numeric_matrix(
+          as.matrix(dt[, .SD, .SDcols = Xcols]),
+          sprintf("PipeOpSiteCorrection prediction block '%s'", bn)
+        )
+        colnames(X) = Xcols
 
         if (identical(info$method, "partial_corr")) {
           # rebuild design
@@ -625,19 +926,38 @@ PipeOpSiteCorrection = R6::R6Class(
             G = private$.encode_site(site_vec, info$site_lvls,
               strategy = ifelse(unknown_strategy == "baseline", "baseline", "other"))
             add = setdiff(info$design_cols, colnames(G))
-            if (length(add)) G <- cbind(G, matrix(0, nrow(G), length(add), dimnames = list(NULL, add)))
+            if (length(add) > 0L) {
+              G = cbind(G, matrix(0, nrow(G), length(add), dimnames = list(NULL, add)))
+            }
             drop = setdiff(colnames(G), info$design_cols)
-            if (length(drop)) G <- G[, setdiff(colnames(G), drop), drop = FALSE]
+            if (length(drop) > 0L) {
+              G = G[, setdiff(colnames(G), drop), drop = FALSE]
+            }
             G = G[, info$design_cols, drop = FALSE]
-            if (any(unseen_mask) && !identical(unknown_strategy, "baseline")) G[unseen_mask, ] <- 0
+            if (any(unseen_mask) && !identical(unknown_strategy, "baseline")) {
+              G[unseen_mask, ] = 0
+            }
           } else {
             Z_new = dt[, .SD, .SDcols = info$site_cols]
-            for (cc in names(Z_new)) if (is.character(Z_new[[cc]])) Z_new[, (cc) := factor(get(cc))]
-            G = stats::model.matrix(~., data = Z_new)
+            prepared = private$.prepare_design_data(
+              Z_new,
+              schema = info$design_schema,
+              context = sprintf("Block '%s' (partial_corr) prediction design", bn)
+            )
+            G = stats::model.matrix(
+              ~.,
+              data = prepared$data,
+              contrasts.arg = info$design_contrasts,
+              na.action = stats::na.fail
+            )
             add = setdiff(info$design_cols, colnames(G))
-            if (length(add)) G <- cbind(G, matrix(0, nrow(G), length(add), dimnames = list(NULL, add)))
+            if (length(add) > 0L) {
+              G = cbind(G, matrix(0, nrow(G), length(add), dimnames = list(NULL, add)))
+            }
             drop = setdiff(colnames(G), info$design_cols)
-            if (length(drop)) G <- G[, setdiff(colnames(G), drop), drop = FALSE]
+            if (length(drop) > 0L) {
+              G = G[, setdiff(colnames(G), drop), drop = FALSE]
+            }
             G = G[, info$design_cols, drop = FALSE]
           }
 
@@ -651,14 +971,28 @@ PipeOpSiteCorrection = R6::R6Class(
           }
 
           beta = info$beta
-          if (is.null(rownames(beta))) rownames(beta) <- info$design_cols
-          miss_r = setdiff(colnames(G), rownames(beta))
-          if (length(miss_r)) {
+          if (!is.matrix(beta) || !is.numeric(beta) || anyNA(beta) ||
+            any(!is.finite(beta)) || is.null(rownames(beta)) ||
+            is.null(colnames(beta)) || anyNA(rownames(beta)) ||
+            anyNA(colnames(beta)) || any(!nzchar(rownames(beta))) ||
+            any(!nzchar(colnames(beta))) || anyDuplicated(rownames(beta)) ||
+            anyDuplicated(colnames(beta))) {
             stop(sprintf(
-              "Block '%s' (partial_corr): stored coefficient matrix is missing %d design row(s): %s",
+              "Block '%s' (partial_corr): stored coefficients are invalid.",
+              bn
+            ), call. = FALSE)
+          }
+          miss_r = setdiff(colnames(G), rownames(beta))
+          extra_r = setdiff(rownames(beta), colnames(G))
+          if (length(miss_r) || length(extra_r)) {
+            stop(sprintf(
+              paste0(
+                "Block '%s' (partial_corr): stored coefficient rows do not ",
+                "match the fitted design. Missing: [%s]; unexpected: [%s]."
+              ),
               bn,
-              length(miss_r),
-              mb_format_truncated(miss_r)
+              if (length(miss_r)) mb_format_truncated(miss_r) else "none",
+              if (length(extra_r)) mb_format_truncated(extra_r) else "none"
             ), call. = FALSE)
           }
           beta = beta[colnames(G), , drop = FALSE]
@@ -684,8 +1018,19 @@ PipeOpSiteCorrection = R6::R6Class(
           }
 
           Xcorr = if (isTRUE(info$revert)) X + GB else X - GB
-          if (!isTRUE(info$zero_center) && !is.null(info$means) && length(info$means) == ncol(Xcorr)) {
-            Xcorr = sweep(Xcorr, 2, info$means, "+")
+          if (!isTRUE(info$zero_center)) {
+            means = mb_align_named_numeric(
+              info$means,
+              cols = colnames(Xcorr),
+              context = sprintf(
+                "PipeOpSiteCorrection fitted means for block '%s'", bn
+              )
+            )
+            Xcorr = sweep(Xcorr, 2, means, "+")
+          }
+          if (identical(info$design_kind, "categorical") &&
+            !identical(unknown_strategy, "baseline") && any(unseen_mask)) {
+            Xcorr[unseen_mask, ] = X[unseen_mask, , drop = FALSE]
           }
           dt[, (Xcols) := as.data.table(Xcorr)]
 
@@ -749,22 +1094,24 @@ PipeOpSiteCorrection = R6::R6Class(
           }
 
         } else if (identical(info$method, "dir")) {
-          if (!requireNamespace("fairmodels", quietly = TRUE)) stop("DIR predict requires 'fairmodels'.")
-          prot_vec = factor(dt[[info$site_cols]], levels = info$site_lvls)
-          dat = data.frame(dt[, .SD, .SDcols = Xcols], protected = prot_vec)
-          repaired = fairmodels::disparate_impact_remover(
-            data                  = dat,
-            protected             = prot_vec,
-            features_to_transform = Xcols,
-            lambda                = info$lambda
-          )
-          dt[, (Xcols) := as.data.table(repaired[, Xcols, drop = FALSE])]
+          protected = as.character(dt[[info$site_cols]])
+          unseen = unique(protected[is.na(protected) |
+            !protected %in% info$site_lvls])
+          if (length(unseen)) {
+            stop(sprintf(
+              "Block '%s' (dir): prediction contains missing or unseen protected levels: %s.",
+              bn,
+              paste(unseen, collapse = ", ")
+            ), call. = FALSE)
+          }
+          repaired = private$.apply_dir(X, protected, info$repair_maps)
+          dt[, (Xcols) := as.data.table(repaired)]
         }
       }
 
       out_dt = dt
       row_ids = task$row_ids
-      pk_col = mb_make_backend_key_name(names(out_dt), "..row_id_sitecorr")
+      pk_col = mb_make_backend_key_name(c(names(out_dt), task$col_info$id), "..row_id_sitecorr")
       out_dt[, (pk_col) := row_ids]
 
       # --- bring back all non-feature-role columns from the original task

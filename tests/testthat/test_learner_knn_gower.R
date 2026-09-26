@@ -145,3 +145,31 @@ test_that("LearnerClassifKNNGower - all-NA feature column handled via min_featur
   pred = lrn$predict(task_test)
   expect_s3_class(pred, "PredictionClassif")
 })
+
+
+test_that("regression Gower prediction honors fail-on-missing policy", {
+  task = mlr3::TaskRegr$new("knn_complete", data.frame(x = 1:5, y = 1:5),
+    target = "y")
+  learner = LearnerRegrKNNGower$new()
+  learner$param_set$set_values(k = 1L, na_handling = "fail")
+  learner$train(task)
+  expect_error(learner$predict_newdata(data.frame(x = NA_real_)),
+    "Prediction data contain missing features")
+})
+
+
+test_that("singleton ordered levels do not turn missing values into matches", {
+  task = mlr3::TaskRegr$new("knn_ordered_missing", data.frame(
+    ord = ordered(c("only", NA), levels = "only"), y = c(10, 100)
+  ), target = "y")
+  learner = LearnerRegrKNNGower$new()
+  learner$param_set$set_values(k = 2L, weights = "uniform")
+  learner$train(task)
+  prediction = learner$predict_newdata(data.frame(
+    ord = ordered("only", levels = "only")
+  ))
+  expect_equal(prediction$response, 10)
+  expect_error(learner$predict_newdata(data.frame(
+    ord = ordered(NA_character_, levels = "only")
+  )), "no (eligible |valid )?neighbou?rs|No (eligible |valid )?neighbou?rs")
+})

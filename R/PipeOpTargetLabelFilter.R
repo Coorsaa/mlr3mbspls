@@ -7,9 +7,8 @@
 #' column and forwards the filtered \code{Task}. It is a dedicated, composable
 #' row filter that replaces ad-hoc filtering inside other PipeOps.
 #'
-#' By default, filtering is applied during training. During prediction, if the
-#' target column is not present (typical for newdata), the operator becomes a
-#' no-op and passes the task through unchanged.
+#' Filtering is applied only during training. Prediction passes every row
+#' through unchanged, regardless of whether target values are available.
 #'
 #' @section Parameters:
 #' Hyperparameters are defined in the object's \code{param_set} and can be set
@@ -90,12 +89,16 @@ PipeOpTargetLabelFilter = R6::R6Class(
           keep_cols = unique(c(task$feature_names, task$target_names))
           drop_cols = setdiff(strata_cols, keep_cols)
           if (length(drop_cols)) {
-            # Remove ALL roles from these columns (they were not feature/target anyway)
-            task$set_col_roles(drop_cols, roles = character(0))
+            task$col_roles$stratum = setdiff(strata_cols, drop_cols)
             lgr$info("[%s] Dropped stratum role from %d column(s): %s",
               self$id, length(drop_cols), paste(drop_cols, collapse = ", "))
           }
         }
+      }
+
+      # A disabled filter also accepts tasks without a target.
+      if (is.null(pv$labels)) {
+        return(task)
       }
 
       # Determine target column
@@ -122,7 +125,9 @@ PipeOpTargetLabelFilter = R6::R6Class(
       dt = task$data(cols = trg)
       y = dt[[trg]]
       keep = y %in% pv$labels
-      if (isTRUE(pv$invert)) keep <- !keep
+      if (isTRUE(pv$invert)) {
+        keep = !keep
+      }
 
       if (!any(keep)) {
         stop(sprintf("[%s] Filtering by target='%s' and labels=%s produced 0 rows.",
@@ -195,7 +200,7 @@ PipeOpTargetLabelFilter = R6::R6Class(
     },
 
     .train_task = function(task) private$.apply_filter(task, stage = "train"),
-    .predict_task = function(task) private$.apply_filter(task, stage = "predict"),
+    .predict_task = function(task) task,
 
     .additional_phash_input = function() {
       vals = self$param_set$values

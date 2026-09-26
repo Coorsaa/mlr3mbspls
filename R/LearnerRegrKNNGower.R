@@ -142,7 +142,7 @@ LearnerRegrKNNGower = R6::R6Class("LearnerRegrKNNGower",
           }
           L = length(lv)
           if (L <= 1L) {
-            Xo[, j] = 0
+            Xo[, j] = ifelse(is.na(code), NA_real_, 0)
           } else {
             Xo[, j] = (as.numeric(code) - 1) / (L - 1)
           }
@@ -187,7 +187,9 @@ LearnerRegrKNNGower = R6::R6Class("LearnerRegrKNNGower",
 
       y_num = as.numeric(y)
       y_var = stats::var(y_num, na.rm = TRUE)
-      if (!is.finite(y_var) || is.na(y_var)) y_var <- 0
+      if (!is.finite(y_var) || is.na(y_var)) {
+        y_var = 0
+      }
 
       list(
         num_cols = num_cols,
@@ -210,6 +212,9 @@ LearnerRegrKNNGower = R6::R6Class("LearnerRegrKNNGower",
       pv = self$param_set$get_values(tags = "predict")
 
       df = task$data(cols = task$feature_names)
+      if (identical(pv$na_handling, "fail") && anyNA(df)) {
+        stop("Prediction data contain missing features (na_handling = 'fail').")
+      }
       enc_te = private$.encode_blocks(
         df,
         num_cols = st$num_cols,

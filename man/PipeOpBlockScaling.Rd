@@ -44,11 +44,11 @@ consistently: either block-level scalar(s) or per-feature means/SDs.
 }
 
 \examples{
-# blocks <- list(clin = grep('^clin_', names(dt), value = TRUE),
-#                geno = grep('^geno_', names(dt), value = TRUE))
-# po_bs <- PipeOpBlockScaling$new(param_vals = list(
+# blocks = list(clin = grep("^clin_", names(dt), value = TRUE),
+#               geno = grep("^geno_", names(dt), value = TRUE))
+# po_bs = PipeOpBlockScaling$new(param_vals = list(
 #   blocks = blocks, method = "unit_ssq"))
-# graph <- po_bs \%>>\% po("mbspls", blocks = blocks)
+# graph = po_bs \%>>\% po("mbspls", blocks = blocks)
 
 }
 \section{Super classes}{

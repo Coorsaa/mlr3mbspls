@@ -35,15 +35,13 @@ arma::mat cpp_lm_coeff_ridge(const arma::mat& X,
   // never penalize the intercept column if present at col 0
   pen(0) = 0.0;
 
-  // ---- FIX: materialize and convert IntegerVector before subtracting 1
+  // Public indices are one-based; validate before converting to unsigned.
   if (unpen_idx.isNotNull()) {
-    Rcpp::IntegerVector idx(unpen_idx.get());            // materialize sugar
-    if (idx.size() > 0) {
-      arma::uvec unpen = Rcpp::as<arma::uvec>(idx);      // safe conversion
-      unpen -= 1;                                        // 1-based -> 0-based
-      // guard indices
-      unpen = unpen( unpen < p );
-      pen.elem(unpen).zeros();                           // de-penalize these cols
+    Rcpp::IntegerVector idx(unpen_idx.get());
+    for (int index : idx) {
+      if (index == NA_INTEGER || index < 1 || static_cast<arma::uword>(index) > p)
+        Rcpp::stop("cpp_lm_coeff_ridge: unpen_idx must contain valid one-based column indices.");
+      pen(static_cast<arma::uword>(index - 1)) = 0.0;
     }
   }
 
@@ -61,12 +59,13 @@ arma::mat cpp_lm_coeff_ridge(const arma::mat& X,
   if (R.n_rows > 0 && R.n_cols > 0) {
     const double rcond_R = arma::rcond(R);
     if (rcond_R < 1e-10) {
-      Rcpp::warning("cpp_lm_coeff_ridge: augmented system appears ill-conditioned (rcond(R) < 1e-10). Coefficients may be unreliable. Consider reducing the ridge penalty (lambda).");
+      Rcpp::warning("cpp_lm_coeff_ridge: augmented system appears ill-conditioned (rcond(R) < 1e-10). Coefficients may be unreliable. Review the design and ridge penalty (lambda).");
     }
   }
   const arma::mat QtY = Q.t() * Ya;
   arma::mat coef;
-  const bool ok = arma::solve(coef, arma::trimatu(R), QtY, arma::solve_opts::fast);
+  const bool ok = arma::solve(coef, arma::trimatu(R), QtY,
+                              arma::solve_opts::fast + arma::solve_opts::no_approx);
   if (!ok || !coef.is_finite()) {
     Rcpp::stop("cpp_lm_coeff_ridge: triangular solve failed or returned non-finite coefficients.");
   }
@@ -80,6 +79,8 @@ arma::mat cpp_lm_coeff(const arma::mat& X, const arma::mat& Y) {
     Rcpp::stop("X and Y must have the same number of rows");
   if (X.is_empty() || Y.is_empty())
     return arma::mat(X.n_cols, Y.n_cols, arma::fill::zeros);
+  if (X.n_rows < X.n_cols)
+    Rcpp::stop("cpp_lm_coeff: the unpenalized design must have at least as many rows as columns.");
 
   arma::mat Q, R;
   if (!arma::qr_econ(Q, R, X)) {
@@ -87,7 +88,8 @@ arma::mat cpp_lm_coeff(const arma::mat& X, const arma::mat& Y) {
   }
   const arma::mat QtY = Q.t() * Y;
   arma::mat coef;
-  const bool ok = arma::solve(coef, arma::trimatu(R), QtY, arma::solve_opts::fast);
+  const bool ok = arma::solve(coef, arma::trimatu(R), QtY,
+                              arma::solve_opts::fast + arma::solve_opts::no_approx);
   if (!ok || !coef.is_finite()) {
     Rcpp::stop("cpp_lm_coeff: triangular solve failed or returned non-finite coefficients.");
   }

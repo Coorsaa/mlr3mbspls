@@ -31,11 +31,11 @@
 #' consistently: either block-level scalar(s) or per-feature means/SDs.
 #'
 #' @examples
-#' # blocks <- list(clin = grep('^clin_', names(dt), value = TRUE),
-#' #                geno = grep('^geno_', names(dt), value = TRUE))
-#' # po_bs <- PipeOpBlockScaling$new(param_vals = list(
+#' # blocks = list(clin = grep("^clin_", names(dt), value = TRUE),
+#' #               geno = grep("^geno_", names(dt), value = TRUE))
+#' # po_bs = PipeOpBlockScaling$new(param_vals = list(
 #' #   blocks = blocks, method = "unit_ssq"))
-#' # graph <- po_bs %>>% po("mbspls", blocks = blocks)
+#' # graph = po_bs %>>% po("mbspls", blocks = blocks)
 #'
 #' @export
 PipeOpBlockScaling = R6::R6Class(
@@ -78,7 +78,7 @@ PipeOpBlockScaling = R6::R6Class(
         if (verbose) lgr::lgr$info("Auto-detected %d numeric features for .all block", length(num_cols))
         return(list(.all = num_cols))
       }
-      mb_resolve_blocks(dt, blocks, numeric_only = TRUE, non_constant = TRUE)
+      mb_resolve_blocks(dt, blocks, numeric_only = TRUE, non_constant = FALSE)
     },
 
     .train_task = function(task) {
@@ -89,11 +89,16 @@ PipeOpBlockScaling = R6::R6Class(
       dt = task_copy$data(rows = task_copy$row_ids, cols = task_copy$feature_names)
 
       blocks = private$.collect_blocks(dt, pv$blocks, task = task, verbose = verbose)
-      if (!length(blocks)) stop("PipeOpBlockScaling: no numeric, non-constant features found in any block.")
+      blocks = Filter(length, blocks)
+      if (!length(blocks)) stop("PipeOpBlockScaling: no numeric features found in any block.")
 
       method = pv$method %||% "unit_ssq"
       eps = pv$eps %||% 1e-8
       div_p = pv$divide_by_sqrt_p %||% TRUE
+      if (length(eps) != 1L || !is.numeric(eps) || !is.finite(eps) || eps <= 0) {
+        stop("PipeOpBlockScaling: `eps` must be one finite positive number.",
+          call. = FALSE)
+      }
 
       scalers = list()
 
@@ -101,30 +106,56 @@ PipeOpBlockScaling = R6::R6Class(
       for (bn in names(blocks)) {
         cols = blocks[[bn]]
         if (!length(cols)) next
-        X = as.matrix(dt[, ..cols])
+        X = .mb_numeric_matrix(as.matrix(dt[, ..cols]),
+          sprintf("training block '%s'", bn))
+        colnames(X) = cols
 
         if (method == "none") {
-          scalers[[bn]] = list(type = "none")
+          scalers[[bn]] = list(type = "none", columns = cols)
         } else if (method == "unit_ssq") {
-          alpha = sqrt(sum(X * X, na.rm = TRUE))
-          if (!is.finite(alpha) || alpha < eps) alpha <- 1.0
+          alpha = sqrt(sum(X * X))
+          if (!is.finite(alpha) || alpha <= eps) {
+            stop(sprintf(
+              "PipeOpBlockScaling: training block '%s' has zero or non-finite sum of squares.",
+              bn
+            ), call. = FALSE)
+          }
           X = X / alpha
           dt[, (cols) := as.data.table(X)]
-          scalers[[bn]] = list(type = "unit_ssq", alpha = alpha)
+          scalers[[bn]] = list(
+            type = "unit_ssq", alpha = alpha, columns = cols
+          )
         } else if (method %in% c("feature_sd", "feature_zscore")) {
-          mu = if (method == "feature_zscore") colMeans(X, na.rm = TRUE) else rep(0, ncol(X))
-          sd = apply(X, 2, stats::sd, na.rm = TRUE)
-          sd[!is.finite(sd) | sd < eps] = 1.0
+          mu = if (method == "feature_zscore") colMeans(X) else rep(0, ncol(X))
+          sd = apply(X, 2, stats::sd)
+          bad = !is.finite(sd) | sd <= eps
+          if (any(bad)) {
+            stop(sprintf(
+              paste0(
+                "PipeOpBlockScaling: zero-variance or numerically constant ",
+                "training predictors in block '%s': %s."
+              ),
+              bn, paste(cols[bad], collapse = ", ")
+            ), call. = FALSE)
+          }
+          names(mu) = names(sd) = cols
           Xs = sweep(X, 2, mu, "-")
           Xs = sweep(Xs, 2, sd, "/")
           if (div_p) {
             alpha_p = sqrt(ncol(Xs))
-            if (alpha_p > 0) Xs <- Xs / alpha_p else alpha_p <- 1.0
+            if (alpha_p > 0) {
+              Xs = Xs / alpha_p
+            } else {
+              alpha_p = 1.0
+            }
           } else {
             alpha_p = 1.0
           }
           dt[, (cols) := as.data.table(Xs)]
-          scalers[[bn]] = list(type = method, mean = mu, sd = sd, alpha_p = alpha_p)
+          scalers[[bn]] = list(
+            type = method, mean = mu, sd = sd, alpha_p = alpha_p,
+            columns = cols
+          )
         } else {
           stop("Unknown method: ", method)
         }
@@ -140,7 +171,7 @@ PipeOpBlockScaling = R6::R6Class(
 
       # Rebuild task backend preserving targets and other non-feature roles
       row_ids = task$row_ids
-      pk_col = mb_make_backend_key_name(names(dt), "..row_id_blockscale")
+      pk_col = mb_make_backend_key_name(c(names(dt), task$col_info$id), "..row_id_blockscale")
       dt[, (pk_col) := row_ids]
 
       roles_orig = task$col_roles
@@ -187,23 +218,73 @@ PipeOpBlockScaling = R6::R6Class(
       for (bn in names(st$blocks)) {
         cols = st$blocks[[bn]]
         if (!length(cols)) next
-        X = as.matrix(dt[, ..cols])
+        X = .mb_numeric_matrix(as.matrix(dt[, ..cols]),
+          sprintf("prediction block '%s'", bn))
+        colnames(X) = cols
         sc = st$scalers[[bn]]
-        if (is.null(sc) || identical(sc$type, "none")) {
+        if (!is.null(sc$columns) && !identical(as.character(sc$columns), cols)) {
+          stop(sprintf(
+            "PipeOpBlockScaling: stored schema for block '%s' is inconsistent with its training columns.",
+            bn
+          ), call. = FALSE)
+        }
+        if (is.null(sc)) {
+          stop(sprintf(
+            "PipeOpBlockScaling: fitted scaler state is missing for block '%s'.",
+            bn
+          ), call. = FALSE)
+        }
+        if (length(sc$type) != 1L || !is.character(sc$type) ||
+          is.na(sc$type) || !nzchar(sc$type)) {
+          stop(sprintf(
+            "PipeOpBlockScaling: invalid fitted scaler type for block '%s'.",
+            bn
+          ), call. = FALSE)
+        }
+        if (identical(sc$type, "none")) {
           next
         } else if (identical(sc$type, "unit_ssq")) {
-          alpha = sc$alpha %||% 1.0
-          if (!is.finite(alpha) || alpha < eps) alpha <- 1.0
+          alpha = sc$alpha
+          if (length(alpha) != 1L || !is.numeric(alpha) ||
+            !is.finite(alpha) || alpha <= eps) {
+            stop(sprintf(
+              "PipeOpBlockScaling: invalid fitted unit-SSQ state for block '%s'.",
+              bn
+            ), call. = FALSE)
+          }
           X = X / alpha
           dt[, (cols) := as.data.table(X)]
         } else if (sc$type %in% c("feature_sd", "feature_zscore")) {
-          mu = sc$mean %||% rep(0, ncol(X))
-          sd = sc$sd %||% rep(1, ncol(X))
-          sd[!is.finite(sd) | sd < eps] = 1.0
+          mu = mb_align_named_numeric(
+            sc$mean,
+            cols = cols,
+            context = sprintf(
+              "PipeOpBlockScaling fitted means for block '%s'", bn
+            )
+          )
+          sd = mb_align_named_numeric(
+            sc$sd,
+            cols = cols,
+            context = sprintf(
+              "PipeOpBlockScaling fitted scales for block '%s'", bn
+            )
+          )
+          if (any(sd <= eps)) {
+            stop(sprintf(
+              "PipeOpBlockScaling: invalid fitted feature-scaling state for block '%s'.",
+              bn
+            ), call. = FALSE)
+          }
           Xs = sweep(X, 2, mu, "-")
           Xs = sweep(Xs, 2, sd, "/")
-          alpha_p = sc$alpha_p %||% 1.0
-          if (!is.finite(alpha_p) || alpha_p <= 0) alpha_p <- 1.0
+          alpha_p = sc$alpha_p
+          if (length(alpha_p) != 1L || !is.numeric(alpha_p) ||
+            !is.finite(alpha_p) || alpha_p <= 0) {
+            stop(sprintf(
+              "PipeOpBlockScaling: invalid fitted block-size state for block '%s'.",
+              bn
+            ), call. = FALSE)
+          }
           Xs = Xs / alpha_p
           dt[, (cols) := as.data.table(Xs)]
         } else {
@@ -213,7 +294,7 @@ PipeOpBlockScaling = R6::R6Class(
 
       # Rebuild task preserving targets and other non-feature roles
       row_ids = task$row_ids
-      pk_col = mb_make_backend_key_name(names(dt), "..row_id_blockscale")
+      pk_col = mb_make_backend_key_name(c(names(dt), task$col_info$id), "..row_id_blockscale")
       dt[, (pk_col) := row_ids]
 
       roles_orig = task$col_roles

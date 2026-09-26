@@ -89,3 +89,36 @@ test_that("drop_unused_levels works", {
   expect_setequal(levels(out$truth()), c("A", "B")) # C dropped
   expect_true(all(out$truth() == "A"))
 })
+
+
+test_that("target filtering never selects prediction rows using held-out labels", {
+  task = mlr3::TaskClassif$new("label_filter_train", data.frame(
+    x = 1:6, y = factor(rep(c("A", "B", "C"), 2))
+  ), target = "y")
+  pipeop = PipeOpTargetLabelFilter$new(param_vals = list(labels = c("A", "B")))
+  trained = pipeop$train(list(task))[[1L]]
+  expect_equal(trained$nrow, 4L)
+  predicted = pipeop$predict(list(task))[[1L]]
+  expect_equal(predicted$row_ids, task$row_ids)
+  expect_equal(predicted$truth(), task$truth())
+
+  unlabeled = mlr3::TaskClassif$new("label_filter_unlabeled", data.frame(
+    x = 1:3, y = factor(rep(NA_character_, 3), levels = c("A", "B", "C"))
+  ), target = "y")
+  expect_equal(pipeop$predict(list(unlabeled))[[1L]]$row_ids, unlabeled$row_ids)
+})
+
+
+test_that("drop_stratum preserves unrelated grouping roles", {
+  task = mlr3::TaskClassif$new("label_filter_roles", data.frame(
+    x = 1:8, site = factor(rep(c("a", "b"), each = 4)),
+    y = factor(rep(c("A", "B"), 4))
+  ), target = "y")
+  task$set_col_roles("site", roles = c("stratum", "group"))
+  pipeop = PipeOpTargetLabelFilter$new(param_vals = list(
+    labels = c("A", "B"), drop_stratum = TRUE
+  ))
+  trained = pipeop$train(list(task))[[1L]]
+  expect_false("site" %in% trained$col_roles$stratum)
+  expect_true("site" %in% trained$col_roles$group)
+})

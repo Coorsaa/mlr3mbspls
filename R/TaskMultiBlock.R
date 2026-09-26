@@ -78,13 +78,21 @@ mb_task_copy_view = function(dst, src) {
   checkmate::assert_class(dst, "Task", .var.name = "dst")
   checkmate::assert_class(src, "Task", .var.name = "src")
 
-  try(dst$row_roles <- src$row_roles, silent = TRUE)
-  try(dst$col_roles <- src$col_roles, silent = TRUE)
-  try(dst$col_labels <- src$col_labels, silent = TRUE)
+  try({
+    dst$row_roles = src$row_roles
+  }, silent = TRUE)
+  try({
+    dst$col_roles = src$col_roles
+  }, silent = TRUE)
+  try({
+    dst$col_labels = src$col_labels
+  }, silent = TRUE)
 
   internal_valid = tryCatch(src$internal_valid_task, error = function(e) NULL)
   if (!is.null(internal_valid)) {
-    try(dst$internal_valid_task <- internal_valid, silent = TRUE)
+    try({
+      dst$internal_valid_task = internal_valid
+    }, silent = TRUE)
   }
 
   invisible(dst)
@@ -538,22 +546,32 @@ task_multiblock_potato = function(
   utils::data("potato", package = "multiblock", envir = environment())
   potato = get("potato", envir = environment())
 
-  sensory = potato$Sensory
+  sensory = unclass(as.matrix(potato[["Sensory"]]))
   y = NULL
   if (identical(task_type, "regr")) {
     if (is.character(response)) {
-      if (!response %in% colnames(sensory)) {
+      if (length(response) != 1L || is.na(response) ||
+        !response %in% colnames(sensory)) {
         stop(sprintf("Unknown potato response '%s'.", response), call. = FALSE)
       }
-      y = sensory[[response]]
+      response_index = match(response, colnames(sensory))
     } else {
-      response = as.integer(response)
-      if (response < 1L || response > ncol(sensory)) {
+      if (length(response) != 1L || is.na(response) ||
+        !is.numeric(response) || !is.finite(response) ||
+        response != floor(response) || response < 1L ||
+        response > ncol(sensory)) {
         stop("`response` is out of bounds for potato$Sensory.", call. = FALSE)
       }
-      y = sensory[[response]]
+      response_index = as.integer(response)
     }
+    y = as.numeric(sensory[, response_index])
   }
+
+  potato_blocks = lapply(
+    c("Chemical", "Compression", "NIRraw"),
+    function(block_name) unclass(as.matrix(potato[[block_name]]))
+  ) |>
+    stats::setNames(c("Chemical", "Compression", "NIRraw"))
 
   if (is.null(id)) {
     id = if (identical(task_type, "regr")) "potato_multiblock_regr" else "potato_multiblock_clust"
@@ -567,7 +585,7 @@ task_multiblock_potato = function(
   }
 
   TaskMultiBlock(
-    x = potato[c("Chemical", "Compression", "NIRraw")],
+    x = potato_blocks,
     target = y,
     task_type = task_type,
     id = id,

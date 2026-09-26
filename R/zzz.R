@@ -1,7 +1,7 @@
 # nocov start
 #' @importFrom mlr3 mlr_learners
 
-.onLoad = function(libname, pkgname) { # nocov start
+.onLoad = function(libname, pkgname) {
   add_or_replace = function(dict, key, value) {
     if (key %in% dict$keys()) {
       dict$remove(key)

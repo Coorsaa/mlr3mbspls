@@ -11,9 +11,8 @@ A \code{PipeOpTargetLabelFilter}.
 column and forwards the filtered \code{Task}. It is a dedicated, composable
 row filter that replaces ad-hoc filtering inside other PipeOps.
 
-By default, filtering is applied during training. During prediction, if the
-target column is not present (typical for newdata), the operator becomes a
-no-op and passes the task through unchanged.
+Filtering is applied only during training. Prediction passes every row
+through unchanged, regardless of whether target values are available.
 }
 \details{
 Target-Label Filter
