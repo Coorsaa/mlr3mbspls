@@ -424,11 +424,10 @@ inline arma::vec centered_scores(const arma::mat& Xb, const arma::vec& w) {
 }
 
 // Leading eigenvector of a positive semi-definite operator by power
-// iteration from the fixed start. Returns an empty vector when the operator
-// is numerically zero relative to `scale`.
+// iteration from `v`. Returns an empty vector when the operator maps the
+// current iterate to (numerically) zero relative to `scale`.
 template <typename Operator>
-arma::vec leading_psd_direction(Operator apply, arma::uword p, double scale) {
-  arma::vec v = fixed_start_vector(p);
+arma::vec leading_psd_direction(Operator apply, arma::vec v, double scale) {
   for (int it = 0; it < MBSPLS_INIT_MAX_ITER; ++it) {
     arma::vec next = apply(v);
     const double magnitude = arma::norm(next, 2);
@@ -467,9 +466,18 @@ arma::vec mbspls_start_direction(const std::vector<arma::mat>& X,
     if (c != b && ss_centred(c) > 1e-12) ++n_other;
   }
 
+  // The fixed start can be orthogonal to the range of a low-rank operator, so
+  // a vanishing first step is retried from the unit vector of the block's
+  // highest-variance column before the operator is declared degenerate. For
+  // the principal-axis operator that start never vanishes when ss_b > 0.
+  const arma::uword j_star = arma::index_max(arma::var(Xb, 0, 0));
+  arma::vec e_star(p, arma::fill::zeros);
+  e_star(j_star) = 1.0;
+  const std::vector<arma::vec> starts = {fixed_start_vector(p), e_star};
+
   arma::vec v;
   if (n_other > 0) {
-    v = leading_psd_direction([&](const arma::vec& w) {
+    const auto cross_covariance = [&](const arma::vec& w) {
       const arma::vec u = centered_scores(Xb, w);
       arma::vec y(u.n_elem, arma::fill::zeros);
       for (int c = 0; c < B; ++c) {
@@ -478,14 +486,20 @@ arma::vec mbspls_start_direction(const std::vector<arma::mat>& X,
         y += centered_scores(X[c], yc) / ss_centred(c);
       }
       return arma::vec(Xb.t() * y);
-    }, p, ss_b * n_other);
-    if (!v.is_empty()) return v;
+    };
+    for (const arma::vec& start : starts) {
+      v = leading_psd_direction(cross_covariance, start, ss_b * n_other);
+      if (!v.is_empty()) return v;
+    }
   }
 
-  v = leading_psd_direction([&](const arma::vec& w) {
+  const auto principal_axis = [&](const arma::vec& w) {
     return arma::vec(Xb.t() * centered_scores(Xb, w));
-  }, p, ss_b);
-  if (!v.is_empty()) return v;
+  };
+  for (const arma::vec& start : starts) {
+    v = leading_psd_direction(principal_axis, start, ss_b);
+    if (!v.is_empty()) return v;
+  }
 
   Rcpp::stop(std::string("cpp_mbspls_one_lv: cannot initialise block ") + std::to_string(b + 1) +
              " because its centred data are numerically zero.");

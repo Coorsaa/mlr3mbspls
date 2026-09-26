@@ -355,3 +355,24 @@ test_that("test-set explained variance removes the fitted rank-one term", {
   }, numeric(1L))
   expect_equal(drop(ev$ev_block[1L, ]), expected, tolerance = 1e-10)
 })
+
+test_that("the deterministic start handles loadings orthogonal to its fixed vector", {
+  # Fixed start vector of the native power iteration for p = 4.
+  fixed = c(0.75267927892256636, 0.10489856896149617, 0.59784202296504785,
+    -0.25505903020182397)
+  set.seed(12L)
+  loading = stats::rnorm(4L)
+  loading = loading - sum(loading * fixed) * fixed
+  loading = loading / sqrt(sum(loading^2))
+  expect_lt(abs(sum(loading * fixed)), 1e-12)
+
+  score = stats::rnorm(30L)
+  score = score - mean(score)
+  # Perfectly associated rank-one blocks: every power step from the fixed
+  # vector vanishes, both for the cross-covariance and the principal axis.
+  blocks = list(tcrossprod(score, loading), tcrossprod(score, loading))
+  fit = mlr3mbspls:::cpp_mbspls_one_lv(blocks, c(2, 2), 600L, 1e-4)
+  expect_true(fit$converged)
+  expect_equal(fit$objective, 1, tolerance = 1e-10)
+  expect_equal(abs(sum(fit$W[[1L]] * loading)), 1, tolerance = 1e-8)
+})
