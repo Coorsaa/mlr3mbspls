@@ -521,9 +521,18 @@ mb_align_component_signs = function(
     stop("`tolerance` must be one finite number in [0, 1).", call. = FALSE)
   }
 
-  norm_estimate = sqrt(colSums(estimate^2))
-  norm_reference = sqrt(colSums(reference^2))
-  cosines = colSums(estimate * reference) / (norm_estimate * norm_reference)
+  # Divide each column by its largest absolute entry before squaring: the
+  # cosine is unchanged, and extreme finite values cannot overflow.
+  scale_columns = function(x) {
+    peak = apply(abs(x), 2L, max)
+    sweep(x, 2L, ifelse(peak > 0, peak, 1), FUN = "/")
+  }
+  unit_estimate = scale_columns(estimate)
+  unit_reference = scale_columns(reference)
+  norm_estimate = sqrt(colSums(unit_estimate^2))
+  norm_reference = sqrt(colSums(unit_reference^2))
+  cosines = colSums(unit_estimate * unit_reference) /
+    (norm_estimate * norm_reference)
   cosines[!(norm_estimate > 0 & norm_reference > 0)] = NA_real_
   ambiguous = is.na(cosines) | abs(cosines) <= tolerance
   signs = ifelse(!ambiguous & cosines < 0, -1, 1)

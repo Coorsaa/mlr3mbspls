@@ -484,3 +484,13 @@ test_that("group leakage across resampling partitions is rejected", {
     "leakage"
   )
 })
+
+test_that("sign alignment is scale-free for extreme finite values", {
+  ref = cbind(c1 = c(1e160, -1e160, 5e159), c2 = c(1e-300, 2e-300, -1e-300))
+  est = cbind(c1 = -ref[, "c1"], c2 = 3 * ref[, "c2"])
+  aligned = mb_align_component_signs(est, ref)
+  expect_identical(unname(attr(aligned, "signs")), c(-1, 1))
+  expect_false(any(attr(aligned, "ambiguous")))
+  expect_equal(unname(attr(aligned, "cosines")), c(-1, 1))
+  expect_equal(aligned[, "c1"], ref[, "c1"])
+})
