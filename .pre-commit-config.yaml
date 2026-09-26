@@ -53,6 +53,6 @@ repos:
 
 ci:
     autoupdate_schedule: monthly
-    # pre-commit.ci cannot install the pinned formatter; the styler.mlr job of
-    # the R-CMD-check workflow runs the same check.
-    skip: [mlr-style]
+    # pre-commit.ci cannot install the pinned formatter or build the R hook
+    # environment; R CMD check and the styler.mlr job cover these checks.
+    skip: [mlr-style, use-tidy-description, readme-rmd-rendered, parsable-R, no-browser-statement]
