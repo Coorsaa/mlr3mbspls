@@ -8,7 +8,6 @@ mb_lc_confirmation_test(
   scores,
   independent_confirmation = FALSE,
   permute_blocks = NULL,
-  reference_signs = NULL,
   n_perm = 999L,
   exchangeability_unit = NULL,
   within_unit = NULL,
@@ -17,7 +16,8 @@ mb_lc_confirmation_test(
   performance_metric = c("mac", "frobenius"),
   alpha = 0.05,
   seed = 1L,
-  keep_null = FALSE
+  keep_null = FALSE,
+  reference_signs = NULL
 )
 }
 \arguments{
@@ -31,15 +31,6 @@ the score transformation or LC family.}
 
 \item{permute_blocks}{Names or indices of blocks to permute independently.
 The default permutes every block except the first.}
-
-\item{reference_signs}{Optional expected signs (\code{1} or \code{-1}) of the pairwise
-block-score correlations, fixed from the discovery data (for example the
-signs of the discovery-sample score correlations). Either one numeric
-vector named by block pair, such as \code{c("imaging:clinical" = 1)}, used for
-every LC, or a list with one such vector per LC (named by LC or in LC
-order). Every pair entering the statistic must be covered; pairs of fixed
-blocks are ignored. When supplied, the test is directional and requires
-\code{performance_metric = "mac"}.}
 
 \item{n_perm}{Number of random permutations. The smallest possible sampled
 p-value is \code{1 / (n_perm + 1)}. Permutation maps are drawn with
@@ -76,6 +67,15 @@ never reordered.}
 RNG kind and state are restored.}
 
 \item{keep_null}{If \code{TRUE}, retain the sampled null statistics.}
+
+\item{reference_signs}{Optional expected signs (\code{1} or \code{-1}) of the pairwise
+block-score correlations, fixed from the discovery data (for example the
+signs of the discovery-sample score correlations). Either one numeric
+vector named by block pair, such as \code{c("imaging:clinical" = 1)}, used for
+every LC, or a list with one such vector per LC (named by LC or in LC
+order). Every pair entering the statistic must be covered; pairs of fixed
+blocks are ignored. When supplied, the test is directional and requires
+\code{performance_metric = "mac"}.}
 }
 \value{
 An \code{mb_lc_confirmation_test} object. \code{results} has one row per LC

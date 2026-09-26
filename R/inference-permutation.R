@@ -1438,7 +1438,6 @@ mb_lc_confirmation_test = function(
   scores,
   independent_confirmation = FALSE,
   permute_blocks = NULL,
-  reference_signs = NULL,
   n_perm = 999L,
   exchangeability_unit = NULL,
   within_unit = NULL,
@@ -1447,7 +1446,8 @@ mb_lc_confirmation_test = function(
   performance_metric = c("mac", "frobenius"),
   alpha = 0.05,
   seed = 1L,
-  keep_null = FALSE
+  keep_null = FALSE,
+  reference_signs = NULL
 ) {
   if (!isTRUE(independent_confirmation)) {
     stop(

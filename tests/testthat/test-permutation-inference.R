@@ -580,6 +580,21 @@ test_that("LC confirmation reports exceedances and exact Monte Carlo intervals",
   expect_output(print(result), "Clopper-Pearson")
 })
 
+test_that("LC confirmation keeps its positional argument order", {
+  set.seed(306)
+  n = 30L
+  signal = stats::rnorm(n)
+  scores = list(
+    a = cbind(LC1 = signal + stats::rnorm(n, sd = 0.2)),
+    b = cbind(LC1 = signal + stats::rnorm(n, sd = 0.2))
+  )
+  positional = mb_lc_confirmation_test(scores, TRUE, "b", 19L)
+  named = mb_lc_confirmation_test(scores, independent_confirmation = TRUE,
+    permute_blocks = "b", n_perm = 19L)
+  expect_identical(positional$results, named$results)
+  expect_identical(positional$tests[[1L]]$n_perm, 19L)
+})
+
 test_that("LC1 statistics refit one component per permutation", {
   set.seed(305)
   n = 40L
