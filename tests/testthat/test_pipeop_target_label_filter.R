@@ -192,6 +192,7 @@ test_that("training factor levels are re-applied at prediction", {
   learner$train(task)
   expect_length(learner$predict(task)$response, 60L)
 
+  testthat::skip_if_not_installed("rpart")
   three = mlr3::TaskClassif$new("label_filter_graph", data.frame(
     x = rnorm(90L),
     f = factor(c(rep(c("u", "v"), 30L), rep("w", 30L))),

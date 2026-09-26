@@ -131,6 +131,7 @@ test_that("the GraphLearner method keeps fit, bootstrap selection and log_env in
 })
 
 test_that("in-place flips are refused when a downstream model used the scores", {
+  testthat::skip_if_not_installed("rpart")
   fx = flip_fixture_graph(learner = mlr3::lrn("regr.rpart"))
   fx$gl$train(fx$task)
   fit_before = fx$gl$model$mbspls
