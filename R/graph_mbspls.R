@@ -316,7 +316,8 @@ mbspls_graph = function(
 #' @inheritParams mbspls_graph
 #'
 #' @return [mlr3pipelines::GraphLearner]
-#' @import mlr3 mlr3cluster mlr3pipelines checkmate
+#' @import mlr3 mlr3pipelines checkmate
+#' @importFrom mlr3cluster LearnerClust
 #' @export
 mbspls_graph_learner = function(
   learner = lrn("clust.kmeans", centers = 1L),
