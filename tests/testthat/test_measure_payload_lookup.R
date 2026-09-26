@@ -23,7 +23,9 @@ test_that("MB-sPLS measure scoring uses the payload for the learner run_id", {
   if (!(is.character(run_id) && nzchar(run_id))) {
     run_id = "forced_test_run_id"
     gl$model$mbspls$state$run_id = run_id
-    try(gl$graph$pipeops$mbspls$state$run_id <- run_id, silent = TRUE)
+    try({
+      gl$graph$pipeops$mbspls$state$run_id = run_id
+    }, silent = TRUE)
   }
 
   payload = list(
@@ -74,7 +76,9 @@ test_that("MB-sPCA measure scoring uses the payload for the learner run_id", {
   if (!(is.character(run_id) && nzchar(run_id))) {
     run_id = "forced_test_run_id"
     gl$model$mbspca$state$run_id = run_id
-    try(gl$graph$pipeops$mbspca$state$run_id <- run_id, silent = TRUE)
+    try({
+      gl$graph$pipeops$mbspca$state$run_id = run_id
+    }, silent = TRUE)
   }
 
   payload = list(

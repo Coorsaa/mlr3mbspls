@@ -8,7 +8,7 @@
 multi-block sparse PLS (MB-sPLS) model in the \strong{mlr3} ecosystem. For each
 latent component it samples block-wise sparsity vectors \code{c}, scores them via
 inner resampling using one of the package's MB-sPLS measures, optionally
-applies a permutation-based early-stop test, and then deflates before moving
+applies a conditional permutation-based early-stop diagnostic, and then deflates before moving
 to the next component.
 
 The tuner supports the package-native MB-sPLS measures:
@@ -19,7 +19,7 @@ ignored.
 \section{Construction}{
 
 
-\if{html}{\out{<div class="sourceCode">}}\preformatted{tuner <- TunerSeqMBsPLS$new(
+\if{html}{\out{<div class="sourceCode">}}\preformatted{tuner = TunerSeqMBsPLS$new(
   tuner              = "random_search",
   budget             = 1500L,
   resampling         = rsmp("cv", folds = 3),
@@ -86,12 +86,14 @@ component.}
 
 \item{\code{parallel}}{(\code{character(1)}) \code{"none"} (default) or \code{"inner"}.}
 
-\item{\code{early_stopping}}{(\code{logical(1)}) If \code{TRUE}, run a permutation test after
-each latent component and stop when \code{p > perm_alpha}. LC1 is always kept.}
+\item{\code{early_stopping}}{(\code{logical(1)}) If \code{TRUE}, run a conditional permutation
+diagnostic after each latent component and stop when \code{p > perm_alpha}.
+LC1 is always kept. This is a tuning heuristic, not full-pipeline
+confirmatory inference.}
 
 \item{\code{n_perm}}{(\code{integer(1)}) Number of permutations for early stopping.}
 
-\item{\code{perm_alpha}}{(\code{numeric(1)}) Significance level for early stopping.}
+\item{\code{perm_alpha}}{(\code{numeric(1)}) Conditional diagnostic cutoff for early stopping.}
 
 \item{\code{performance_metric}}{(\code{character(1)}) Correlation objective used inside
 \code{PipeOpMBsPLS}: \code{"mac"} or \code{"frobenius"}.}

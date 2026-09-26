@@ -152,6 +152,7 @@
   measure_spec = .mbspls_nested_cv_resolve_measure_batch(measure)
 
   # clone task and GL to avoid state carry-over across jobs
+  mb_assert_resampling_split(task, train_idx, test_idx)
   task_tr = task$clone()$filter(train_idx)
   task_te = task$clone()$filter(test_idx)
 
@@ -245,10 +246,10 @@
 #' `performance_metric` and `measure` operate at different layers of the
 #' procedure.
 #'
-#' `performance_metric` controls the direct objective optimized inside the
-#' MB-sPLS C++ fitting routine when each latent component is estimated. It
-#' therefore changes how the component weights are fitted (`"mac"` or
-#' `"frobenius"`).
+#' `performance_metric` selects the association criterion evaluated for
+#' convergence and scoring (`"mac"` or `"frobenius"`). Weight updates follow
+#' the same covariance-style sparse multiblock procedure for either criterion;
+#' the solver does not directly optimize a correlation-gradient objective.
 #'
 #' `measure` controls model selection across candidate sparsity settings and
 #' across resampling folds on held-out data. It therefore acts as an indirect
@@ -256,8 +257,7 @@
 #'
 #' Choosing `measure = "mbspls.ev"` or `measure = "mbspls.block_ev"` does not
 #' make the underlying MB-sPLS algorithm optimize explained variance directly.
-#' It selects among models that were still fitted with the chosen
-#' `performance_metric`, using an EV-based validation criterion.
+#' It selects among fitted models using an EV-based validation criterion.
 #' @param task An `mlr3` task (supervised or unsupervised).
 #' @param graphlearner An `mlr3` `GraphLearner` that implements MB-sPLS
 #'   (e.g., created with `mbspls_graph_learner()`).
@@ -265,26 +265,26 @@
 #' @param rs_inner An `mlr3` resampling instance for the inner folds.
 #' @param ncomp Integer, maximum number of components to consider.
 #' @param tuner_budget Integer, maximum number of evaluations for the tuner.
-#' @param tuning_early_stop Logical, whether to stop tuning early if
-#'   non-significant components are found.
+#' @param tuning_early_stop Logical, whether to apply the conditional
+#'   permutation-based component stopping heuristic.
 #' @param measure [mlr3::Measure] or character(1). The package MB-sPLS measure
 #'   used for inner tuning and aligned outer-fold scoring. Must resolve to one of
 #'   `mbspls.mac_evwt`, `mbspls.mac`, `mbspls.ev`, or `mbspls.block_ev`.
 #'   `mbspls.mac_evwt` remains the default for backward compatibility.
 #' @param performance_metric Character, performance metric to optimize
 #'   ("mac" or "frobenius").
-#' @param val_test Character, type of validation test to perform
-#'   ("none", "permutation", or "bootstrap").
+#' @param val_test Character, prediction-side diagnostic: "none", conditional
+#'   "permutation", or descriptive "bootstrap".
 #' @param val_test_n Integer, number of permutations or bootstrap samples
-#'   for the validation test (default is 1000).
-#' @param val_test_alpha Numeric, significance level for the validation test
-#'   (default is 0.05).
+#'   for the prediction-side diagnostic (default is 1000).
+#' @param val_test_alpha Numeric alpha for the descriptive bootstrap interval;
+#'   retained for permutation API compatibility (default is 0.05).
 #' @param val_permute_all Logical, whether to permute all blocks during
-#'   the validation test (default is TRUE).
-#' @param n_perm_tuning Integer, number of permutations for the tuning
-#'   significance test (default is 500).
-#' @param perm_alpha_tuning Numeric, significance level for the tuning
-#'   permutation test (default is 0.05).
+#'   the conditional permutation diagnostic (default is TRUE).
+#' @param n_perm_tuning Integer, number of permutations for the conditional
+#'   tuning diagnostic (default is 500).
+#' @param perm_alpha_tuning Numeric cutoff for the conditional tuning
+#'   diagnostic (default is 0.05).
 #' @param store_payload Logical, whether to store the full payload from
 #'   each outer fold (may consume a lot of memory).
 #' @param reg_dir Character, directory to store the `batchtools` registry.
@@ -443,6 +443,8 @@ collect_mbspls_nested_cv = function(ids = NULL, reg) {
     measure_key   = measure_spec$key
   )
   # only attach payloads if they were produced
-  if (any(vapply(payloads, Negate(is.null), logical(1)))) out$payloads <- payloads
+  if (any(vapply(payloads, Negate(is.null), logical(1L)))) {
+    out$payloads = payloads
+  }
   out
 }

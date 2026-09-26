@@ -139,13 +139,18 @@ mbspls_metric_summary_row = function(label, x) {
 #' returning a summary of results.
 #'
 #' @details
+#' If the task has an `mlr3` `group` column role, every outer split is checked
+#' before fitting and the function errors if an exchangeability group occurs in
+#' both analysis and assessment rows. The correct grouping variable remains a
+#' study-design responsibility and cannot be inferred from feature values.
+#'
 #' `performance_metric` and `measure` operate at different layers of the
 #' procedure.
 #'
-#' `performance_metric` controls the direct objective optimized inside the
-#' MB-sPLS C++ fitting routine when each latent component is estimated. It
-#' therefore changes how the component weights are fitted (`"mac"` or
-#' `"frobenius"`).
+#' `performance_metric` selects the association criterion evaluated for
+#' convergence and scoring (`"mac"` or `"frobenius"`). Weight updates follow
+#' the same covariance-style sparse multiblock procedure for either criterion;
+#' the solver does not directly optimize a correlation-gradient objective.
 #'
 #' `measure` controls model selection across candidate sparsity settings and
 #' across resampling folds on held-out data. It therefore acts as an indirect
@@ -153,8 +158,7 @@ mbspls_metric_summary_row = function(label, x) {
 #'
 #' Choosing `measure = "mbspls.ev"` or `measure = "mbspls.block_ev"` does not
 #' make the underlying MB-sPLS algorithm optimize explained variance directly.
-#' It selects among models that were still fitted with the chosen
-#' `performance_metric`, using an EV-based validation criterion.
+#' It selects among fitted models using an EV-based validation criterion.
 #'
 #' For most analyses, `performance_metric = "mac"` with
 #' `measure = "mbspls.mac_evwt"` remains the most natural default because it
@@ -173,9 +177,11 @@ mbspls_metric_summary_row = function(label, x) {
 #'   used for inner tuning and aligned outer-fold scoring. Must resolve to one of
 #'   `mbspls.mac_evwt`, `mbspls.mac`, `mbspls.ev`, or `mbspls.block_ev`.
 #'   `mbspls.mac_evwt` remains the default for backward compatibility.
-#' @param val_test "none", "permutation", or "bootstrap" - run on OUTER test.
+#' @param val_test "none", conditional "permutation", or descriptive
+#'   "bootstrap" diagnostic run on the outer assessment split.
 #' @param val_test_n integer, permutations/boot reps on OUTER test.
-#' @param val_test_alpha numeric, early-stop / CI level param for validation tests.
+#' @param val_test_alpha numeric alpha for the descriptive bootstrap interval;
+#'   retained for permutation API compatibility.
 #' @param val_permute_all logical, permute all blocks in test validation.
 #' @param n_perm_tuning integer, permutations used inside the tuner's early stop.
 #' @param perm_alpha_tuning numeric, tuner early-stop alpha (component-wise).
@@ -231,6 +237,7 @@ mbspls_nested_cv = function(
     lgr$info(paste0("Starting outer fold ", i, "/", outer_iters, "..."))
     tr_idx = rs_outer$train_set(i)
     te_idx = rs_outer$test_set(i)
+    mb_assert_resampling_split(task, tr_idx, te_idx)
     task_tr = task$clone()$filter(tr_idx)
     task_te = task$clone()$filter(te_idx)
 
@@ -305,7 +312,9 @@ mbspls_nested_cv = function(
     )
 
     res_tbl = data.table::rbindlist(list(res_tbl, res_row), use.names = TRUE, fill = TRUE)
-    if (store_payload) payloads[[i]] <- payload
+    if (store_payload) {
+      payloads[[i]] = payload
+    }
 
     lgr$info(paste0("  Completed outer fold ", i, "/", outer_iters, "."))
   }
@@ -328,6 +337,8 @@ mbspls_nested_cv = function(
     measure_id    = measure_spec$id,
     measure_key   = measure_spec$key
   )
-  if (store_payload) out$payloads <- payloads
+  if (store_payload) {
+    out$payloads = payloads
+  }
   out
 }

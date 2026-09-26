@@ -5,7 +5,7 @@
 #' multi-block sparse PLS (MB-sPLS) model in the **mlr3** ecosystem. For each
 #' latent component it samples block-wise sparsity vectors `c`, scores them via
 #' inner resampling using one of the package's MB-sPLS measures, optionally
-#' applies a permutation-based early-stop test, and then deflates before moving
+#' applies a conditional permutation-based early-stop diagnostic, and then deflates before moving
 #' to the next component.
 #'
 #' The tuner supports the package-native MB-sPLS measures:
@@ -15,7 +15,7 @@
 #'
 #' @section Construction:
 #' ```
-#' tuner <- TunerSeqMBsPLS$new(
+#' tuner = TunerSeqMBsPLS$new(
 #'   tuner              = "random_search",
 #'   budget             = 1500L,
 #'   resampling         = rsmp("cv", folds = 3),
@@ -34,10 +34,12 @@
 #'   component.
 #' @param resampling (`mlr3::Resampling`) Inner resampling strategy.
 #' @param parallel (`character(1)`) `"none"` (default) or `"inner"`.
-#' @param early_stopping (`logical(1)`) If `TRUE`, run a permutation test after
-#'   each latent component and stop when `p > perm_alpha`. LC1 is always kept.
+#' @param early_stopping (`logical(1)`) If `TRUE`, run a conditional permutation
+#'   diagnostic after each latent component and stop when `p > perm_alpha`.
+#'   LC1 is always kept. This is a tuning heuristic, not full-pipeline
+#'   confirmatory inference.
 #' @param n_perm (`integer(1)`) Number of permutations for early stopping.
-#' @param perm_alpha (`numeric(1)`) Significance level for early stopping.
+#' @param perm_alpha (`numeric(1)`) Conditional diagnostic cutoff for early stopping.
 #' @param performance_metric (`character(1)`) Correlation objective used inside
 #'   `PipeOpMBsPLS`: `"mac"` or `"frobenius"`.
 #' @param additional_task [mlr3::Task] or `NULL`. Optional unlabeled task whose
@@ -202,20 +204,25 @@ TunerSeqMBsPLS = R6::R6Class(
     },
 
     .pre_graph_before_mbspls = function(learner, mbspls_id = NULL) {
-      ids = learner$graph$ids()
       mbspls_id = mbspls_id %||% .mbspls_pipeop_id(learner$graph, where = "learner$graph")
-      pos = match(mbspls_id, ids)
-      if (is.na(pos) || pos == 1L) {
-        return(mlr3pipelines::Graph$new())
+      mb_preprocessing_graph(learner$graph, mbspls_id)
+    },
+
+    .resolve_blocks = function(data, block_map) {
+      resolved = lapply(block_map, function(cols) {
+        candidates = mb_expand_block_cols(names(data), cols)
+        candidates[vapply(candidates, function(column) {
+          is.numeric(data[[column]]) && mb_has_finite_variance(data[[column]])
+        }, logical(1L))]
+      })
+      empty = names(resolved)[!lengths(resolved)]
+      if (length(empty)) {
+        stop(sprintf(
+          "No usable training features remain in blocks: %s.",
+          paste(empty, collapse = ", ")
+        ), call. = FALSE)
       }
-      new_graph = learner$graph$pipeops[[1L]]$clone(deep = TRUE)
-      if (pos == 2L) {
-        return(new_graph)
-      }
-      for (i in 2:(pos - 1L)) {
-        new_graph = new_graph %>>% learner$graph$pipeops[[i]]$clone(deep = TRUE)
-      }
-      new_graph
+      resolved
     },
 
     .make_blocks = function(data, block_map, allow_encoded = TRUE) {
@@ -343,7 +350,7 @@ TunerSeqMBsPLS = R6::R6Class(
       X_val
     },
 
-    .one_lv_payload = function(X_train_fit, X_test, W_list, correlation_method) {
+    .one_lv_payload = function(X_train_fit, X_test, W_list, correlation_method, original_ss = NULL) {
       P_fit = private$.compute_train_loadings(X_train_fit, W_list)
       res = compute_test_ev(
         X_blocks_test = X_test,
@@ -355,6 +362,16 @@ TunerSeqMBsPLS = R6::R6Class(
         loading_source = "train",
         clamp_ev = "none"
       )
+      if (!is.null(original_ss)) {
+        residual_ss = vapply(X_test, function(block) sum(block^2), numeric(1L))
+        block_ratio = ifelse(original_ss > 1e-12, residual_ss / original_ss, 0)
+        res$ev_block = sweep(as.matrix(res$ev_block), 2L, block_ratio, `*`)
+        res$ev_comp = as.numeric(res$ev_comp) * if (sum(original_ss) > 1e-12) {
+          sum(residual_ss) / sum(original_ss)
+        } else {
+          0
+        }
+      }
       list(
         mac_comp = as.numeric(res$mac_comp),
         ev_comp = as.numeric(res$ev_comp),
@@ -410,13 +427,12 @@ TunerSeqMBsPLS = R6::R6Class(
 
       pre_graph_full = pre_graph_tpl$clone(deep = TRUE)
       if (length(pre_graph_full$pipeops)) {
-        pre_graph_full$train(task_full)
-        pre_df_full = data.table::last(pre_graph_full$predict(task_full))$data()
+        pre_df_full = pre_graph_full$train(task_full)[[1L]]$data()
       } else {
         pre_df_full = task_full$data()
       }
 
-      blocks = lapply(blocks_raw, function(cols) mb_expand_block_cols(names(pre_df_full), cols))
+      blocks = private$.resolve_blocks(pre_df_full, blocks_raw)
       names(blocks) = names(blocks_raw)
       X_blocks_residual = private$.make_blocks(pre_df_full, blocks, allow_encoded = FALSE)
       names(X_blocks_residual) = names(blocks)
@@ -441,6 +457,7 @@ TunerSeqMBsPLS = R6::R6Class(
       fold_add = if (!is.null(private$.additional_task)) vector("list", rs$iters) else NULL
 
       for (f in seq_len(rs$iters)) {
+        mb_assert_resampling_split(task_full, rs$train_set(f), rs$test_set(f))
         task_tr = task_full$clone(deep = FALSE)$filter(rs$train_set(f))
         task_va = task_full$clone(deep = FALSE)$filter(rs$test_set(f))
 
@@ -459,12 +476,22 @@ TunerSeqMBsPLS = R6::R6Class(
           }
         }
 
-        fold_tr[[f]] = private$.make_blocks(df_tr, blocks, allow_encoded = FALSE)
-        fold_val[[f]] = private$.make_blocks(df_va, blocks, allow_encoded = FALSE)
+        fold_blocks = private$.resolve_blocks(df_tr, blocks_raw)
+        fold_tr[[f]] = private$.make_blocks(df_tr, fold_blocks, allow_encoded = FALSE)
+        fold_val[[f]] = private$.make_blocks(df_va, fold_blocks, allow_encoded = FALSE)
         if (!is.null(fold_add)) {
-          fold_add[[f]] = private$.make_blocks(df_add, blocks, allow_encoded = FALSE)
+          fold_add[[f]] = private$.make_blocks(df_add, fold_blocks, allow_encoded = FALSE)
         }
       }
+
+      fold_ss = lapply(fold_val, function(X) {
+        vapply(X, function(block) sum(block^2), numeric(1L))
+      })
+      budget_width = vapply(names(blocks), function(block) {
+        min(c(ncol(X_blocks_residual[[block]]), vapply(fold_tr, function(X) {
+          ncol(X[[block]])
+        }, integer(1L))))
+      }, numeric(1L))
 
       if (private$.parallel == "inner") {
         if (!requireNamespace("future", quietly = TRUE) || !requireNamespace("future.apply", quietly = TRUE)) {
@@ -473,8 +500,8 @@ TunerSeqMBsPLS = R6::R6Class(
             call. = FALSE
           )
         }
-        future::plan("multisession", workers = max(1L, future::availableCores() - 1L))
-        on.exit(future::plan("sequential"), add = TRUE)
+        old_plan = future::plan("multisession", workers = max(1L, future::availableCores() - 1L))
+        on.exit(future::plan(old_plan), add = TRUE)
         fold_map = function(X, FUN) future.apply::future_lapply(X, FUN, future.seed = TRUE)
       } else {
         fold_map = function(X, FUN) lapply(X, FUN)
@@ -494,7 +521,7 @@ TunerSeqMBsPLS = R6::R6Class(
         ps_k = do.call(
           paradox::ps,
           setNames(lapply(names(blocks), function(bn) {
-            paradox::p_int(lower = 1L, upper = ncol(X_blocks_residual[[bn]]))
+            paradox::p_int(lower = 1L, upper = budget_width[[bn]])
           }), paste0("c_", names(blocks)))
         )
 
@@ -516,12 +543,12 @@ TunerSeqMBsPLS = R6::R6Class(
               fit = cpp_mbspls_one_lv(
                 Xfit,
                 c_vec,
-                1000L,
+                600L,
                 1e-4,
                 frobenius = identical(private$.perf_metric, "frobenius"),
                 spearman = use_spear
               )
-              payload = private$.one_lv_payload(Xfit, Xva, fit$W, correlation_method = correlation_method)
+              payload = private$.one_lv_payload(Xfit, Xva, fit$W, correlation_method = correlation_method, original_ss = fold_ss[[f]])
               private$.score_payload(payload, measure)
             })
             fold_scores = vapply(fold_results, function(res) as.numeric(res$score), numeric(1L))
@@ -586,13 +613,13 @@ TunerSeqMBsPLS = R6::R6Class(
           fit_fold_k = cpp_mbspls_one_lv(
             Xfit_before,
             C_star[, k],
-            1000L,
+            600L,
             1e-4,
             frobenius = identical(private$.perf_metric, "frobenius"),
             spearman = use_spear
           )
 
-          payload_k = private$.one_lv_payload(Xfit_before, Xva_before, fit_fold_k$W, correlation_method = correlation_method)
+          payload_k = private$.one_lv_payload(Xfit_before, Xva_before, fit_fold_k$W, correlation_method = correlation_method, original_ss = fold_ss[[f]])
           fold_payloads[[f]] = private$.append_fold_payload(fold_payloads[[f]], payload_k)
 
           if (private$.early_stop) {
@@ -653,13 +680,13 @@ TunerSeqMBsPLS = R6::R6Class(
             }
             break
           }
-          lgr$info("   component %d significant: permutation p = %.4g (adj. p = %.4g)", k, p_k, p_adj_k)
+          lgr$info("   component %d passed the conditional permutation cutoff: p = %.4g (sequential maximum = %.4g)", k, p_k, p_adj_k)
         }
 
         fit_full = cpp_mbspls_one_lv(
           X_blocks_residual,
           C_star[, k],
-          1000L,
+          600L,
           1e-4,
           frobenius = identical(private$.perf_metric, "frobenius"),
           spearman = use_spear

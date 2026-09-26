@@ -36,19 +36,24 @@ library(mlr3)
 library(mlr3pipelines)
 library(mlr3tuning)
 blocks = list(eng = c("disp", "hp", "drat"), body = c("wt", "qsec"))
-po = PipeOpMBsPCA$new(blocks = blocks, param_vals = list(ncomp = 3))
-lrn = as_learner(po \%>>\% po("learner", lrn("clust.kmeans", centers = 2)))
-
-ti = TuningInstanceSingleCrit$new(
-  task = mlr3cluster::TaskClust$new("x", backend = mtcars),
-  learner = lrn,
-  resampling = rsmp("holdout"),
-  measure = msr("mbspca.mean_ev"),
-  search_space = paradox::ps(),
-  terminator = trm("none")
+po_mbspca = PipeOpMBsPCA$new(blocks = blocks, param_vals = list(ncomp = 2L))
+learner = as_learner(
+  po_mbspca \%>>\% po("learner", lrn("clust.kmeans", centers = 2L))
 )
-TunerSeqMBsPCA$new(budget = 50)$optimize(ti)
-ti$result_learner_param_vals$c_matrix
+
+instance = ti(
+  task = mlr3cluster::TaskClust$new("x", backend = mtcars),
+  learner = learner,
+  resampling = rsmp("insample"),
+  measure = msr("mbspca.mean_ev"),
+  terminator = trm("evals", n_evals = 1L)
+)
+TunerSeqMBsPCA$new(
+  budget = 2L,
+  resampling = rsmp("cv", folds = 2L),
+  early_stopping = FALSE
+)$optimize(instance)
+instance$result$learner_param_vals[[1L]]$c_matrix
 }
 
 }
@@ -106,12 +111,13 @@ search.}
 
 \item{\code{parallel}}{(\code{character(1)}) \code{"none"} or \code{"inner"}.}
 
-\item{\code{early_stopping}}{(\code{logical(1)}) Perform a permutation test after each
-component and stop if not significant (PC-1 is always kept).}
+\item{\code{early_stopping}}{(\code{logical(1)}) Perform a conditional permutation
+diagnostic after each component and stop if its cutoff is not met (PC-1 is
+always kept). This is not full-pipeline confirmatory inference.}
 
-\item{\code{n_perm}}{(\code{integer(1)}) Number of permutations for the test.}
+\item{\code{n_perm}}{(\code{integer(1)}) Number of permutations for the diagnostic.}
 
-\item{\code{perm_alpha}}{(\code{numeric(1)}) Alpha-level for the test.}
+\item{\code{perm_alpha}}{(\code{numeric(1)}) Cutoff for the diagnostic.}
 }
 \if{html}{\out{</div>}}
 }

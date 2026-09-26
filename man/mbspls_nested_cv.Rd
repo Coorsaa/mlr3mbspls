@@ -45,11 +45,13 @@ used for inner tuning and aligned outer-fold scoring. Must resolve to one of
 \code{mbspls.mac_evwt}, \code{mbspls.mac}, \code{mbspls.ev}, or \code{mbspls.block_ev}.
 \code{mbspls.mac_evwt} remains the default for backward compatibility.}
 
-\item{val_test}{"none", "permutation", or "bootstrap" - run on OUTER test.}
+\item{val_test}{"none", conditional "permutation", or descriptive
+"bootstrap" diagnostic run on the outer assessment split.}
 
 \item{val_test_n}{integer, permutations/boot reps on OUTER test.}
 
-\item{val_test_alpha}{numeric, early-stop / CI level param for validation tests.}
+\item{val_test_alpha}{numeric alpha for the descriptive bootstrap interval;
+retained for permutation API compatibility.}
 
 \item{val_permute_all}{logical, permute all blocks in test validation.}
 
@@ -80,13 +82,18 @@ This function tunes the model on inner folds and evaluates it on outer folds,
 returning a summary of results.
 }
 \details{
+If the task has an \code{mlr3} \code{group} column role, every outer split is checked
+before fitting and the function errors if an exchangeability group occurs in
+both analysis and assessment rows. The correct grouping variable remains a
+study-design responsibility and cannot be inferred from feature values.
+
 \code{performance_metric} and \code{measure} operate at different layers of the
 procedure.
 
-\code{performance_metric} controls the direct objective optimized inside the
-MB-sPLS C++ fitting routine when each latent component is estimated. It
-therefore changes how the component weights are fitted (\code{"mac"} or
-\code{"frobenius"}).
+\code{performance_metric} selects the association criterion evaluated for
+convergence and scoring (\code{"mac"} or \code{"frobenius"}). Weight updates follow
+the same covariance-style sparse multiblock procedure for either criterion;
+the solver does not directly optimize a correlation-gradient objective.
 
 \code{measure} controls model selection across candidate sparsity settings and
 across resampling folds on held-out data. It therefore acts as an indirect
@@ -94,8 +101,7 @@ outer optimization criterion for tuning and evaluation.
 
 Choosing \code{measure = "mbspls.ev"} or \code{measure = "mbspls.block_ev"} does not
 make the underlying MB-sPLS algorithm optimize explained variance directly.
-It selects among models that were still fitted with the chosen
-\code{performance_metric}, using an EV-based validation criterion.
+It selects among fitted models using an EV-based validation criterion.
 
 For most analyses, \code{performance_metric = "mac"} with
 \code{measure = "mbspls.mac_evwt"} remains the most natural default because it

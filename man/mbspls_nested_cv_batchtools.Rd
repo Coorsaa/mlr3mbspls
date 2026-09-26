@@ -41,8 +41,8 @@ mbspls_nested_cv_batchtools(
 
 \item{tuner_budget}{Integer, maximum number of evaluations for the tuner.}
 
-\item{tuning_early_stop}{Logical, whether to stop tuning early if
-non-significant components are found.}
+\item{tuning_early_stop}{Logical, whether to apply the conditional
+permutation-based component stopping heuristic.}
 
 \item{measure}{\link[mlr3:Measure]{mlr3::Measure} or character(1). The package MB-sPLS measure
 used for inner tuning and aligned outer-fold scoring. Must resolve to one of
@@ -52,23 +52,23 @@ used for inner tuning and aligned outer-fold scoring. Must resolve to one of
 \item{performance_metric}{Character, performance metric to optimize
 ("mac" or "frobenius").}
 
-\item{val_test}{Character, type of validation test to perform
-("none", "permutation", or "bootstrap").}
+\item{val_test}{Character, prediction-side diagnostic: "none", conditional
+"permutation", or descriptive "bootstrap".}
 
 \item{val_test_n}{Integer, number of permutations or bootstrap samples
-for the validation test (default is 1000).}
+for the prediction-side diagnostic (default is 1000).}
 
-\item{val_test_alpha}{Numeric, significance level for the validation test
-(default is 0.05).}
+\item{val_test_alpha}{Numeric alpha for the descriptive bootstrap interval;
+retained for permutation API compatibility (default is 0.05).}
 
 \item{val_permute_all}{Logical, whether to permute all blocks during
-the validation test (default is TRUE).}
+the conditional permutation diagnostic (default is TRUE).}
 
-\item{n_perm_tuning}{Integer, number of permutations for the tuning
-significance test (default is 500).}
+\item{n_perm_tuning}{Integer, number of permutations for the conditional
+tuning diagnostic (default is 500).}
 
-\item{perm_alpha_tuning}{Numeric, significance level for the tuning
-permutation test (default is 0.05).}
+\item{perm_alpha_tuning}{Numeric cutoff for the conditional tuning
+diagnostic (default is 0.05).}
 
 \item{store_payload}{Logical, whether to store the full payload from
 each outer fold (may consume a lot of memory).}
@@ -99,10 +99,10 @@ The results are collected and summarized after all jobs are completed.
 \code{performance_metric} and \code{measure} operate at different layers of the
 procedure.
 
-\code{performance_metric} controls the direct objective optimized inside the
-MB-sPLS C++ fitting routine when each latent component is estimated. It
-therefore changes how the component weights are fitted (\code{"mac"} or
-\code{"frobenius"}).
+\code{performance_metric} selects the association criterion evaluated for
+convergence and scoring (\code{"mac"} or \code{"frobenius"}). Weight updates follow
+the same covariance-style sparse multiblock procedure for either criterion;
+the solver does not directly optimize a correlation-gradient objective.
 
 \code{measure} controls model selection across candidate sparsity settings and
 across resampling folds on held-out data. It therefore acts as an indirect
@@ -110,6 +110,5 @@ outer optimization criterion for tuning and evaluation.
 
 Choosing \code{measure = "mbspls.ev"} or \code{measure = "mbspls.block_ev"} does not
 make the underlying MB-sPLS algorithm optimize explained variance directly.
-It selects among models that were still fitted with the chosen
-\code{performance_metric}, using an EV-based validation criterion.
+It selects among fitted models using an EV-based validation criterion.
 }

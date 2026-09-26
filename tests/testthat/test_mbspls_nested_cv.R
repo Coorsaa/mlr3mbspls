@@ -14,8 +14,8 @@ test_that("mbspls_nested_cv does not mutate the supplied GraphLearner", {
   expect_null(gl$graph$pipeops[[mbspls_id]]$param_set$values$c_matrix)
 
   res = NULL
-  expect_no_error(
-    res <- mbspls_nested_cv(
+  expect_no_error({
+    res = mbspls_nested_cv(
       task = task,
       graphlearner = gl,
       rs_outer = mlr3::rsmp("holdout"),
@@ -27,7 +27,7 @@ test_that("mbspls_nested_cv does not mutate the supplied GraphLearner", {
       n_perm_tuning = 1L,
       store_payload = FALSE
     )
-  )
+  })
 
   expect_true(all(c("measure_id", "measure_key", "measure_test", "measure_test_defined", "measure_test_status") %in% names(res$results)))
   expect_true(all(c("mac_evwt_defined", "mac_evwt_status") %in% names(res$results)))
@@ -53,8 +53,8 @@ test_that("mbspls_nested_cv supports package MB-sPLS measures beyond mac_evwt", 
   )
 
   res = NULL
-  expect_no_error(
-    res <- mbspls_nested_cv(
+  expect_no_error({
+    res = mbspls_nested_cv(
       task = task,
       graphlearner = gl,
       rs_outer = mlr3::rsmp("holdout"),
@@ -67,7 +67,7 @@ test_that("mbspls_nested_cv supports package MB-sPLS measures beyond mac_evwt", 
       n_perm_tuning = 1L,
       store_payload = FALSE
     )
-  )
+  })
 
   expect_true(all(res$results$measure_key == "mbspls.ev"))
   expect_true(all(res$results$measure_id == "mbspls.ev"))

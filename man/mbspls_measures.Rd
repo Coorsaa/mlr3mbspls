@@ -25,9 +25,9 @@ data (either MAC or Frobenius, depending on training)
 
 Make sure the same \code{log_env} is passed into your PipeOp inside the Graph:
 \preformatted{
-  metrics_env <- new.env(parent = emptyenv())
-  po_mb <- po("mbspls", blocks = blocks, ncomp = 3L, log_env = metrics_env)
-  gl <- as_learner(po_std %>>% po_bs %>>% po_mb %>>% po("learner", lrn("clust.kmeans", centers = 1)))
+  metrics_env = new.env(parent = emptyenv())
+  po_mb = po("mbspls", blocks = blocks, ncomp = 3L, log_env = metrics_env)
+  gl = as_learner(po_std %>>% po_bs %>>% po_mb %>>% po("learner", lrn("clust.kmeans", centers = 1)))
 }
 
 For \code{resample()} / \code{benchmark()}, set \code{store_models = TRUE} so the trained
