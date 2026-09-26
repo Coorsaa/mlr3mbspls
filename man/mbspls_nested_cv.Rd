@@ -36,7 +36,10 @@ mbspls_nested_cv(
 
 \item{tuner_budget}{integer, #candidate evaluations per component.}
 
-\item{tuning_early_stop}{logical, stop tuning early if no sig. components.}
+\item{tuning_early_stop}{logical, whether the tuner applies its
+permutation-based component stopping heuristic. The heuristic is evaluated
+on the inner validation folds that selected \code{c} and pools dependent folds,
+so it is optimistic; see \link{TunerSeqMBsPLS}.}
 
 \item{performance_metric}{"mac" or "frobenius" for the latent correlation.}
 
@@ -57,7 +60,8 @@ retained for permutation API compatibility.}
 
 \item{n_perm_tuning}{integer, permutations used inside the tuner's early stop.}
 
-\item{perm_alpha_tuning}{numeric, tuner early-stop alpha (component-wise).}
+\item{perm_alpha_tuning}{numeric, cutoff of the tuner's stopping heuristic
+(component-wise). It is not an error rate.}
 
 \item{store_payload}{logical, keep the full PipeOpMBsPLS predict payload.}
 }
@@ -66,10 +70,13 @@ list with:
 \itemize{
 \item results: data.table with per-outer-split summary, including the selected
 objective (\code{measure_id}, \code{measure_key}, \code{measure_test},
-\code{measure_test_defined}, \code{measure_test_status}) plus secondary diagnostics
-such as \code{mac_lv1_test} and \code{mac_evwt_test}
+\code{measure_test_defined}, \code{measure_test_status}), the number of components
+whose latent correlation was undefined on the assessment rows and scored
+as zero (\code{measure_test_n_undefined}), plus secondary diagnostics such as
+\code{mac_lv1_test} and \code{mac_evwt_test}
 \item c_mats: list of tuned C* matrices per outer split
-\item inner_scores: numeric vector of best inner-CV scores (one per outer split)
+\item inner_scores: numeric vector of the tuner's inner-CV scores of the
+selected C* (one per outer split; optimistic)
 \item payloads: (optional) list of PipeOp logging payloads for each outer test
 \item summary_table: data.table with aggregated metrics across outer splits,
 including \code{n_total}, \code{n_defined}, and \code{n_failed}
@@ -82,6 +89,19 @@ This function tunes the model on inner folds and evaluates it on outer folds,
 returning a summary of results.
 }
 \details{
+Each outer fold tunes a deep clone of \code{graphlearner} with \link{TunerSeqMBsPLS} on
+the analysis rows and then trains a second clone with the tuned \code{c_matrix}
+on the same rows and predicts the assessment rows. Every PipeOp of these
+clones that has a \code{log_env} parameter (the MB-sPLS node and, for example, a
+\link{PipeOpMBsPLSBootstrapSelect} node) receives one fresh environment per fold,
+so bootstrap stability selection runs on the fold's own MB-sPLS fit and the
+outer estimate covers the complete configured pipeline. The supplied learner
+and its log environment are left unchanged.
+
+\code{inner_scores} are the tuner's inner-resampling scores of the selected
+\code{c_matrix}. They were maximised during tuning and are therefore optimistic;
+the outer \code{measure_test} values are the performance estimate.
+
 If the task has an \code{mlr3} \code{group} column role, every outer split is checked
 before fitting and the function errors if an exchangeability group occurs in
 both analysis and assessment rows. The correct grouping variable remains a

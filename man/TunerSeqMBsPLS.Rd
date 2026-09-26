@@ -8,20 +8,76 @@
 multi-block sparse PLS (MB-sPLS) model in the \strong{mlr3} ecosystem. For each
 latent component it samples block-wise sparsity vectors \code{c}, scores them via
 inner resampling using one of the package's MB-sPLS measures, optionally
-applies a conditional permutation-based early-stop diagnostic, and then deflates before moving
-to the next component.
+applies a permutation-based early-stopping heuristic, and then deflates
+before moving to the next component.
 
 The tuner supports the package-native MB-sPLS measures:
 \code{mbspls.mac_evwt}, \code{mbspls.mac}, \code{mbspls.ev}, and \code{mbspls.block_ev}.
-Passing any other measure now errors explicitly instead of being silently
+Passing any other measure errors explicitly instead of being silently
 ignored.
+}
+\details{
+\strong{Inner folds mirror the final fit.} For every inner fold, the
+preprocessing graph upstream of \code{PipeOpMBsPLS} is trained on the fold's
+training rows only and then applied to its validation rows and to
+\code{additional_task}. Block columns are resolved exactly as \code{PipeOpMBsPLS}
+resolves them, from the feature columns it receives (never the target, and
+only those selected by its \code{affect_columns}): \code{\link[=mb_resolve_block_columns]{mb_resolve_block_columns()}}
+(so encoded factor columns such as \code{sex.m} belong to their declared block),
+followed by the numeric and finite-variance filters. Blocks without a usable
+column on the full tuning task are dropped with a warning, as
+\code{PipeOpMBsPLS} drops them, and the tuned \code{c_matrix} has one row per retained
+block. As in \code{PipeOpMBsPLS}, the node's \code{ncomp} may not exceed the rank of
+any centred retained block on the full tuning task; this is checked before
+the search. Every retained block must keep at least one usable column in
+each inner training fold. The upper bound of a block's \code{c} is \code{sqrt(p)} for
+the smallest width \code{p} of that block on the full task and across the inner
+training folds. An error raised while scoring a candidate, for example by
+the solver, stops the tuning with its original message.
+
+The native solver expects column-centred blocks. Each inner fold is centred
+by the column means of the rows its components are fitted on (the fold's
+training rows plus any \code{additional_task} rows), and the validation rows are
+centred by the same means, as \code{PipeOpMBsPLS} centres prediction data by its
+training means.
+
+Fold fits use the solver settings of \code{PipeOpMBsPLS}: at most 600 sweeps,
+stopping when the largest change in block weights between sweeps falls below
+\code{1e-4}. The solver starts deterministically, so the fit that scored the
+selected candidate is reused for the fold payloads, the early-stopping
+diagnostic and the deflation, and it equals the fit \code{PipeOpMBsPLS} obtains
+for the same data and \code{c}. A warning names retained components whose fold
+fits did not converge.
+
+\strong{Reported score.} \code{result_y} is the inner-resampling score of the tuned
+\code{c_matrix}. Each component's \code{c} is chosen to maximise this score on the same
+inner folds, so it is optimistically biased (for a single component it is the
+best score in the search archive). Use \code{\link[=mbspls_nested_cv]{mbspls_nested_cv()}} to estimate
+performance on unseen data.
+
+\strong{Early stopping is a heuristic.} After the \code{c} of component \code{k} is
+selected, a permutation test that permutes the validation rows with the
+trained weights held fixed is run on every inner validation fold. These are
+the folds that selected \code{c}, and the fixed-weight null ignores that
+selection, so the fold p-values are optimistic (anti-conservative), the more
+so the larger \code{budget}. The fold p-values are pooled with a
+\code{sqrt(n_validation)}-weighted Stouffer combination that treats the folds as
+independent, although their training rows overlap. Tuning stops at the first
+component whose running maximum of pooled p-values exceeds \code{perm_alpha}, and
+that component is dropped; LC1 is always kept. \code{perm_alpha} is therefore a
+cutoff for this heuristic, not a false-retention or type-I error rate, and
+the pooled values are not confirmatory p-values.
+
+The performance metric can also be changed after construction through
+\code{tuner$param_set$values$performance_metric}; the parameter set is the only
+source of this setting.
 }
 \section{Construction}{
 
 
 \if{html}{\out{<div class="sourceCode">}}\preformatted{tuner = TunerSeqMBsPLS$new(
   tuner              = "random_search",
-  budget             = 1500L,
+  budget             = 100L,
   resampling         = rsmp("cv", folds = 3),
   parallel           = "none",
   early_stopping     = TRUE,
@@ -35,6 +91,24 @@ ignored.
 
 \section{Super class}{
 \code{\link[mlr3tuning:Tuner]{mlr3tuning::Tuner}} -> \code{TunerSeqMBsPLS}
+}
+\section{Active bindings}{
+\if{html}{\out{<div class="r6-active-bindings">}}
+\describe{
+\item{\code{diagnostics}}{(\code{list()} or \code{NULL})\cr
+Diagnostics of the last completed \code{optimize()} call: \code{blocks}, the
+resolved block columns on the full tuning task; \code{fold_statistics}, a
+\code{\link[data.table:data.table]{data.table::data.table()}} with one row per evaluated component and inner
+fold (\code{component}, \code{fold}, \code{n_train} (fitted rows, including
+\code{additional_task} rows), \code{n_validation}, the fold \code{score} of the
+selected \code{c}, solver \code{converged} and \code{iterations}, the fold
+early-stopping \code{p_value}, and \code{kept}); and \code{components}, one row per
+evaluated component with its \verb{c_<block>} values, \code{search_score} (score of
+the selected candidate in the search archive), \code{n_evals}, the pooled
+early-stopping \code{p_combined} and its running maximum \code{p_sequential}, and
+\code{kept}. Read-only.}
+}
+\if{html}{\out{</div>}}
 }
 \section{Methods}{
 \subsection{Public methods}{
@@ -84,19 +158,26 @@ component.}
 
 \item{\code{resampling}}{(\code{mlr3::Resampling}) Inner resampling strategy.}
 
-\item{\code{parallel}}{(\code{character(1)}) \code{"none"} (default) or \code{"inner"}.}
+\item{\code{parallel}}{(\code{character(1)}) \code{"none"} (default) or \code{"inner"}, which
+fits the inner folds of each candidate in parallel with \code{future}
+(multisession). Fold fits draw no random numbers, so both settings propose
+the same candidates for a given seed.}
 
-\item{\code{early_stopping}}{(\code{logical(1)}) If \code{TRUE}, run a conditional permutation
-diagnostic after each latent component and stop when \code{p > perm_alpha}.
-LC1 is always kept. This is a tuning heuristic, not full-pipeline
-confirmatory inference.}
+\item{\code{early_stopping}}{(\code{logical(1)}) If \code{TRUE}, run the permutation-based
+stopping heuristic after each latent component (see Details) and stop
+when its sequential pooled p-value exceeds \code{perm_alpha}. LC1 is always
+kept. The diagnostic reuses the inner validation folds that selected \code{c}
+and is optimistic; it is not confirmatory inference.}
 
 \item{\code{n_perm}}{(\code{integer(1)}) Number of permutations for early stopping.}
 
-\item{\code{perm_alpha}}{(\code{numeric(1)}) Conditional diagnostic cutoff for early stopping.}
+\item{\code{perm_alpha}}{(\code{numeric(1)}) Cutoff of the early-stopping heuristic. It
+is not an error rate: the pooled fold p-values ignore the selection of \code{c}
+on the same folds and the dependence between folds.}
 
 \item{\code{performance_metric}}{(\code{character(1)}) Correlation objective used inside
-\code{PipeOpMBsPLS}: \code{"mac"} or \code{"frobenius"}.}
+\code{PipeOpMBsPLS}: \code{"mac"} or \code{"frobenius"}. Initial value of the parameter
+\code{performance_metric}; it must match the \code{PipeOpMBsPLS} node.}
 
 \item{\code{additional_task}}{\link[mlr3:Task]{mlr3::Task} or \code{NULL}. Optional unlabeled task whose
 rows are appended to the inner-CV training features when extracting

@@ -23,7 +23,7 @@ mbspls_nested_cv_batchtools(
   store_payload = TRUE,
   reg_dir = "registry_mbspls_nestedcv",
   seed = 1L,
-  cluster_function = batchtools::makeClusterFunctionsSocket(ncpus = 1L),
+  cluster_function = NULL,
   autosubmit = FALSE
 )
 }
@@ -35,14 +35,17 @@ mbspls_nested_cv_batchtools(
 
 \item{rs_outer}{An \code{mlr3} resampling instance for the outer folds.}
 
-\item{rs_inner}{An \code{mlr3} resampling instance for the inner folds.}
+\item{rs_inner}{An \code{mlr3} resampling template for the inner folds; it is
+instantiated on the analysis rows of every outer fold.}
 
 \item{ncomp}{Integer, maximum number of components to consider.}
 
 \item{tuner_budget}{Integer, maximum number of evaluations for the tuner.}
 
-\item{tuning_early_stop}{Logical, whether to apply the conditional
-permutation-based component stopping heuristic.}
+\item{tuning_early_stop}{Logical, whether the tuner applies its
+permutation-based component stopping heuristic. The heuristic is
+evaluated on the inner validation folds that selected \code{c} and pools
+dependent folds, so it is optimistic; see \link{TunerSeqMBsPLS}.}
 
 \item{measure}{\link[mlr3:Measure]{mlr3::Measure} or character(1). The package MB-sPLS measure
 used for inner tuning and aligned outer-fold scoring. Must resolve to one of
@@ -64,11 +67,11 @@ retained for permutation API compatibility (default is 0.05).}
 \item{val_permute_all}{Logical, whether to permute all blocks during
 the conditional permutation diagnostic (default is TRUE).}
 
-\item{n_perm_tuning}{Integer, number of permutations for the conditional
-tuning diagnostic (default is 500).}
+\item{n_perm_tuning}{Integer, number of permutations for the tuning
+stopping heuristic (default is 500).}
 
-\item{perm_alpha_tuning}{Numeric cutoff for the conditional tuning
-diagnostic (default is 0.05).}
+\item{perm_alpha_tuning}{Numeric cutoff of the tuning stopping heuristic
+(default is 0.05). It is not an error rate.}
 
 \item{store_payload}{Logical, whether to store the full payload from
 each outer fold (may consume a lot of memory).}
@@ -77,25 +80,36 @@ each outer fold (may consume a lot of memory).}
 
 \item{seed}{Integer, random seed for reproducibility.}
 
-\item{cluster_function}{A \code{batchtools} cluster function object.
-Defaults to a local socket setup created via
-\code{batchtools::makeClusterFunctionsSocket()}.}
+\item{cluster_function}{A \code{batchtools} cluster function object, or \code{NULL}
+(default) for a local socket setup created via
+\code{batchtools::makeClusterFunctionsSocket(ncpus = 1L)}.}
 
 \item{autosubmit}{Logical, whether to automatically submit the jobs
 after creating the registry (default is FALSE).}
 }
 \value{
-A \code{batchtools} registry object. Use \code{collect_mbspls_nested_cv()}
-to gather and summarize the results after all jobs are completed.
+A list with elements \code{ids}, the job table returned by
+\code{batchtools::batchMap()} (one job per outer split), and \code{reg}, the
+\code{batchtools} Registry. Submit the jobs with
+\code{batchtools::submitJobs(reg = out$reg)} unless \code{autosubmit = TRUE}, and pass
+\code{reg = out$reg} (or the whole list) to \code{\link[=collect_mbspls_nested_cv]{collect_mbspls_nested_cv()}}.
 }
 \description{
 This function performs nested cross-validation for MB-sPLS using the
 \code{batchtools} package to parallelize the outer folds as separate jobs.
 Each outer fold is processed in a separate job, which tunes the MB-sPLS
 model on the inner folds and evaluates it on the outer test fold.
-The results are collected and summarized after all jobs are completed.
+The results are collected and summarized with \code{\link[=collect_mbspls_nested_cv]{collect_mbspls_nested_cv()}}
+after the jobs have completed.
 }
 \details{
+Each job runs exactly the code of one outer fold of \code{\link[=mbspls_nested_cv]{mbspls_nested_cv()}}:
+the tuner and the evaluation learner are deep clones of \code{graphlearner}, and
+every PipeOp with a \code{log_env} parameter (the MB-sPLS node and, for example,
+a \link{PipeOpMBsPLSBootstrapSelect} node) receives one fresh environment per job.
+Graphs with bootstrap stability selection are therefore evaluated as
+configured.
+
 \code{performance_metric} and \code{measure} operate at different layers of the
 procedure.
 
