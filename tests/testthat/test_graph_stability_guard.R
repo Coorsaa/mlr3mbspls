@@ -69,3 +69,20 @@ test_that("mbspls_graph exposes safe training-block retention", {
     "must be TRUE"
   )
 })
+
+test_that("graph constructors and the bootstrap PipeOp agree on align levels and seeding", {
+  levels_po = po("mbspls_bootstrap_select")$param_set$levels$align
+  expect_setequal(eval(formals(mbspls_graph)$align), levels_po)
+  expect_setequal(eval(formals(mbspls_graph_learner)$align), levels_po)
+
+  effective_seed = function(ps) {
+    utils::modifyList(
+      paradox::default_values(ps),
+      ps$get_values(tags = "train"),
+      keep.null = TRUE
+    )$seed_bootstrap
+  }
+  graph = mbspls_graph(blocks = list(b1 = letters[1:4], b2 = letters[5:8]), ncomp = 1L)
+  expect_null(effective_seed(po("mbspls_bootstrap_select")$param_set))
+  expect_null(effective_seed(graph$pipeops$mbspls_bootstrap_select$param_set))
+})

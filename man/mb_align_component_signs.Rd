@@ -33,7 +33,7 @@ flag does not depend on how the columns are normalised.
 }
 \details{
 The helper does not match components. Columns must already correspond, for
-example after solving an assignment problem such as \code{clue::solve_LSAP()} on
+example after solving an assignment problem (e.g. the Hungarian algorithm) on
 \code{1 - abs(cosine)} or on absolute score correlations; a pair of swapped
 components typically shows up as ambiguous. For MB-sPLS, the objective
 depends only on absolute (or squared) cross-block correlations, so the sign

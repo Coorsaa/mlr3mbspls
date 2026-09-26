@@ -397,6 +397,13 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
     stop("Bootstrap selection state not found; pass a valid 'select_id' and train with bootstrap selection.")
   }
 
+  # One entry per fitted component (zero if a component has no summaries), so
+  # that recomputation keeps the component positions of the fit.
+  comp_labels = function(ci) {
+    names(fit_state$weights) %||%
+      sprintf("LC_%02d", seq_len(fit_state$ncomp %||% length(unique(ci$component))))
+  }
+
   if (!is.null(freq_min)) {
     ci = as.data.frame(sel_state$weights_ci)
     fr = as.data.frame(sel_state$weights_selectfreq)
@@ -406,7 +413,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
     ci$component = as.character(ci$component)
     fr$component = as.character(fr$component)
 
-    Klabs = unique(ci$component)
+    Klabs = comp_labels(ci)
     W_use = vector("list", length(Klabs))
     names(W_use) = Klabs
 
@@ -432,14 +439,8 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
       }
       W_use[[k]] = Wk
     }
-    if (!is.null(sel_state$weights_stable) && length(sel_state$weights_stable)) {
-      W_use = lapply(names(sel_state$weights_stable), function(k) {
-        lapply(names(blocks), function(b) .fullvec(sel_state$weights_stable[[k]][[b]], b))
-      })
-      names(W_use) = names(sel_state$weights_stable)
-      names(W_use[[1]]) = names(blocks)
-      return(W_use)
-    }
+    # Frequency-filtered aligned bootstrap means, as in the weights plot.
+    return(W_use)
   }
 
   if (!is.null(sel_state$weights_stable) && length(sel_state$weights_stable)) {
@@ -451,9 +452,12 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
     stop("No bootstrap summaries available: both weights_stable and weights_ci missing.")
   }
 
-  Klabs = unique(ci$component)
+  ci$component = as.character(ci$component)
+  Klabs = comp_labels(ci)
   W_use = vector("list", length(Klabs))
   names(W_use) = Klabs
+  # the selector's CI rule: interval excludes 0 and |mean| > magnitude_threshold
+  magnitude = as.numeric(sel_state$magnitude_threshold %||% 1e-3)
 
   for (k in Klabs) {
     Wk = list()
@@ -465,7 +469,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
         next
       }
       keep = switch(match.arg(ci_filter),
-        excludes_zero = ((sb$ci_lower > 0) | (sb$ci_upper < 0)) & (abs(sb$boot_mean) > 1e-3),
+        excludes_zero = ((sb$ci_lower > 0) | (sb$ci_upper < 0)) & (abs(sb$boot_mean) > magnitude),
         overlaps_zero = (sb$ci_lower <= 0 & sb$ci_upper >= 0),
         none          = rep(TRUE, nrow(sb))
       )
@@ -514,6 +518,16 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   blocks = names(blocks_map)
   K = length(W_use)
   if (!K) stop("No components in W_use.")
+  # Weights are looked up by block name; an unnamed component would silently
+  # turn into zero scores.
+  for (k in seq_len(K)) {
+    if (!is.list(W_use[[k]]) || !all(blocks %in% names(W_use[[k]]))) {
+      stop(sprintf(
+        "Weights for component %d must be a list named by block (%s).",
+        k, paste(blocks, collapse = ", ")
+      ), call. = FALSE)
+    }
+  }
 
   # copy matrices for deflation
   X_cur = lapply(X_list, function(m) {
@@ -598,13 +612,13 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   title_suffix = "",
   font = "sans"
 ) {
-  requireNamespace("ggplot2")
-  requireNamespace("scales")
-
   source = match.arg(source)
   ci_filter = match.arg(ci_filter)
   compare = match.arg(compare)
   method = match.arg(method)
+  if (!isTRUE(absolute)) {
+    .mbspls_require_suggested("scales", "autoplot(type = 'mbspls_heatmap', absolute = FALSE)")
+  }
 
   W_use = .mbspls_weights_from_source(model, sel_state, source, freq_min, ci_filter)
   rec = .mbspls_recompute_from_weights(model, W_use, log_env = log_env)
@@ -724,11 +738,10 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   title_suffix = "",
   font = "sans"
 ) {
-  requireNamespace("igraph")
-  requireNamespace("ggraph")
-  requireNamespace("ggplot2")
-  requireNamespace("scales")
-
+  .mbspls_require_suggested(
+    c("igraph", "ggraph", if (!isTRUE(absolute)) "scales"),
+    "autoplot(type = 'mbspls_network')"
+  )
   source = match.arg(source)
   ci_filter = match.arg(ci_filter)
   compare = match.arg(compare)
@@ -831,8 +844,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   title_suffix = "",
   font = "sans"
 ) {
-  requireNamespace("ggplot2")
-  requireNamespace("scales")
+  .mbspls_require_suggested("scales", "autoplot(type = 'mbspls_variance')")
   source = match.arg(source)
   ci_filter = match.arg(ci_filter)
   layout = match.arg(layout)
@@ -941,7 +953,6 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   title_suffix = "",
   font = "sans"
 ) {
-  requireNamespace("ggplot2")
   source = match.arg(source)
   ci_filter = match.arg(ci_filter)
 
@@ -979,7 +990,6 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   title_suffix = "",
   font = "sans"
 ) {
-  requireNamespace("ggplot2")
   density = match.arg(density)
   source = match.arg(source)
   ci_filter = match.arg(ci_filter)
@@ -1051,9 +1061,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   if (density == "contour") {
     p = p + ggplot2::stat_density_2d(ggplot2::aes(level = ggplot2::after_stat(level)), linewidth = 0.3)
   } else if (density == "hex") {
-    if (!requireNamespace("hexbin", quietly = TRUE)) {
-      stop("Package 'hexbin' is required for density = 'hex'.")
-    }
+    .mbspls_require_suggested("hexbin", "autoplot(type = 'mbspls_scores', density = 'hex')")
     p = p + ggplot2::stat_bin_hex(bins = 20, alpha = 0.8)
   }
 
@@ -1198,8 +1206,9 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
     )
 
   if (ci_filter == "excludes_zero") {
+    magnitude = as.numeric(sel_state$magnitude_threshold %||% 1e-3)
     df = df |>
-      dplyr::filter((.data$ci_lower > 0 | .data$ci_upper < 0) & abs(.data$mean) > 1e-3)
+      dplyr::filter((.data$ci_lower > 0 | .data$ci_upper < 0) & abs(.data$mean) > magnitude)
   } else if (ci_filter == "overlaps_zero") {
     df = df |>
       dplyr::filter(.data$ci_lower <= 0 & .data$ci_upper >= 0)
@@ -1254,8 +1263,9 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
     stop("No bootstrap selection output found (weights_stable/weights_ci).")
   }
 
+  magnitude = as.numeric(sel_state$magnitude_threshold %||% 1e-3)
   keep = switch(ci_filter,
-    excludes_zero = ((ci$ci_lower > 0) | (ci$ci_upper < 0)) & (abs(ci$boot_mean) > 1e-3),
+    excludes_zero = ((ci$ci_lower > 0) | (ci$ci_upper < 0)) & (abs(ci$boot_mean) > magnitude),
     overlaps_zero = (ci$ci_lower <= 0 & ci$ci_upper >= 0),
     none          = rep(TRUE, nrow(ci))
   )
@@ -1266,8 +1276,6 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
 }
 
 .mbspls_plot_weights_single_component = function(df_sub, block_levels, title = "", font = "sans", alpha_by_stability = FALSE, alpha_nonstable = 0.4, branch_label = NULL) {
-  requireNamespace("ggplot2")
-  requireNamespace("grid")
 
   if (!nrow(df_sub)) {
     return(ggplot2::ggplot() + ggplot2::theme_void() + ggplot2::ggtitle("No non-zero weights"))
@@ -1357,9 +1365,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
   freq_min = NULL,
   ci_filter = c("excludes_zero", "none", "overlaps_zero")
 ) {
-  requireNamespace("patchwork")
-  requireNamespace("ggplot2")
-  requireNamespace("dplyr")
+  .mbspls_require_suggested(c("patchwork", "dplyr", "tibble"), "autoplot(type = 'mbspls_weights')")
 
   source = match.arg(source)
   ci_filter = match.arg(ci_filter)
@@ -1606,35 +1612,16 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
       mbspls_id = cand[1]
     }
 
-    po_tpl = model$graph$pipeops[[mbspls_id]]
-    po_fit = tryCatch(model$model[[mbspls_id]], error = function(e) NULL)
-
-    envs = Filter(
-      function(x) inherits(x, "environment"),
-      list(
-        tryCatch(po_fit$param_set$values$log_env, error = function(e) NULL),
-        tryCatch(po_tpl$param_set$values$log_env, error = function(e) NULL)
-      )
-    )
-    run_ids = unique(Filter(
-      function(x) !is.null(x) && nzchar(as.character(x)),
-      list(
-        tryCatch(po_fit$state$run_id %||% NULL, error = function(e) NULL),
-        tryCatch(po_tpl$state$run_id %||% NULL, error = function(e) NULL)
-      )
-    ))
-
-    for (env in envs) {
-      for (run_id in run_ids) {
-        by_id = env$mbspls_last[[as.character(run_id)]] %||% NULL
-        if (is.list(by_id)) {
-          return(by_id)
-        }
-      }
-      if (is.list(env$last)) {
-        return(env$last)
-      }
+    # The payload of this learner's own training run; NULL if it has not
+    # predicted yet (never the payload of another run).
+    by_id = .mb_prediction_payload(model, mbspls_id)
+    if (is.list(by_id)) {
+      return(by_id)
     }
+    stop(sprintf(
+      "No evaluation payload found for the fitted run of PipeOp '%s'. Call predict() with a log_env set (or pass payload= explicitly).",
+      mbspls_id
+    ), call. = FALSE)
   }
 
   if (!is.null(model$log_env) && !is.null(model$log_env$last)) {

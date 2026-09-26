@@ -41,7 +41,6 @@ Imports:
     stats
 Suggests:
     batchtools,
-    clue,
     dplyr,
     future,
     future.apply (>= 1.10.0),

@@ -4,39 +4,106 @@
 \alias{PipeOpMBsPLSBootstrapSelect}
 \title{Post-hoc bootstrap feature selection}
 \value{
-Replaces task LV columns with kept components' LV columns (renumbered).
-Stores \code{weights_ci}, \code{weights_selectfreq}, \code{weights_stable},
-\code{loadings_stable}, \code{kept_components}, \code{kept_blocks_per_comp}.
+Replaces the task's LV columns with the stable LV columns of the kept
+components (numbering preserved). The state stores \code{weights_ci}
+(aligned bootstrap means, SDs and percentile intervals),
+\code{weights_selectfreq}, \code{weights_stable}, \code{loadings_stable},
+\code{kept_components}, \code{kept_blocks_per_comp}, \code{selection}
+(per feature: bootstrap selection, training and stable weight),
+\code{selected_not_in_training}, \code{n_eff_by_component} (accepted
+replicates, their fraction of \code{B} and non-converged refits per
+component), \code{alignment_diagnostics}, \code{n_nonconverged_replicates},
+\code{components_below_effective_floor}, the bootstrap design
+(\code{bootstrap_grouped}, \code{bootstrap_group_source},
+\code{n_exchangeability_units}, \code{exchangeability_units_by_stratum},
+\code{few_exchangeability_units}, \code{stratify_by_block},
+\code{strata_sizes}, \code{rng_streams}), the upstream training centre
+\code{center} (subtracted from prediction blocks) and the settings
+\code{bootstrap},
+\code{alpha},
+\code{alignment_method}, \code{component_matching},
+\code{selection_method}, \code{frequency_threshold},
+\code{magnitude_threshold}, \code{stable_weight_source},
+\code{min_score_cor} and \code{stability_only}.
 }
 \description{
-Performs a post-hoc \strong{descriptive bootstrap}, aligns replicate components
-(two alignment modes),
-summarises per-feature weights, then \strong{selects features} via:
+Performs a post-hoc \strong{descriptive bootstrap} of an upstream
+\code{po("mbspls")} fit and selects stable features. Each replicate resamples
+the stored (column-centred) training blocks, re-centres the resampled rows on
+their own column means and refits MB-sPLS with the upstream sparsity. The
+replicate components are then matched to the training components and
+sign-aligned block by block (see \code{align}), and the aligned weights are
+summarised per feature. Features are selected via:
 \itemize{
-\item \code{selection_method = "ci"} (default): keep if CI excludes 0 AND |mean| > \code{magnitude_threshold} (default 1e-3);
-\item \code{selection_method = "frequency"}: keep if non-zero frequency >= \code{frequency_threshold}.
+\item \code{selection_method = "ci"} (default): keep if the percentile
+interval excludes 0 (\code{ci_lower > 0} or \code{ci_upper < 0}) AND
+|bootstrap mean| > \code{magnitude_threshold};
+\item \code{selection_method = "frequency"}: keep if the non-zero
+frequency among accepted replicates is \code{>= frequency_threshold}.
 }
-Blocks with no kept features \strong{vanish} for that component; components with no
-non-empty blocks are dropped. Remaining components are \strong{renumbered}.
+Blocks with no kept features \strong{vanish} for that component, and components
+with no kept feature in any block emit no LV columns. Component numbering is
+\strong{preserved}: \code{LVk_<block>} and \code{LC_0k} always refer to upstream
+component \code{k}, so \code{LV2_*} can appear without \code{LV1_*};
+\code{kept_components} lists the components that remain. Stable weights keep
+one (possibly all-zero) entry per upstream component, so they stay aligned
+with \code{weights_ci} and \code{weights_selectfreq} by label.
 
-Final weights are either the \strong{mean aligned bootstrap weights} or the
-\strong{original training weights} of features that pass the CI/frequency filter,
-controlled via \code{stable_weight_source}. Training scores are
-recomputed with \strong{deflation} from those weights and replace upstream LV
-columns.
+If no component keeps any feature, the operator stops with an informative
+error when \code{stability_only = FALSE} (a task without features would only
+make the downstream learner fail). With \code{stability_only = TRUE} it warns,
+stores the bootstrap summaries, and publishes no stable weights.
 
-\strong{Important:} This operator uses the original block features to recompute stable
-LV scores and then \strong{drops those block features and all upstream LV columns}, so
-only the kept stable LV columns remain downstream. No fallback to upstream LVs.
+Final weights are either the \strong{original training weights} or the \strong{mean
+aligned bootstrap weights} of the selected features, controlled via
+\code{stable_weight_source}. Training scores are recomputed with
+\strong{deflation} from those weights and replace the upstream LV columns.
+
+\strong{Important:} Unless \code{stability_only = TRUE}, this operator uses the
+original block features to recompute stable LV scores and then \strong{drops those
+block features and all upstream LV columns}, so only the kept stable LV
+columns remain downstream, consistently at training and prediction time.
+Prediction blocks are centred with the upstream training means
+(\code{center} in the upstream state) before scoring.
 }
 \details{
 MB-sPLS Bootstrap Selection with Two Methods ("ci" | "frequency")
 }
+\section{Bootstrap design}{
+
+Rows are resampled with replacement. If the task has an mlr3 \code{group}
+column role and \code{bootstrap_groups} is \code{NULL}, whole groups of that
+role are resampled instead (a cluster bootstrap), because rows of the same
+group are not exchangeable. An explicit \code{bootstrap_groups} vector
+overrides the role and must be equal to or coarser than it (e.g. families
+over subjects). To bootstrap rows of a grouped task, remove the group role.
+With \code{stratify_by_block}, units are resampled within strata. The
+resampling design is validated once per fit; each replicate draws from its
+own RNG stream when \code{seed_bootstrap} is set.
+
+The number of exchangeability units (rows or groups) is checked before any
+replicate is drawn. Training stops with an error if no unit can vary between
+replicates: a single unit overall, or a single unit in every stratum. Every
+replicate would then equal the training data, and every interval would have
+zero width. This typically happens when a group role that defines the outer
+resampling (e.g. \code{site} for leave-site-out CV) leaves only one group in
+a training set. A warning is raised, and \code{few_exchangeability_units} is
+set in the state, when there are fewer than 10 units or fewer distinct
+bootstrap samples than replicates. With \eqn{G} units there are
+\code{choose(2G - 1, G)} distinct samples, multiplied over strata.
+Intervals and frequencies from so few units are unreliable.
+
+The percentile intervals in \code{weights_ci} are type-7 sample quantiles
+(\code{stats::quantile()} default) of the sign-aligned accepted draws at level
+\code{1 - alpha}. They describe sampling variability of the sparse weights
+and are not hypothesis tests.
+}
+
 \section{Parameters}{
 
 Hyperparameters are defined in the object's \code{param_set} and can be set
 via \code{param_vals}. This PipeOp is designed to be placed downstream of
-\code{po("mbspls")} and typically uses its \code{log_env}.
+\code{po("mbspls")} and uses its \code{log_env}.
 }
 
 \section{Super classes}{
