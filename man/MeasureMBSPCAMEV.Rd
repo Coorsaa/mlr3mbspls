@@ -6,12 +6,21 @@
 \description{
 A custom \link[mlr3:Measure]{mlr3::Measure} that computes the mean prediction-side explained
 variance of the retained MB-sPCA components from the payload written by
-\code{PipeOpMBsPCA} into \code{log_env$last} during \verb{$predict()}.
+\code{PipeOpMBsPCA} into its \code{log_env} during \verb{$predict()}.
 
 The measure is task-type agnostic and can therefore be used with clustering,
 classification, or regression pipelines that contain a \code{PipeOpMBsPCA} node.
-For \code{resample()} / \code{benchmark()}, set \code{store_models = TRUE} so the trained
-learner is available during scoring.
+
+Payloads are stored under the run id of the model that produced them
+(\code{log_env$mbspls_last[[run_id]]}) and looked up through the fitted MB-sPCA
+state of the scored learner, so every resampling iteration, benchmarked
+learner, or tuning configuration is scored on its own prediction. The
+measure has the \code{"requires_model"} property: set \code{store_models = TRUE} in
+\code{\link[mlr3:resample]{mlr3::resample()}}, \code{\link[mlr3:benchmark]{mlr3::benchmark()}}, \code{\link[mlr3tuning:tune]{mlr3tuning::tune()}},
+\code{\link[mlr3tuning:ti]{mlr3tuning::ti()}}, and \code{\link[mlr3tuning:auto_tuner]{mlr3tuning::auto_tuner()}}; otherwise mlr3 stops
+with "requires the trained model". A known run id without a stored payload,
+e.g. after prediction in a parallel worker whose \code{log_env} does not reach the
+main process, yields \code{NA}.
 }
 \section{Construction}{
 

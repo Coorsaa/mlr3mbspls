@@ -7,7 +7,9 @@
 Aggregates per-component latent correlations (MAC or Frobenius) using the
 positive part of the prediction-side explained-variance weights from the same
 split. If all component EVs are non-positive, the measure errors explicitly
-instead of substituting an arbitrary weighting scheme.
+instead of substituting an arbitrary weighting scheme. A component with an
+undefined latent correlation keeps its weight and contributes zero
+association. Scoring requires stored models; see \link{mbspls_measures}.
 }
 \examples{
 \dontrun{

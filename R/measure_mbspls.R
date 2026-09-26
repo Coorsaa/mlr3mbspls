@@ -1,11 +1,11 @@
 # R/measure_mbspls.R
-# Compact mlr3 measures for MB-sPLS that read prediction-side diagnostics
-# written by PipeOpMBsPLS into `log_env$last`.
+# Compact mlr3 measures for MB-sPLS that read the prediction-side diagnostics
+# written by PipeOpMBsPLS into `log_env$mbspls_last[[run_id]]`.
 
 #' @title Measures for MB-sPLS (prediction-side)
 #' @description
 #' These measures score the compact prediction-side payload written by
-#' `PipeOpMBsPLS` into `log_env$last` during `$predict()`. They therefore operate
+#' `PipeOpMBsPLS` into its `log_env` during `$predict()`. They therefore operate
 #' on the test split seen by the downstream learner inside resampling / tuning,
 #' rather than on training-state diagnostics.
 #'
@@ -25,11 +25,34 @@
 #' \preformatted{
 #'   metrics_env = new.env(parent = emptyenv())
 #'   po_mb = po("mbspls", blocks = blocks, ncomp = 3L, log_env = metrics_env)
-#'   gl = as_learner(po_std %>>% po_bs %>>% po_mb %>>% po("learner", lrn("clust.kmeans", centers = 1)))
+#'   gl = as_learner(po_std \%>>\% po_bs \%>>\% po_mb \%>>\% po("learner", lrn("clust.kmeans", centers = 1)))
 #' }
 #'
-#' For `resample()` / `benchmark()`, set `store_models = TRUE` so the trained
-#' learner is available when the measure is scored.
+#' @section Matching payloads to trained models:
+#' Every prediction payload is stored under the run id of the model that
+#' produced it (`log_env$mbspls_last[[run_id]]`), and the measures look up the
+#' run id in the fitted MB-sPLS state of the scored learner. Each resampling
+#' iteration, benchmarked learner, or tuning configuration is therefore scored
+#' on its own prediction, even when all of them share one `log_env`.
+#'
+#' The measures have the `"requires_model"` property: use
+#' `store_models = TRUE` in [mlr3::resample()], [mlr3::benchmark()],
+#' [mlr3tuning::tune()], [mlr3tuning::ti()], and [mlr3tuning::auto_tuner()].
+#' Without stored models mlr3 stops with "requires the trained model", because
+#' the payload of an iteration cannot be identified. A known run id without a
+#' stored payload yields `NA`; this happens when predictions run in parallel
+#' workers whose `log_env` does not reach the main process, so score these
+#' measures with sequential execution. Payloads are kept per trained model, so
+#' with several predict sets (e.g. `predict_sets = c("train", "test")`) the
+#' payload of the set predicted last is scored.
+#'
+#' @section Undefined components:
+#' A component whose test block scores contain fewer than two non-degenerate
+#' (non-constant) blocks has no identifiable cross-block pair; its logged
+#' latent correlation is `NaN`. `mbspls.mac` and `mbspls.mac_evwt` both score
+#' such a component as zero association. It still counts in the mean of
+#' `mbspls.mac` and keeps its explained-variance weight in `mbspls.mac_evwt`,
+#' so a model whose components collapse to a single block is not rewarded.
 #'
 #' @family Measures
 #' @name mbspls_measures
@@ -48,42 +71,7 @@ NULL
   if (is.null(mbspls_id)) {
     return(NULL)
   }
-
-  po_tpl = learner$graph$pipeops[[mbspls_id]]
-  po_fit = tryCatch(learner$model[[mbspls_id]], error = function(e) NULL)
-
-  envs = Filter(
-    function(x) inherits(x, "environment"),
-    list(
-      tryCatch(po_fit$param_set$values$log_env, error = function(e) NULL),
-      tryCatch(po_tpl$param_set$values$log_env, error = function(e) NULL)
-    )
-  )
-  if (!length(envs)) {
-    return(NULL)
-  }
-
-  run_ids = unique(Filter(
-    function(x) !is.null(x) && nzchar(as.character(x)),
-    list(
-      tryCatch(po_fit$state$run_id %||% NULL, error = function(e) NULL),
-      tryCatch(po_tpl$state$run_id %||% NULL, error = function(e) NULL)
-    )
-  ))
-
-  for (env in envs) {
-    for (run_id in run_ids) {
-      by_id = env$mbspls_last[[as.character(run_id)]] %||% NULL
-      if (is.list(by_id)) {
-        return(by_id)
-      }
-    }
-    if (is.list(env$last)) {
-      return(env$last)
-    }
-  }
-
-  NULL
+  .mb_prediction_payload(learner, mbspls_id)
 }
 
 .mbspls_measure_key = function(measure) {
@@ -189,6 +177,9 @@ mbspls_measure_score_from_payload = function(payload, measure) {
     if (!length(w) || all(!is.finite(w))) {
       return(NA_real_)
     }
+    # Undefined components carry zero measurable cross-block association and
+    # keep their EV weight (see "Undefined components" in ?mbspls_measures).
+    mac[!is.finite(mac)] = 0
     return(sum(w * mac, na.rm = TRUE))
   }
 
@@ -198,7 +189,8 @@ mbspls_measure_score_from_payload = function(payload, measure) {
       return(NA_real_)
     }
     mac = .norm_if_frobenius(mac, payload)
-    return(mean(mac, na.rm = TRUE))
+    mac[!is.finite(mac)] = 0
+    return(mean(mac))
   }
 
   if (identical(key, "mbspls.ev")) {
@@ -216,6 +208,10 @@ mbspls_measure_score_from_payload = function(payload, measure) {
   mean(as.numeric(evb), na.rm = TRUE)
 }
 
+# Score a payload and report whether the score is defined. The number of
+# components with an undefined latent correlation (scored as zero, see
+# ?mbspls_measures) is returned as `n_undefined_components`, so a partially
+# degenerate but defined score remains visible.
 mbspls_measure_score_diagnostics = function(payload, measure) {
   key = .mbspls_measure_key(measure)
   if (is.null(key)) {
@@ -227,28 +223,30 @@ mbspls_measure_score_diagnostics = function(payload, measure) {
       score = NA_real_,
       defined = FALSE,
       reason = "missing_payload",
-      message = sprintf("Measure '%s' could not be computed because the payload is missing.", key)
+      message = sprintf("Measure '%s' could not be computed because the payload is missing.", key),
+      n_undefined_components = NA_integer_
     ))
   }
 
-  tryCatch(
+  n_undefined = sum(!is.finite(as.numeric(payload$mac_comp)))
+  out = tryCatch(
     {
       score = as.numeric(mbspls_measure_score_from_payload(payload, key))[1L]
       if (is.finite(score)) {
-        return(list(
+        list(
           score = score,
           defined = TRUE,
           reason = NA_character_,
           message = NA_character_
-        ))
+        )
+      } else {
+        list(
+          score = score,
+          defined = FALSE,
+          reason = "non_finite_score",
+          message = sprintf("Measure '%s' returned a non-finite score.", key)
+        )
       }
-
-      list(
-        score = score,
-        defined = FALSE,
-        reason = "non_finite_score",
-        message = sprintf("Measure '%s' returned a non-finite score.", key)
-      )
     },
     mbspls_undefined_measure_score = function(e) {
       list(
@@ -259,6 +257,8 @@ mbspls_measure_score_diagnostics = function(payload, measure) {
       )
     }
   )
+  out$n_undefined_components = as.integer(n_undefined)
+  out
 }
 
 # 1) EV-weighted latent correlation -------------------------------------------
@@ -268,7 +268,9 @@ mbspls_measure_score_diagnostics = function(payload, measure) {
 #' Aggregates per-component latent correlations (MAC or Frobenius) using the
 #' positive part of the prediction-side explained-variance weights from the same
 #' split. If all component EVs are non-positive, the measure errors explicitly
-#' instead of substituting an arbitrary weighting scheme.
+#' instead of substituting an arbitrary weighting scheme. A component with an
+#' undefined latent correlation keeps its weight and contributes zero
+#' association. Scoring requires stored models; see [mbspls_measures].
 #' @examples
 #' \dontrun{
 #' msr_evwt = MeasureMBsPLS_EVWeightedMAC$new()
@@ -287,7 +289,7 @@ MeasureMBsPLS_EVWeightedMAC = R6::R6Class(
         range        = c(0, 1),
         task_type    = NA_character_,
         predict_type = NA_character_,
-        properties   = c("requires_learner", "requires_no_prediction"),
+        properties   = c("requires_learner", "requires_model", "requires_no_prediction"),
         packages     = "mlr3"
       )
     }
@@ -305,7 +307,9 @@ MeasureMBsPLS_EVWeightedMAC = R6::R6Class(
 
 #' @title MB-sPLS mean latent correlation across components (prediction-side)
 #' @description
-#' Mean of per-component latent correlations (MAC or normalised Frobenius).
+#' Mean of per-component latent correlations (MAC or normalised Frobenius). A
+#' component with an undefined latent correlation counts as zero association.
+#' Scoring requires stored models; see [mbspls_measures].
 #' @export
 MeasureMBsPLS_MAC = R6::R6Class(
   "MeasureMBsPLS_MAC",
@@ -320,7 +324,7 @@ MeasureMBsPLS_MAC = R6::R6Class(
         range        = c(0, 1),
         task_type    = NA_character_,
         predict_type = NA_character_,
-        properties   = c("requires_learner", "requires_no_prediction"),
+        properties   = c("requires_learner", "requires_model", "requires_no_prediction"),
         packages     = "mlr3"
       )
     }
@@ -340,7 +344,8 @@ MeasureMBsPLS_MAC = R6::R6Class(
 #' @description
 #' Mean of per-component explained variance on the prediction split.
 #' Incremental out-of-sample EV can be negative, so this measure is unbounded
-#' below and above in principle.
+#' below and above in principle. Scoring requires stored models; see
+#' [mbspls_measures].
 #' @export
 MeasureMBsPLS_EV = R6::R6Class(
   "MeasureMBsPLS_EV",
@@ -355,7 +360,7 @@ MeasureMBsPLS_EV = R6::R6Class(
         range        = c(-Inf, Inf),
         task_type    = NA_character_,
         predict_type = NA_character_,
-        properties   = c("requires_learner", "requires_no_prediction"),
+        properties   = c("requires_learner", "requires_model", "requires_no_prediction"),
         packages     = "mlr3"
       )
     }
@@ -375,7 +380,8 @@ MeasureMBsPLS_EV = R6::R6Class(
 #' @description
 #' Mean of the prediction-side EV matrix across all retained components and all
 #' blocks. Incremental out-of-sample EV can be negative, so this measure is
-#' unbounded below and above in principle.
+#' unbounded below and above in principle. Scoring requires stored models; see
+#' [mbspls_measures].
 #' @export
 MeasureMBsPLS_BlockEV = R6::R6Class(
   "MeasureMBsPLS_BlockEV",
@@ -390,7 +396,7 @@ MeasureMBsPLS_BlockEV = R6::R6Class(
         range        = c(-Inf, Inf),
         task_type    = NA_character_,
         predict_type = NA_character_,
-        properties   = c("requires_learner", "requires_no_prediction"),
+        properties   = c("requires_learner", "requires_model", "requires_no_prediction"),
         packages     = "mlr3"
       )
     }

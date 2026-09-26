@@ -4,7 +4,9 @@
 \alias{MeasureMBsPLS_MAC}
 \title{MB-sPLS mean latent correlation across components (prediction-side)}
 \description{
-Mean of per-component latent correlations (MAC or normalised Frobenius).
+Mean of per-component latent correlations (MAC or normalised Frobenius). A
+component with an undefined latent correlation counts as zero association.
+Scoring requires stored models; see \link{mbspls_measures}.
 }
 \section{Super class}{
 \code{\link[mlr3:Measure]{mlr3::Measure}} -> \code{MeasureMBsPLS_MAC}

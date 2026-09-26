@@ -278,6 +278,56 @@ log_env_store_last = function(log_env, payload, run_id = NULL) {
   invisible(TRUE)
 }
 
+# Look up the prediction payload that belongs to one fitted MB-sPLS/MB-sPCA
+# node of a trained GraphLearner.
+#
+# Payloads are stored per training run in `log_env$mbspls_last[[run_id]]`.
+# The run id is read from the fitted PipeOp state `learner$model[[pipeop_id]]`
+# (a fitted PipeOp object is accepted as well) and the log environment from
+# the PipeOp's parameters, so each resampling iteration, benchmarked learner or
+# tuning configuration is scored on its own prediction. When a run id is known
+# but no payload is stored for it (e.g. the prediction ran in a parallel worker
+# whose `log_env` never reached this process), NULL is returned so the measure
+# becomes NA. The shared `log_env$last` is used, with a warning, only for a
+# fitted state that records no run id at all.
+.mb_prediction_payload = function(learner, pipeop_id) {
+  fit = tryCatch(learner$model[[pipeop_id]], error = function(e) NULL)
+  env = NULL
+  if (inherits(fit, "PipeOp")) {
+    env = tryCatch(fit$param_set$values$log_env, error = function(e) NULL)
+    fit = fit$state
+  }
+  if (!inherits(env, "environment")) {
+    env = tryCatch(learner$graph$pipeops[[pipeop_id]]$param_set$values$log_env,
+      error = function(e) NULL)
+  }
+  if (!inherits(env, "environment") || !is.list(fit) || !length(fit)) {
+    return(NULL)
+  }
+
+  run_id = fit[["run_id"]]
+  if (is.character(run_id) && length(run_id) == 1L && !is.na(run_id) && nzchar(run_id)) {
+    payload = env$mbspls_last[[run_id]]
+    return(if (is.list(payload)) payload else NULL)
+  }
+
+  if (!is.list(env$last)) {
+    return(NULL)
+  }
+  warning(
+    sprintf(
+      paste0(
+        "The fitted state of PipeOp '%s' records no run id; using the most recent ",
+        "prediction payload in log_env$last, which may belong to another ",
+        "resampling iteration or learner."
+      ),
+      pipeop_id
+    ),
+    call. = FALSE
+  )
+  env$last
+}
+
 # ------------------------------------------------------------------------------
 # State validation helpers
 # ------------------------------------------------------------------------------
