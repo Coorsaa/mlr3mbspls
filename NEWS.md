@@ -1,3 +1,115 @@
+# mlr3mbspls 0.4.0 (development)
+
+Changes since 0.3.4 are consolidated for the next release.
+
+## Confirmatory inference
+
+- Added `mb_permutation_test()`, a complete-analysis permutation engine for one
+  pre-specified statistic. It permutes raw selected blocks, reruns a supplied
+  analysis callback on every shuffle, supports row-, stratum-, and strict
+  whole-unit exchangeability, fixes the stochastic analysis seed across
+  permutations, preserves caller RNG state, and reports corrected p-values plus
+  Monte Carlo precision.
+- Added `mbspls_permutation_test()` for refitted omnibus MB-sPLS block- and
+  target-association tests. Standardisation and all requested sequential
+  components are refitted per permutation. The API returns one global p-value;
+  later component statistics are explicitly descriptive rather than presented
+  as unsupported rank-null p-values.
+- Added `mb_lc_confirmation_test()` for LC-specific permutation tests on frozen
+  scores from genuinely independent confirmation observations. It requires an
+  explicit independence assertion, supports strict whole-unit and stratum
+  exchangeability, and reports Holm-adjusted p-values across the supplied LC
+  family. These are replication tests, not population-rank tests.
+
+## Statistical validity
+
+- Prediction-side bootstrap output is now descriptive uncertainty only. It
+  reports the estimate, bootstrap mean and bias, standard error, percentile
+  interval, confidence level, and requested/effective/failed replicate counts;
+  the retained compatibility p-value fields are explicitly `NA`.
+- Sampled permutation diagnostics now always use every requested replicate,
+  inclusive ties, and `(b + 1) / (B + 1)`. The former early-return path could
+  report a partial-run quantity as though it were a final p-value. The same
+  full-replicate correction is applied to the MB-sPCA permutation path.
+- Cross-fold conditional p-values are no longer combined by default.
+  Exploratory Stouffer/Fisher aggregation requires explicit opt-in, warns about
+  dependence assumptions, and is labelled as non-confirmatory output.
+- Added exported helpers for corrected permutation p-values, group-label
+  permutation, cluster bootstrap, group split checks, frozen scaling,
+  sign alignment, descriptive bootstrap summaries, and deterministic
+  L'Ecuyer-CMRG streams.
+- Bootstrap stability selection accepts explicit exchangeability groups and
+  assigns a deterministic stream to every replicate, independently of worker
+  scheduling. Group and RNG metadata are retained in the fitted state.
+- Prediction-side diagnostics accept `seed_validation`, assign one retained
+  L'Ecuyer-CMRG stream per component, and preserve the caller's RNG context.
+- Nested-CV entry points reject outer splits that leak an `mlr3` group-role
+  identifier across analysis and assessment partitions.
+- CI-based stability filters now require intervals to be strictly above or
+  below zero; intervals touching zero are no longer described as excluding it.
+
+## Reliability and packaging
+
+- Fixed sparse updates at tied maxima, preserving unit L2 norm and the L1
+  budget, and prevented opposing initial block signs from cancelling MB-sPCA.
+- Bootstrap component matching now uses sequentially deflated scores, and
+  seeded parallel resampling preserves the caller's RNG state.
+- Sequential tuning preserves the upstream graph, fits feature schemas per
+  training fold, and uses the same explained-variance denominator and solver
+  settings as the final model. Inner and outer splits reject row/group overlap.
+- Site correction applies training-fitted repair maps at prediction, keeps
+  unseen-site no-op behavior unchanged, and validates regression rank.
+  Target-label filtering applies only to training rows.
+- The build script now actually builds requested vignettes and runs requested
+  tests against the installed archive in a fresh R process.
+- Fixed `cpp_mbspls_one_lv()` so the returned objective is recalculated from
+  the final fitted weights. The unfinished refactor had referenced an
+  out-of-scope C++ variable and prevented compilation.
+- Corrected the MB-sPCA weight update to solve the intended penalised-matrix-
+  decomposition constraint: every loading is unit L2 norm with an L1 budget in
+  `[1, sqrt(p)]`. This removes the previous runaway-weight failure on
+  heterogeneous, unscaled blocks and evaluates convergence at the updated
+  weights.
+- Corrected the multi-component native solvers so Spearman mode is forwarded to
+  every component fit, score columns are retained only for successful
+  components, explained-variance storage is initialized, and no unnecessary
+  final deflation is attempted.
+- Removed the fabricated row-order target direction from MB-sPLS-XY. Requested
+  supervised components must now respect the effective target rank; repeating
+  target columns is no longer represented as creating rank or an explicit
+  target-block multiplier.
+- Tightened `c_matrix`, component-rank, target-schema, site-correction, and
+  fitted-state validation. Invalid mappings, non-finite matrices, infeasible
+  sparsity budgets, target-rank violations, and incomplete prediction schemas
+  now fail before numerical work.
+- Prediction-side native routines now reject mismatched block row counts,
+  missing weight blocks, invalid replicate counts, and invalid confidence
+  levels before numerical work.
+- `PipeOpBlockScaling` now fails explicitly on non-finite training predictors,
+  rejects constant predictors for per-feature scaling, and validates its
+  frozen prediction state.
+- Fixed the optional `multiblock::potato` adapter so matrix-valued blocks are
+  expanded without recursive data-frame columns and the requested sensory
+  response is extracted as the complete outcome vector.
+- Repaired Rd examples and added regression coverage for numerical, schema,
+  adapter, grouping, and inference defects.
+- Updated package metadata to 0.4.0, modernized `CITATION`, disabled testthat
+  subprocess parallelism for portable installed-tarball checks, and expanded
+  the statistical-validity, reproducibility, and model-card documentation.
+- CI actions and the GitHub-only `neuroCombat` dependency are pinned to
+  immutable revisions. Pull-request pkgdown builds now run read-only; only the
+  separate trusted deployment job receives repository write permission.
+- Enforced the pinned `styler.mlr` guide across package R sources, tests,
+  scripts, vignettes, generated R wrappers, and R examples embedded in
+  Markdown. A repository-wide check now runs in pre-commit and CI.
+- Rebuilt the quickstart as a fully executable, output-producing vignette. It
+  runs every supported permutation route, descriptive bootstrap uncertainty,
+  nested validation, final stability fits, and all documented plots without
+  writing analysis outputs to the working directory.
+- Replaced the duplicated, partly schematic README workflow with compact,
+  executable examples and direct links to the complete vignette and installed
+  methodological guidance.
+
 # mlr3mbspls 0.3.4
 
 ## Bug fixes

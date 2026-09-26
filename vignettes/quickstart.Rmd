@@ -11,9 +11,15 @@ vignette: >
 
 ```{r, include = FALSE}
 knitr::opts_chunk$set(
+  cache = FALSE,
   collapse = TRUE,
   comment = "#>",
-  eval = FALSE
+  dev = "svg",
+  eval = TRUE,
+  fig.align = "center",
+  fig.height = 4.5,
+  fig.path = file.path(tempdir(), "mlr3mbspls-quickstart", ""),
+  fig.width = 7
 )
 ```
 
@@ -24,41 +30,36 @@ This vignette shows a straightforward, script-style MB-sPLS workflow:
 - Uses the packaged synthetic `TaskMultiBlock` `mbspls_synthetic_blocks`.
 - Notes the matching supervised toy tasks `mbspls_synthetic_classif` and `mbspls_synthetic_regr`.
 - Generic naming only.
-- No helper function definitions.
 - Sequential objects that are easy to inspect in an interactive R session.
+- Executes every supported permutation-inference route and shows its output.
+- Embeds plots from temporary devices without retaining figure, result, model,
+  or cache files in the working directory.
 
 The sequence mirrors a typical analysis run:
 
 1. Load the packaged synthetic multi-block task.
-2. Reuse its block mapping and define site correction.
-3. Clone the analysis task.
-4. Run nested CV.
-5. Retune `c_matrix` on all rows.
-6. Fit final raw/stability modes.
-7. Save outputs.
+2. Run and plot the supported permutation tests.
+3. Show descriptive bootstrap uncertainty.
+4. Inspect task quality and define site correction.
+5. Clone the analysis task and run nested CV.
+6. Retune `c_matrix` on all rows.
+7. Fit final raw/stability modes.
+8. Plot validation and stability results.
+9. Inspect the results in memory.
 
 # Setup
-# Goal
 
-This vignette shows a straightforward, script-style MB-sPLS workflow:
-
-- Uses the packaged synthetic `TaskMultiBlock` `mbspls_synthetic_blocks`.
-- Notes the matching supervised toy tasks `mbspls_synthetic_classif` and `mbspls_synthetic_regr`.
-- Generic naming only.
-- No helper function definitions.
-- Sequential objects that are easy to inspect in an interactive R session.
-
-The sequence mirrors a typical analysis run:
-
-1. Load the packaged synthetic multi-block task.
-2. Reuse its block mapping and define site correction.
-3. Clone the analysis task.
-4. Run nested CV.
-5. Retune `c_matrix` on all rows.
-6. Fit final raw/stability modes.
-7. Save outputs.
-
-# Setup
+Bootstrap summaries in this workflow are descriptive uncertainty and stability
+outputs, not null-hypothesis tests. The built-in permutation options are
+conditional diagnostics. A confirmatory permutation analysis must rerun the
+complete preprocessing, selection, tuning, and fitting pipeline using the
+study's valid exchangeability units. `mb_permutation_test()` provides that
+complete-analysis engine; `mbspls_permutation_test()` provides a fixed,
+pre-specified omnibus MB-sPLS test. Frozen LC score associations may be tested
+with `mb_lc_confirmation_test()` only on genuinely untouched confirmation
+observations; its Holm-adjusted p-values concern replication, not generic LC2+
+population rank. See `STATISTICAL_VALIDITY.md` and
+`MODEL_CARD.md` in the installed package.
 
 ```{r setup, message=FALSE}
 library(mlr3)
@@ -72,18 +73,20 @@ library(ggplot2)
 
 set.seed(42)
 
-# Runtime-focused defaults for a quick, reliable walkthrough.
-# Increase these values for deeper inferential analyses.
+# Runtime-focused defaults for an executable package vignette.
+# Increase them for an analysis and choose the permutation count from the required
+# Monte Carlo precision; valid inference also requires the design rules above.
 cfg = list(
-  ncomp = 3L,
+  ncomp = 2L,
   centers = 2L,
-  inner_folds = 3L,
-  outer_folds = 3L,
-  tuner_budget = 40L,
-  n_perm = 40L,
-  n_perm_tuning = 40L,
-  val_test_n = 40L,
-  bootstrap_B = 40L,
+  inner_folds = 2L,
+  outer_folds = 2L,
+  tuner_budget = 2L,
+  n_perm = 99L,
+  n_perm_tuning = 20L,
+  bootstrap_B = 20L,
+  bootstrap_summary_B = 199L,
+  confirmation_n = 80L,
   frequency_threshold = 0.5,
   perf_metric = "mac"
 )
@@ -104,7 +107,296 @@ head(dt_demo)
 blocks
 ```
 
-# 2) Inspect Task Quality
+# 2) Supported Permutation Inference
+
+The following sections execute every statistically supported test route. They
+do not enable the graph's component-wise training permutation or
+prediction-side permutation flags: those keep fitted choices fixed and are
+conditional diagnostics, not complete-pipeline significance tests in this
+workflow.
+
+The 99 permutations used here keep the rendered example brief and give a
+minimum attainable p-value of 0.01. Use at least 999 for a routine 0.05 analysis
+and more when the required Monte Carlo precision or multiplicity-adjusted
+decision threshold demands it.
+
+## Fixed MB-sPLS omnibus and target-block tests
+
+`mbspls_permutation_test()` implements four pre-specified statistics. The two
+`global_*` tests address complete block independence. The two `target_*` tests
+address independence of the pre-specified target `block_c` from the remaining
+blocks. Each call repeats standardisation and the complete sequential MB-sPLS
+fit on every shuffle.
+
+```{r fixed-permutation-tests}
+raw_blocks = lapply(blocks, function(cols) {
+  as.matrix(dt_demo[, ..cols])
+})
+
+mb_test_specs = list(
+  global_lc1 = list(statistic = "global_lc1", target_block = NULL, seed = 101L),
+  global_sum = list(statistic = "global_sum", target_block = NULL, seed = 102L),
+  target_lc1 = list(statistic = "target_lc1", target_block = "block_c", seed = 103L),
+  target_sum = list(statistic = "target_sum", target_block = "block_c", seed = 104L)
+)
+
+mb_tests = lapply(names(mb_test_specs), function(test_name) {
+  specification = mb_test_specs[[test_name]]
+  arguments = list(
+    blocks = raw_blocks,
+    ncomp = cfg$ncomp,
+    statistic = specification$statistic,
+    n_perm = cfg$n_perm,
+    seed = specification$seed,
+    analysis_seed = 11L
+  )
+  if (!is.null(specification$target_block)) {
+    arguments$target_block = specification$target_block
+  }
+  do.call(mbspls_permutation_test, arguments)
+})
+names(mb_tests) = names(mb_test_specs)
+
+invisible(lapply(mb_tests, print))
+
+mb_test_results = rbindlist(lapply(names(mb_tests), function(test_name) {
+  test = mb_tests[[test_name]]
+  data.table(
+    test = test_name,
+    observed = test$statistic,
+    p_value = test$p_value,
+    exceedances = test$exceedances,
+    n_perm = test$n_perm
+  )
+}))
+mb_test_results
+```
+
+These four calls expose the complete API in one vignette. A real analysis must
+pre-specify the statistic that matches its scientific null. Running several
+alternatives and reporting the smallest p-value requires an appropriate
+multiplicity strategy.
+
+## Complete-analysis test with data-dependent selection
+
+When preprocessing, filtering, tuning, or feature selection depends on the
+tested block alignment, it belongs inside `mb_permutation_test()`. This compact
+callback refits scaling and reselects the largest absolute cross-block feature
+correlation for the observed data and every permutation.
+
+```{r complete-analysis-test}
+complete_analysis = function(current_blocks) {
+  scaled_blocks = lapply(current_blocks, scale)
+  block_pairs = combn(names(scaled_blocks), 2L, simplify = FALSE)
+
+  associations = rbindlist(lapply(block_pairs, function(block_pair) {
+    left = scaled_blocks[[block_pair[[1L]]]]
+    right = scaled_blocks[[block_pair[[2L]]]]
+    feature_pairs = expand.grid(
+      left = colnames(left),
+      right = colnames(right),
+      stringsAsFactors = FALSE
+    )
+    data.table(
+      block_pair = paste(block_pair, collapse = " - "),
+      feature_pair = paste(feature_pairs$left, feature_pairs$right, sep = " - "),
+      association = as.vector(abs(stats::cor(left, right)))
+    )
+  }))
+
+  selected = associations[which.max(association)]
+  list(
+    statistic = selected$association,
+    selected_pair = paste(selected$block_pair, selected$feature_pair, sep = ": ")
+  )
+}
+
+complete_test = mb_permutation_test(
+  blocks = raw_blocks,
+  analysis = complete_analysis,
+  permute_blocks = names(raw_blocks)[-1L],
+  n_perm = cfg$n_perm,
+  seed = 105L,
+  analysis_seed = 11L,
+  null_hypothesis = paste(
+    "No cross-block feature association is present under independent",
+    "row exchangeability."
+  )
+)
+
+complete_test
+complete_test$observed_result$selected_pair
+```
+
+## Permutation null-distribution plots
+
+Each vertical line is the observed statistic; each histogram is the sampled
+null distribution generated by the corresponding complete refit.
+
+```{r permutation-null-plots, fig.height=7, fig.width=8}
+all_permutation_tests = c(mb_tests, list(adaptive_max = complete_test))
+permutation_null = rbindlist(lapply(names(all_permutation_tests), function(test_name) {
+  data.table(
+    test = test_name,
+    null_statistic = all_permutation_tests[[test_name]]$null_distribution
+  )
+}))
+permutation_observed = rbindlist(lapply(names(all_permutation_tests), function(test_name) {
+  data.table(
+    test = test_name,
+    observed = all_permutation_tests[[test_name]]$statistic
+  )
+}))
+
+permutation_plot = ggplot(
+  permutation_null,
+  aes(x = null_statistic)
+) +
+  geom_histogram(bins = 18L, fill = "#4472C4", colour = "white") +
+  geom_vline(
+    data = permutation_observed,
+    aes(xintercept = observed),
+    colour = "#B22222",
+    linewidth = 0.8
+  ) +
+  facet_wrap(vars(test), scales = "free", ncol = 2L) +
+  labs(
+    x = "Statistic under the null",
+    y = "Permutation count",
+    title = "Complete-refit permutation distributions",
+    subtitle = "Red line: observed statistic"
+  ) +
+  theme_minimal(base_size = 11)
+permutation_plot
+```
+
+## LC tests in independent confirmation data
+
+Individual frozen LC score associations can be tested only in genuinely
+untouched confirmation observations. The following simulated confirmation
+scores are independent of the earlier fitting by construction: LC1 shares a
+signal across blocks, while LC2 is null. In a real study, every score definition
+must instead come from a completely frozen discovery transformation.
+
+```{r lc-confirmation-test}
+set.seed(20260831L)
+confirmation_lc1 = stats::rnorm(cfg$confirmation_n)
+confirmation_scores = list(
+  block_a = cbind(
+    LC_01 = confirmation_lc1 + stats::rnorm(cfg$confirmation_n, sd = 0.08),
+    LC_02 = stats::rnorm(cfg$confirmation_n)
+  ),
+  block_b = cbind(
+    LC_01 = confirmation_lc1 + stats::rnorm(cfg$confirmation_n, sd = 0.08),
+    LC_02 = stats::rnorm(cfg$confirmation_n)
+  ),
+  block_c = cbind(
+    LC_01 = confirmation_lc1 + stats::rnorm(cfg$confirmation_n, sd = 0.08),
+    LC_02 = stats::rnorm(cfg$confirmation_n)
+  )
+)
+
+lc_confirmation = mb_lc_confirmation_test(
+  scores = confirmation_scores,
+  independent_confirmation = TRUE,
+  permute_blocks = c("block_b", "block_c"),
+  n_perm = cfg$n_perm,
+  seed = 106L,
+  keep_null = TRUE
+)
+lc_confirmation
+```
+
+Raw p-values use `(b + 1) / (B + 1)` and the displayed decisions use Holm
+adjustment across the complete two-LC family. These are confirmation claims for
+fixed scores, not evidence that the population cross-block rank is at least two.
+
+```{r lc-confirmation-plot, fig.height=4.5, fig.width=7}
+lc_null = rbindlist(lapply(seq_along(lc_confirmation$tests), function(component) {
+  data.table(
+    component = lc_confirmation$results$component[[component]],
+    null_statistic = lc_confirmation$tests[[component]]$null_distribution
+  )
+}))
+lc_observed = as.data.table(lc_confirmation$results)[
+  , .(component, observed = statistic)
+]
+
+lc_confirmation_plot = ggplot(lc_null, aes(x = null_statistic)) +
+  geom_histogram(bins = 18L, fill = "#70AD47", colour = "white") +
+  geom_vline(
+    data = lc_observed,
+    aes(xintercept = observed),
+    colour = "#B22222",
+    linewidth = 0.8
+  ) +
+  facet_wrap(vars(component), scales = "free") +
+  labs(
+    x = "Confirmation statistic under the null",
+    y = "Permutation count",
+    title = "Frozen LC confirmation tests",
+    subtitle = "Red line: observed fixed-score association"
+  ) +
+  theme_minimal(base_size = 11)
+lc_confirmation_plot
+```
+
+# 3) Bootstrap Uncertainty Is Descriptive
+
+An ordinary paired bootstrap estimates sampling uncertainty around the observed
+association. It does not generate a null distribution. The shared summary
+therefore reports its estimate, bias, standard error, and interval while keeping
+the hypothesis-test p-value explicitly unavailable.
+
+```{r bootstrap-summary}
+bootstrap_observed = abs(stats::cor(
+  confirmation_scores$block_a[, "LC_01"],
+  confirmation_scores$block_b[, "LC_01"]
+))
+
+set.seed(20260831L)
+bootstrap_replicates = replicate(cfg$bootstrap_summary_B, {
+  rows = sample.int(cfg$confirmation_n, replace = TRUE)
+  abs(stats::cor(
+    confirmation_scores$block_a[rows, "LC_01"],
+    confirmation_scores$block_b[rows, "LC_01"]
+  ))
+})
+
+bootstrap_summary = mb_bootstrap_summary(
+  replicates = bootstrap_replicates,
+  observed = bootstrap_observed,
+  conf = 0.95,
+  type = "percentile"
+)
+bootstrap_summary
+```
+
+```{r bootstrap-plot, fig.height=4.5, fig.width=7}
+bootstrap_plot_data = data.table(estimate = bootstrap_replicates)
+bootstrap_plot = ggplot(bootstrap_plot_data, aes(x = estimate)) +
+  geom_histogram(bins = 24L, fill = "#8064A2", colour = "white") +
+  geom_vline(
+    xintercept = bootstrap_summary$estimate,
+    colour = "#B22222",
+    linewidth = 0.8
+  ) +
+  geom_vline(
+    xintercept = c(bootstrap_summary$conf_low, bootstrap_summary$conf_high),
+    linetype = "dashed",
+    linewidth = 0.6
+  ) +
+  labs(
+    x = "Bootstrap LC1 association",
+    y = "Bootstrap count",
+    title = "Descriptive bootstrap uncertainty",
+    subtitle = "Red: observed estimate; dashed: percentile interval"
+  ) +
+  theme_minimal(base_size = 11)
+bootstrap_plot
+```
+
+# 4) Inspect Task Quality
 
 Before fitting any model, run a quick QC summary once. This is especially helpful in multi-omics, clinical, neuroimaging, and socioeconomic workflows where block imbalance or missingness may drive downstream results.
 
@@ -115,7 +407,7 @@ qc$blocks
 qc$issues
 ```
 
-# 3) Define Site Correction
+# 5) Define Site Correction
 
 The block assignment already lives on the task, so only the site-correction policy needs to be declared here.
 
@@ -126,23 +418,21 @@ site_correction_methods = list(block_a = "partial_corr", block_b = "partial_corr
 lengths(blocks)
 ```
 
-# 4) Clone the Clustering Task
+# 6) Clone the Clustering Task
 
 The packaged synthetic object is already a `TaskMultiBlock`, so for analysis you can usually just clone it.
 
 ```{r task}
-task_train = TaskMultiBlock(
-  task_source,
-  id = "mbspls_synthetic_blocks_analysis"
-)
+task_train = task_source$clone(deep = TRUE)
 
 task_train
 length(task_train$feature_names)
 ```
 
-# 5) Nested CV (Primary Validation)
+# 7) Nested CV (Primary Validation)
 
-This stage performs the primary inferential validation.
+This stage estimates held-out performance; it does not by itself perform a
+null-hypothesis test.
 Bootstrap selection is intentionally disabled here to evaluate core model generalization under nested resampling.
 
 ```{r nested-cv}
@@ -154,13 +444,11 @@ gl_nested = ppl(
   site_correction_methods = site_correction_methods,
   ncomp = cfg$ncomp,
   performance_metric = cfg$perf_metric,
-  permutation_test = TRUE,
-  n_perm = cfg$n_perm,
+  permutation_test = FALSE,
   bootstrap = FALSE,
   bootstrap_selection = FALSE,
   B = 1L,
-  val_test = "permutation",
-  val_test_n = cfg$val_test_n
+  val_test = "none"
 )
 
 rs_outer = rsmp("cv", folds = cfg$outer_folds)
@@ -174,10 +462,9 @@ nested_cv = mbspls_nested_cv(
   rs_inner = rs_inner,
   ncomp = cfg$ncomp,
   tuner_budget = cfg$tuner_budget,
-  tuning_early_stop = TRUE,
+  tuning_early_stop = FALSE,
   performance_metric = cfg$perf_metric,
-  val_test = "permutation",
-  val_test_n = cfg$val_test_n,
+  val_test = "none",
   n_perm_tuning = cfg$n_perm_tuning,
   store_payload = TRUE
 )
@@ -187,7 +474,7 @@ nested_cv$summary_table
 
 The nested summary is the key validation output and should be inspected before any final-model interpretation.
 
-# 6) Retune c_matrix on All Rows
+# 8) Retune c_matrix on All Rows
 
 After nested validation, retune on the full training task to obtain a single final sparsity pattern (`c_matrix_final`).
 This matrix is then reused across all final modes for comparability.
@@ -201,8 +488,7 @@ gl_tune = ppl(
   site_correction_methods = site_correction_methods,
   ncomp = cfg$ncomp,
   performance_metric = cfg$perf_metric,
-  permutation_test = TRUE,
-  n_perm = cfg$n_perm,
+  permutation_test = FALSE,
   bootstrap = FALSE,
   bootstrap_selection = FALSE,
   B = 1L,
@@ -214,7 +500,7 @@ tuner = TunerSeqMBsPLS$new(
   budget = cfg$tuner_budget,
   resampling = rsmp("cv", folds = cfg$inner_folds),
   parallel = "none",
-  early_stopping = TRUE,
+  early_stopping = FALSE,
   n_perm = cfg$n_perm_tuning,
   performance_metric = cfg$perf_metric
 )
@@ -237,7 +523,7 @@ It controls feature sparsity per block and per component in the final fits.
 
 For supervised analyses, the package also provides `mbspls_model_summary()` to extract compact reporting tables from fitted MB-sPLS, MB-sPLS-XY, or MB-sPCA models.
 
-# 7) Final Fits (raw / stable_ci / stable_frequency)
+# 9) Final Fits (raw / stable_ci / stable_frequency)
 
 Final fitting creates three representations:
 
@@ -245,15 +531,13 @@ Final fitting creates three representations:
 - `stable_ci`: CI-filtered bootstrap-stable weights
 - `stable_frequency`: frequency-filtered bootstrap-stable weights
 
-Bootstrap selection is only activated here, where stability-oriented reporting is expected.
+Bootstrap selection is activated here for stability reporting. The preceding
+outer-fold estimates evaluate the raw representation, not these additional
+selection procedures. To estimate performance for a stability-filtered
+pipeline, repeat bootstrap selection inside every relevant training split and
+evaluate that complete pipeline on held-out observations.
 
 ```{r final-fits}
-output_dir = file.path(
-  "analysis_results",
-  paste0(format(Sys.time(), "%Y%m%d_%H%M%S"), "_MBSPLS_SYNTHETIC_BLOCKS")
-)
-dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-
 modes = list(
   raw = list(selection = "none", predict_weights = "raw", threshold = NA_real_),
   stable_ci = list(selection = "ci", predict_weights = "stable_ci", threshold = NA_real_),
@@ -262,11 +546,10 @@ modes = list(
 
 final_models = list()
 final_train_summary = list()
+final_train_predictions = list()
 
 for (mode_name in names(modes)) {
   mode_spec = modes[[mode_name]]
-  mode_dir = file.path(output_dir, mode_name)
-  dir.create(mode_dir, recursive = TRUE, showWarnings = FALSE)
 
   gl_final = ppl(
     "mbspls_graph_learner",
@@ -276,8 +559,7 @@ for (mode_name in names(modes)) {
     site_correction_methods = site_correction_methods,
     ncomp = cfg$ncomp,
     performance_metric = cfg$perf_metric,
-    permutation_test = TRUE,
-    n_perm = cfg$n_perm,
+    permutation_test = FALSE,
     bootstrap = TRUE,
     bootstrap_selection = mode_spec$selection != "none",
     B = cfg$bootstrap_B,
@@ -307,54 +589,115 @@ for (mode_name in names(modes)) {
     train_ev = ev_comp
   )
 
-  fwrite(summary_dt, file.path(mode_dir, "train_summary.csv"))
-  fwrite(data.table(row_id = pred_train$row_ids, cluster = as.character(pred_train$partition)),
-    file.path(mode_dir, "clusters_train.csv"))
-
-  saveRDS(gl_final, file.path(mode_dir, "graphlearner.rds"))
-  saveRDS(state, file.path(mode_dir, "train_state.rds"))
-
   final_models[[mode_name]] = gl_final
   final_train_summary[[mode_name]] = summary_dt
+  final_train_predictions[[mode_name]] = data.table(
+    row_id = pred_train$row_ids,
+    cluster = as.character(pred_train$partition)
+  )
 }
 
-rbindlist(final_train_summary)
+final_train_summary = rbindlist(final_train_summary)
+final_train_summary
 ```
 
 Comparing the three mode summaries is a practical way to assess how stability filtering changes component strength and downstream clustering.
 
-# 7) Save Nested CV and Session Info
+# 10) Visualize Validation and Stability
 
-Write compact tabular outputs plus serialized objects for reproducibility and downstream reporting.
-Saving `session_info.txt` helps track package versions and runtime context.
+The outer-fold plot shows assessment performance only. It is not a permutation
+test and is not interchangeable with the null-distribution plots above.
 
-```{r save-outputs}
-nested_dir = file.path(output_dir, "nested_cv")
-dir.create(nested_dir, recursive = TRUE, showWarnings = FALSE)
-
-fwrite(as.data.table(nested_cv$summary_table), file.path(nested_dir, "nested_cv_summary.csv"))
-
-nested_results_csv = copy(as.data.table(nested_cv$results))
-for (col in names(nested_results_csv)[vapply(nested_results_csv, is.list, logical(1))]) {
-  nested_results_csv[, (col) := vapply(get(col), function(x) paste(as.character(x), collapse = ";"), character(1))]
-}
-fwrite(nested_results_csv, file.path(nested_dir, "nested_cv_results.csv"))
-
-saveRDS(nested_cv, file.path(nested_dir, "nested_cv_object.rds"))
-writeLines(capture.output(sessionInfo()), con = file.path(output_dir, "session_info.txt"))
-
-output_dir
+```{r nested-cv-plot, fig.height=4.5, fig.width=7}
+nested_plot_data = nested_cv$results[
+  , .(split = factor(split), assessment_score = measure_test)
+]
+nested_plot = ggplot(
+  nested_plot_data,
+  aes(x = split, y = assessment_score)
+) +
+  geom_col(fill = "#5B9BD5", width = 0.7) +
+  geom_hline(
+    yintercept = mean(nested_plot_data$assessment_score),
+    linetype = "dashed",
+    linewidth = 0.6
+  ) +
+  labs(
+    x = "Outer fold",
+    y = "EV-weighted MAC",
+    title = "Nested-CV assessment performance",
+    subtitle = "Dashed line: mean across outer folds"
+  ) +
+  theme_minimal(base_size = 11)
+nested_plot
 ```
 
-# 8) Objects to Inspect During Development
+The next plot shows sign-aligned bootstrap means, percentile intervals, and
+selection-frequency opacity. These are stability summaries rather than
+feature-level significance tests.
+
+```{r weight-stability-plot, fig.height=7.5, fig.width=12}
+weight_stability_plot = mbspls_plot_block_weight_ci(
+  final_models$stable_ci,
+  source = "bootstrap",
+  ci_filter = "none",
+  top_n = 4L,
+  add_block_rule = FALSE,
+  alpha_by_stability = TRUE
+)
+weight_stability_plot
+```
+
+Explained variance provides a complementary component-level description of the
+same final model.
+
+```{r variance-plot, fig.height=4.5, fig.width=7}
+variance_plot = autoplot(
+  final_models$stable_ci,
+  type = "mbspls_variance",
+  source = "bootstrap",
+  show_total = TRUE
+)
+variance_plot
+```
+
+# 11) Inspect Results in Memory
+
+The analysis does not write results to the working directory. Rendering uses
+temporary plot files; nested-CV results, fitted models, summaries, predictions,
+and runtime versions remain available in the current R session.
+
+```{r inspect-results}
+names(final_models)
+head(final_train_summary)
+head(final_train_predictions$raw)
+
+runtime_versions = data.table(
+  package = c("R", "mlr3", "mlr3mbspls"),
+  version = c(
+    as.character(getRversion()),
+    as.character(packageVersion("mlr3")),
+    as.character(packageVersion("mlr3mbspls"))
+  )
+)
+runtime_versions
+```
+
+# 12) Objects to Inspect During Development
 
 At any point, inspect objects such as:
 
 - `dt_demo`
 - `blocks`
+- `mb_test_results`
+- `complete_test`
+- `lc_confirmation$results`
+- `bootstrap_summary`
 - `task_train`
 - `nested_cv$summary_table`
 - `c_matrix_final`
-- `final_models$raw$model$mbspls$state`
+- `final_train_summary`
+- `final_train_predictions`
+- `final_models$raw$model$mbspls`
 
 This keeps the workflow easy to debug while remaining fully executable end-to-end.

@@ -50,9 +50,23 @@
 #'
 #' @examples
 #' \dontrun{
-#' # Assume `gl` is a trained GraphLearner with a PipeOpMBsPLS node and
-#' # `task_new` is an mlr3::Task with new data:
-#' res = mbspls_eval_new_data(gl, task_new)
+#' library(mlr3)
+#' library(mlr3pipelines)
+#' task = tsk("mbspls_synthetic_blocks")
+#' blocks = task$block_features()
+#' gl = ppl(
+#'   "mbspls_graph_learner",
+#'   learner = lrn("clust.kmeans", centers = 2L),
+#'   blocks = blocks,
+#'   ncomp = 1L,
+#'   permutation_test = FALSE,
+#'   bootstrap = FALSE,
+#'   bootstrap_selection = FALSE,
+#'   B = 1L,
+#'   val_test = "none"
+#' )
+#' gl$train(task)
+#' res = mbspls_eval_new_data(gl, task)
 #'
 #' # Per-block explained variances on new data:
 #' res$ev_block
@@ -61,8 +75,8 @@
 #' res$ev_comp
 #' res$mac_comp
 #'
-#' # Access trained weights for LC_02, block "mri":
-#' res$weights[["LC_02"]][["mri"]]
+#' # Access trained weights for LC_01, block "block_a":
+#' res$weights[["LC_01"]][["block_a"]]
 #' }
 #'
 #' @seealso [mlr3pipelines::GraphLearner], [PipeOpMBsPLS]
@@ -127,8 +141,12 @@ mbspls_eval_new_data = function(gl, task, mbspls_id = NULL) {
       colnames(payload$ev_block) = payload$blocks
     }
   }
-  if (!is.null(payload$ev_comp)) names(payload$ev_comp) <- comp_names
-  if (!is.null(payload$mac_comp)) names(payload$mac_comp) <- comp_names
+  if (!is.null(payload$ev_comp)) {
+    names(payload$ev_comp) = comp_names
+  }
+  if (!is.null(payload$mac_comp)) {
+    names(payload$mac_comp) = comp_names
+  }
 
   payload
 }

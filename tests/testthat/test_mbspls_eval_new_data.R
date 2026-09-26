@@ -223,6 +223,7 @@ test_that("mbspls_plot_block_weight_ci bootstrap path works with custom node ids
   p = mbspls_plot_block_weight_ci(gl, source = "bootstrap")
 
   expect_s3_class(p, "ggplot")
+  expect_identical(levels(p$data$component_lab), c("LC 1", "LC 2"))
 })
 
 

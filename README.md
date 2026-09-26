@@ -7,649 +7,344 @@
 
 </div>
 
-`mlr3mbspls` integrates **multi-block sparse partial least squares (MB-sPLS)** with the mlr3 ecosystem: pipelines, tuning, resampling, custom measures, rich visualisations, bootstrap stability selection, prediction‑side validation and nested CV utilities. A high‑performance C++/Armadillo backend powers the core algorithms (training + test EV, permutation, bootstrap, sparsity by block/component, deflation).
+`mlr3mbspls` integrates multi-block sparse partial least squares (MB-sPLS)
+with the `mlr3` ecosystem. It provides unsupervised and supervised graph
+pipelines, block-aware tasks, nested resampling, descriptive bootstrap
+stability, model summaries, visualisations, and a native C++/Armadillo backend.
 
-Current release: **0.3.4**
+Development version: **0.4.0**
 
-## Highlights
+## Inference boundary
 
-### Multi-Block Representation Learning
-* Sequential orthogonal MB‑sPLS with per‑block L¹ sparsity (vector or full `c_matrix`)
-* Two optimisation targets: mean absolute correlation (MAC) or Frobenius norm
-* Training‑time permutation early stopping (per component)
-* Prediction‑side validation: permutation or bootstrap inference on latent correlation
-* Block‑wise explained variance (EV) + per‑component EV on train & test
+Ordinary bootstrap output describes uncertainty and stability; it is not an
+automatic null-hypothesis test. The package provides three deliberately scoped
+permutation interfaces:
 
-### Pipeline Components (PipeOps)
-* `PipeOpMBsPLS` – main transformer (produces per‑block latent scores `LVk_block`)
-* `PipeOpMBsPLSBootstrapSelect` – post‑hoc bootstrap feature & component selection (CI or frequency method) with component re‑numbering
-* `PipeOpMBsPCA` – multi‑block sparse PCA analogue
-* `PipeOpMBsPLSXY` – supervised XY variant
-* `PipeOpBlockScaling` – unit sum‑of‑squares or feature‑wise scaling / z‑scoring (optionally divide by √p)
-* `PipeOpSiteCorrection` – multi‑block site/batch correction (methods defined per site variable)
-* `PipeOpFeatureSuffix` – systematic feature renaming
-* `PipeOpTargetLabelFilter` – target label filtering convenience op
+- `mb_permutation_test()` reruns a complete user-supplied analysis for every
+  design-valid shuffle.
+- `mbspls_permutation_test()` refits a fixed, pre-specified MB-sPLS analysis and
+  returns one global block- or target-association p-value.
+- `mb_lc_confirmation_test()` tests pre-specified frozen LC score associations
+  in genuinely untouched confirmation observations and applies Holm correction
+  across the supplied LC family.
 
-### Learners & Imputation Helpers
-* `LearnerClassifKNNGower`, `LearnerRegrKNNGower` – kNN using Gower distance for mixed types
-* `impute_knn_graph()` – two‑step numeric/factor kNN imputation graph using above learners
+None of these functions turns later components into a generic population-rank
+test. Exchangeability units, strata, nuisance-variable handling, and the
+scientific null remain study-design responsibilities. Read the
+[statistical-validity contract](inst/STATISTICAL_VALIDITY.md) before reporting
+significance.
 
-### Tuning & Orchestration
-* `TunerSeqMBsPLS`, `TunerSeqMBsPCA` – sequential component‑wise tuning (progressively add components)
-* Sparse hyper‑parameters exposed with consistent `c_<block>` naming or full `c_matrix`
+## Main capabilities
 
-### Evaluation & Stability Tooling
-* Measures: `MeasureMBsPLS_MAC`, `MeasureMBsPLS_EV`, `MeasureMBsPLS_BlockEV`, `MeasureMBsPLS_EVWeightedMAC`, `MeasureMBSPCAMEV`
-* `compute_test_ev()`, `compute_pipeop_test_ev()` – EV + objective on new data
-* `mbspls_flip_weights()` – deterministic reorientation (sign alignment)
-* `mbspls_extract_bootstrap_means()` – summarise bootstrap runs
-* `mbspls_plot_block_weight_ci()` – block weight CIs
-* Aggregation helpers: `aggregate_mbspls_payloads()`, `collect_mbspls_nested_cv()`
-
-### Task QC & Reporting
-* `task$overview()` / `mb_task_overview()` – block-wise task QC (missingness, constants, complete-case rates, target balance)
-* `mbspls_model_summary()` – tidy component/block/feature summaries for fitted MB-sPLS, MB-sPLS-XY, and MB-sPCA models
-
-### Higher Level Graph Utilities
-* `mbspls_preproc_graph()` – canonical preprocessing (type conversion → encoding → kNN impute → site correction → scaling)
-* `mbspls_graph_learner()` – end‑to‑end GraphLearner constructor (preproc → MB‑sPLS → optional bootstrap selection → downstream learner)
-* `mbsplsxy_graph()` / `mbsplsxy_graph_learner()` – supervised MB‑sPLS‑XY graph constructors for classification and regression
-* `mbsplsxy_graph()` / `mbsplsxy_graph_learner()` – supervised MB‑sPLS‑XY graph constructors for classification and regression
-
-### Resampling & Batch Infrastructure
-* `mbspls_nested_cv()` – nested CV (inner tuning budget + outer evaluation)
-* `mbspls_nested_cv_batchtools()` – batchtools backend variant
-
-### Visualisation (S3 Autoplot on `GraphLearner`)
-Types include: weights (raw / stability‑filtered), variance, scree, correlation heatmap, network, scores, block EV trajectories, bootstrap diagnostics.
-
+- `TaskMultiBlock()` and packaged synthetic classification, regression, and
+  clustering tasks with persistent block metadata.
+- `PipeOpMBsPLS`, `PipeOpMBsPLSXY`, and `PipeOpMBsPCA` for sparse multiblock
+  representation learning.
+- Training-fitted block scaling, site/batch correction, feature suffixing, and
+  target-label filtering.
+- Sequential component-wise tuning and direct or `batchtools`-backed nested
+  cross-validation.
+- Group-aware bootstrap sampling, deterministic L'Ecuyer-CMRG streams, sign
+  alignment, and schema-safe frozen scaling helpers.
+- Tidy task/model summaries and plots for weights, stability intervals,
+  explained variance, scores, correlations, and networks.
 
 ## Installation
 
-```r
-# Development version
-devtools::install_github("coorsaa/mlr3mbspls")
+```r no-eval
+install.packages(c(
+  "mlr3",
+  "mlr3pipelines",
+  "mlr3cluster",
+  "mlr3tuning",
+  "data.table",
+  "ggplot2"
+))
+install.packages("remotes")
 
-# Core dependencies (install if missing)
-install.packages(c("mlr3","mlr3pipelines","mlr3cluster","data.table","ggplot2"))
+remotes::install_github("coorsaa/mlr3mbspls")
 ```
 
-Optional: network plots require `igraph` + `ggraph`.
+Optional dataset adapters and plots use packages listed in `Suggests`, including
+`mixOmics`, `multiblock`, `igraph`, and `ggraph`.
 
-## TaskMultiBlock with breast.TCGA and potato
+## Executable quickstart
 
-Use the dataset adapters to obtain ready-to-use multi-block tasks.
-
-```r
-# breast.TCGA adapter
-if (requireNamespace("mixOmics", quietly = TRUE)) {
-  task_tcga <- task_multiblock_breast_tcga(task_type = "classif")
-  task_tcga$block_names
-}
-
-# potato adapter
-if (requireNamespace("multiblock", quietly = TRUE)) {
-  task_potato <- task_multiblock_potato(task_type = "regr", response = 1L)
-  task_potato$block_names
-}
-```
-
-## Task QC and Reporting Helpers
-
-Before fitting any model, summarise the task once and inspect block balance, missingness, constant features, and target balance.
+This example loads the packaged clustering task, inspects its block structure,
+fits a two-component graph, predicts the training rows, and produces two plots.
+The complete executable analysis, including nested validation and bootstrap
+stability, is in the quickstart vignette.
 
 ```r
-task_qc <- tsk("mbspls_synthetic_classif")$overview()
-task_qc$overview
-task_qc$blocks
-task_qc$issues
-```
+suppressPackageStartupMessages({
+  library(mlr3)
+  library(mlr3cluster)
+  library(mlr3mbspls)
+  library(ggplot2)
+})
+
+lgr::lgr$set_threshold("warn")
+lgr::get_logger("mlr3")$set_threshold("warn")
+
+task = tsk("mbspls_synthetic_blocks")
+blocks = task$block_features()
+quality = task$overview()
+
+quality$overview
+quality$blocks
+lengths(blocks)
 
-After training, produce a compact reporting table for manuscripts, dashboards, or clinical review.
-
-```r
-gl <- mbsplsxy_graph_learner(
-  task = tsk("mbspls_synthetic_classif"),
-  learner = lrn("classif.featureless"),
-  ncomp = 2L
-)
-# gl$train(tsk("mbspls_synthetic_classif"))
-# fit_report <- mbspls_model_summary(gl)
-# fit_report$overview
-# fit_report$components
-# fit_report$blocks
-# head(fit_report$weights)
-```
-
-These helpers are designed to make the package easier to use outside pure ML benchmarking workflows, for example in multi-omics, neuroimaging, psychiatry, psychology, epidemiology, economics, and precision-medicine settings where structured reporting matters.
-
-## Supervised Quick Start (MB-sPLS-XY)
-
-Packaged classification and regression toy tasks are also available and work with the supervised graph constructors.
-
-```r
-# classification
-task_cls <- tsk("mbspls_synthetic_classif")
-gl_cls <- mbsplsxy_graph_learner(
-  task = task_cls,
-  learner = lrn("classif.featureless"),
-  ncomp = 2L
-)
-
-# regression
-task_regr <- tsk("mbspls_synthetic_regr")
-gl_regr <- mbsplsxy_graph_learner(
-  task = task_regr,
-  learner = lrn("regr.featureless"),
-  ncomp = 2L
-)
-```
-
-## Quick Start (Unsupervised Multi-Block Sparse Partial Least Squares)
-
-The example below uses the packaged task `mbspls_synthetic_blocks` and follows a script-like, inspectable sequence.
-
-### Step 0: Setup
-
-Load packages and define compact runtime settings. These defaults are intentionally small for a quick demonstration. Increase them for full analyses.
-
-```r
-library(mlr3)
-library(mlr3pipelines)
-library(mlr3tuning)
-library(mlr3cluster)
-library(mlr3learners)
-library(mlr3mbspls)
-library(data.table)
-
-set.seed(42)
-
-cfg <- list(
-  ncomp = 3L,
-  centers = 2L,
-  inner_folds = 3L,
-  outer_folds = 3L,
-  tuner_budget = 40L,
-  n_perm = 40L,
-  n_perm_tuning = 40L,
-  val_test_n = 40L,
-  bootstrap_B = 40L,
-  frequency_threshold = 0.5,
-  perf_metric = "mac"
-)
-```
-
-### Step 1: Load Packaged Task
-
-Load the packaged synthetic multi-block task, inspect its backend, and reuse the task-level block metadata directly.
-
-```r
-task_source <- tsk("mbspls_synthetic_blocks")
-dt_demo <- as.data.table(task_source$data(cols = task_source$feature_names))
-blocks <- task_source$block_features()
-```
-
-### Step 2: Define Site Correction
-
-The block mapping already lives on the task. Site correction is declared per block so adjustments stay explicit.
-
-```r
-site_correction <- list(block_a = "site_batch", block_b = "site_batch", block_c = "site_batch")
-site_correction_methods <- list(block_a = "partial_corr", block_b = "partial_corr", block_c = "partial_corr")
-```
-
-### Step 3: Clone the Analysis Task
-
-The packaged task is already a `TaskMultiBlock`, so for analysis you can usually just clone it.
-
-```r
-task_train <- TaskMultiBlock(
-  task_source,
-  id = "mbspls_synthetic_blocks_analysis"
-)
-```
-
-### Step 4: Build Nested-CV Learner
-
-For nested CV and tuning, bootstrap selection is disabled intentionally. This keeps evaluation focused on core model generalization.
-
-```r
-gl_nested <- ppl(
-  "mbspls_graph_learner",
-  learner = lrn("clust.kmeans", centers = cfg$centers),
-  task = task_train,
-  site_correction = site_correction,
-  site_correction_methods = site_correction_methods,
-  ncomp = cfg$ncomp,
-  performance_metric = cfg$perf_metric,
-  permutation_test = TRUE,
-  n_perm = cfg$n_perm,
-  bootstrap = FALSE,
-  bootstrap_selection = FALSE,
-  B = 1L,
-  val_test = "permutation",
-  val_test_n = cfg$val_test_n
-)
-
-rs_outer <- rsmp("cv", folds = cfg$outer_folds)
-rs_inner <- rsmp("cv", folds = cfg$inner_folds)
-rs_outer$instantiate(task_train)
-```
-
-### Step 5: Run Nested CV
-
-This is the primary inferential validation stage.
-
-Important: `performance_metric` and `measure` are not the same thing.
-`performance_metric` controls the direct objective used inside the MB-sPLS
-fitting routine for each component (`"mac"` or `"frobenius"`). `measure`
-controls the indirect held-out selection criterion used by tuning and nested CV.
-For example, `measure = msr("mbspls.ev")` selects among MAC/Frobenius-fitted
-models using validation EV; it does not make the underlying C++ fitting routine
-optimize EV directly.
-
-```r
-res_nested <- mbspls_nested_cv(
-  task = task_train,
-  graphlearner = gl_nested,
-  rs_outer = rs_outer,
-  rs_inner = rs_inner,
-  ncomp = cfg$ncomp,
-  tuner_budget = cfg$tuner_budget,
-  tuning_early_stop = TRUE,
-  performance_metric = cfg$perf_metric,
-  val_test = "permutation",
-  val_test_n = cfg$val_test_n,
-  n_perm_tuning = cfg$n_perm_tuning,
-  store_payload = TRUE
-)
-
-res_nested$summary_table
-```
-
-### Step 6: Retune on Full Training Data
-
-Retune `c_matrix` on all rows after nested validation. This final matrix is reused across final mode fits.
-
-```r
-gl_tune <- ppl(
-  "mbspls_graph_learner",
-  learner = lrn("clust.kmeans", centers = cfg$centers),
-  task = task_train,
-  site_correction = site_correction,
-  site_correction_methods = site_correction_methods,
-  ncomp = cfg$ncomp,
-  performance_metric = cfg$perf_metric,
-  permutation_test = TRUE,
-  n_perm = cfg$n_perm,
-  bootstrap = FALSE,
-  bootstrap_selection = FALSE,
-  B = 1L,
-  val_test = "none"
-)
-
-tuner <- TunerSeqMBsPLS$new(
-  tuner = "random_search",
-  budget = cfg$tuner_budget,
-  resampling = rsmp("cv", folds = cfg$inner_folds),
-  parallel = "none",
-  early_stopping = TRUE,
-  n_perm = cfg$n_perm_tuning,
-  performance_metric = cfg$perf_metric
-)
-
-instance <- ti(
-  task = task_train,
-  learner = gl_tune,
-  resampling = rsmp("insample"),
-  measure = msr("mbspls.mac_evwt"),
-  terminator = trm("evals", n_evals = 1)
-)
-
-tuner$optimize(instance)
-c_matrix_final <- instance$result$learner_param_vals[[1]]$c_matrix
-c_matrix_final
-```
-
-### Step 7: Final Fits by Mode
-
-Train three final modes:
-
-- `raw`: no stability filter
-- `stable_ci`: CI-filtered stability
-- `stable_frequency`: frequency-filtered stability
-
-Bootstrap selection is enabled only at this stage.
-
-```r
-out_dir <- file.path("analysis_results", paste0(format(Sys.time(), "%Y%m%d_%H%M%S"), "_MBSPLS_SYNTHETIC_BLOCKS"))
-dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-
-modes <- list(
-  raw = list(selection = "none", predict_weights = "raw"),
-  stable_ci = list(selection = "ci", predict_weights = "stable_ci"),
-  stable_frequency = list(selection = "frequency", predict_weights = "stable_frequency")
-)
-
-for (mode_name in names(modes)) {
-  mode_spec <- modes[[mode_name]]
-
-  gl_final <- ppl(
-    "mbspls_graph_learner",
-    learner = lrn("clust.kmeans", centers = cfg$centers),
-    blocks = blocks,
-    site_correction = site_correction,
-    site_correction_methods = site_correction_methods,
-    ncomp = cfg$ncomp,
-    performance_metric = cfg$perf_metric,
-    permutation_test = TRUE,
-    n_perm = cfg$n_perm,
-    bootstrap = TRUE,
-    bootstrap_selection = mode_spec$selection != "none",
-    selection_method = if (mode_spec$selection == "frequency") "frequency" else "ci",
-    frequency_threshold = cfg$frequency_threshold,
-    B = cfg$bootstrap_B,
-    val_test = "none"
-  )
-
-  gl_final$param_set$values$mbspls.c_matrix <- c_matrix_final
-  if (!is.null(gl_final$graph$pipeops$mbspls)) {
-    gl_final$graph$pipeops$mbspls$param_set$values$c_matrix <- c_matrix_final
-    gl_final$graph$pipeops$mbspls$param_set$values$predict_weights <- mode_spec$predict_weights
-    gl_final$graph$pipeops$mbspls$param_set$values$store_train_blocks <- TRUE
-  }
-
-  gl_final$train(task_train)
-  pred_train <- gl_final$predict(task_train)
-  po_state <- gl_final$model$mbspls
-
-  mode_dir <- file.path(out_dir, mode_name)
-  dir.create(mode_dir, recursive = TRUE, showWarnings = FALSE)
-
-  fwrite(data.table(row_id = pred_train$row_ids, cluster = as.character(pred_train$partition)),
-         file.path(mode_dir, "clusters_train.csv"))
-  saveRDS(gl_final, file.path(mode_dir, "graphlearner.rds"))
-  saveRDS(po_state, file.path(mode_dir, "train_state.rds"))
-}
-```
-
-### Step 8: Save Core Outputs
-
-Persist nested CV summaries and payloads for reporting and reproducibility.
-
-```r
-fwrite(as.data.table(res_nested$summary_table), file.path(out_dir, "nested_cv_summary.csv"))
-saveRDS(res_nested, file.path(out_dir, "nested_cv_object.rds"))
-```
-
-
-## Prediction-Side Validation & Bootstrap Selection
-
-```r
-# Optional: parallel bootstrap selection (cross-platform) via future
-# install.packages(c("future", "future.apply"))
-if (requireNamespace("future", quietly = TRUE)) {
-  future::plan(future::multisession, workers = 4)
-  # future::plan(future::sequential)  # reset when done
-}
-
-log_env = new.env(parent = emptyenv())
-
-graph_sel = po("blockscale", param_vals = list(blocks = blocks)) %>>%
-  po("mbspls", blocks = blocks, ncomp = 4L, performance_metric = "mac",
-     permutation_test = TRUE, n_perm = 200L, perm_alpha = 0.05,
-     val_test = "permutation", val_test_n = 500L, val_test_alpha = 0.05,
-     append = TRUE,               # expose upstream LV columns to selection op
-     store_train_blocks = TRUE,   # pass original blocks for bootstrap
-     log_env = log_env) %>>%
-  po("mbspls_bootstrap_select", log_env = log_env, bootstrap = TRUE,
-     B = 200L, selection_method = "ci", align = "block_sign",
-     workers = 4L) %>>%
-  po("learner", learner = lrn("clust.kmeans", centers = 3))
-
-gl_sel = as_learner(graph_sel)
-gl_sel$train(task)
-
-# Stable (post-selection) latent columns now in the task representation
-gl_sel$model$mbspls_bootstrap_select$kept_blocks_per_comp
-```
-
-
-## Higher Level Convenience Graph
-
-```r
-# --- Site / batch effect correction example ---
-# PipeOpSiteCorrection supports per-block methods: "partial_corr", "combat", "dir".
-# For "combat" supply a list with elements site=<char1>, covariates=<char_vec>.
-# For "partial_corr" supply a character vector of (site + optional covariates) columns.
-
-# Add mock site / batch / covariate columns to the data (if not already present)
-dt[, site  := sample(c("S1","S2","S3"), .N, TRUE)]
-dt[, batch := sample(c("B1","B2"),   .N, TRUE)]
-dt[, age   := rnorm(.N, 50, 8)]
-dt[, sex   := sample(c("F","M"), .N, TRUE)]
-
-# Update task backend to include new columns
-task = TaskClust$new("mb", backend = dt)
-task$select(setdiff(task$feature_names, "id"))
-
-# Per-block site correction specifications
 site_correction = list(
-  clinical = list(site = "site", covariates = c("age","sex")), # ComBat with covariates
-  genomics = c("batch"),                                          # partial correlation on batch
-  metabol  = "site"                                               # single categorical site (partial_corr)
+  block_a = "site_batch",
+  block_b = "site_batch",
+  block_c = "site_batch"
+)
+site_methods = list(
+  block_a = "partial_corr",
+  block_b = "partial_corr",
+  block_c = "partial_corr"
 )
 
-# Corresponding methods per block
-site_correction_methods = list(
-  clinical = "combat",
-  genomics = "partial_corr",
-  metabol  = "partial_corr"
-)
-
-# Optional: use future for parallel bootstrap stability selection
-# future::plan(future::multisession, workers = 4)
-
-gl_full = mbspls_graph_learner(
-  blocks = blocks,
-  site_correction = site_correction,
-  site_correction_methods = site_correction_methods,
-  keep_site_col = FALSE,      # drop site / covariate columns after correction
-  ncomp = 3L,
-  performance_metric = "mac",
-  permutation_test = TRUE,
-  n_perm = 200L,
-  bootstrap = TRUE,
-  B = 100L,
-  workers = 4L,
-  selection_method = "frequency",
-  frequency_threshold = 0.1
-)
-
-gl_full$train(task)
-```
-
-
-## Visualisation Examples
-
-### Example Plots
-
-The README includes two representative MB-sPLS plots generated from the packaged synthetic task.
-
-**Block weights (bootstrap-stable)**
-
-![MB-sPLS bootstrap-stable block weights](man/figures/readme_mbspls_weights.png)
-
-**Latent correlation heatmap (Spearman)**
-
-![MB-sPLS latent correlation heatmap](man/figures/readme_mbspls_heatmap.png)
-
-Reproduce these plots with:
-
-```r
-task_plot = tsk("mbspls_synthetic_blocks")
-site_correction = list(block_a = "site_batch", block_b = "site_batch", block_c = "site_batch")
-site_methods = list(block_a = "partial_corr", block_b = "partial_corr", block_c = "partial_corr")
-
-gl_plot = mbspls_graph_learner(
-  task = task_plot,
+learner = mbspls_graph_learner(
   learner = lrn("clust.kmeans", centers = 2L),
+  task = task,
   site_correction = site_correction,
   site_correction_methods = site_methods,
   ncomp = 2L,
-  c_matrix = matrix(3, nrow = 3L, ncol = 2L),
   performance_metric = "mac",
   permutation_test = FALSE,
-  bootstrap = TRUE,
-  bootstrap_selection = TRUE,
-  selection_method = "ci",
-  B = 20L,
+  bootstrap = FALSE,
+  store_train_blocks = TRUE,
+  bootstrap_selection = FALSE,
+  B = 1L,
   val_test = "none"
 )
 
-gl_plot$train(task_plot)
+learner$train(task)
+prediction = learner$predict(task)
+report = mbspls_model_summary(learner)
 
-autoplot(gl_plot, type = "mbspls_weights", source = "bootstrap", top_n = 12)
-autoplot(gl_plot, type = "mbspls_heatmap", method = "spearman", absolute = FALSE)
-```
+table(prediction$partition)
+report$overview
+report$components
+report$blocks
 
-```r
-library(mlr3viz)
-autoplot(gl_sel, type = "mbspls_weights", source = "weights", top_n = 10)
-autoplot(gl_sel, type = "mbspls_weights", source = "bootstrap", alpha_by_stability = TRUE)
-autoplot(gl_sel, type = "mbspls_variance", show_total = TRUE)
-autoplot(gl_sel, type = "mbspls_heatmap", method = "spearman", absolute = FALSE)
-# Optional network (needs igraph/ggraph installed)
-# autoplot(gl_sel, type = "mbspls_network", cutoff = 0.1)
-```
-
-`mbspls_plot_block_weight_ci()` produces per‑block weight confidence intervals after bootstrap selection:
-
-```r
-mbspls_plot_block_weight_ci(gl_sel, source = "bootstrap", alpha_by_stability = TRUE)
-```
-
-| Measure Class | Purpose |
-| ------------- | ------- |
-| `MeasureMBsPLS_MAC` | Mean absolute correlation of block scores |
-| `MeasureMBsPLS_EV` | Mean prediction-side explained variance across components |
-| `MeasureMBsPLS_BlockEV` | Mean prediction-side block EV across components and blocks |
-| `MeasureMBsPLS_EVWeightedMAC` | MAC weighted by EV contribution |
-| `MeasureMBSPCAMEV` | EV (multi‑block sparse PCA) |
-
-Use like any mlr3 measure:
-
-```r
-ms = list(msr("mbspls.mac"), msr("mbspls.ev"))
-rr = resample(task, gl, rsmp("cv", folds = 3), store_models = TRUE)
-rr$score(ms)
-rr$aggregate(ms)
-```
-
-
-## Nested Cross-Validation
-
-`performance_metric` defines the direct component-fitting objective inside the
-MB-sPLS algorithm. `measure` defines the outer model-selection criterion on
-held-out data. They can be chosen separately. For most analyses,
-`performance_metric = "mac"` with the default `measure = msr("mbspls.mac_evwt")`
-is the most natural choice.
-
-```r
-library(mlr3tuning)
-res_nested = mbspls_nested_cv(
-  task = task,
-  graphlearner = gl_full,
-  rs_outer = rsmp("cv", folds = 3),
-  rs_inner = rsmp("cv", folds = 2),
-  ncomp = 4L,
-  tuner_budget = 10L,
-  performance_metric = "mac"
+weight_plot = autoplot(
+  learner,
+  type = "mbspls_weights",
+  source = "weights",
+  top_n = 8L
 )
-str(res_nested)
-```
-
-Batchtools version (for HPC) is available via `mbspls_nested_cv_batchtools()`.
-
-
-## Sequential Component Tuning
-
-```r
-tuner = TunerSeqMBsPLS$new()
-instance = ti(
-  task = task,
-  learner = gl_full,
-  resampling = rsmp("cv", folds = 2),
-  measure = msr("mbspls.mac"),
-  terminator = trm("evals", n_evals = 20)
+variance_plot = autoplot(
+  learner,
+  type = "mbspls_variance",
+  source = "weights",
+  show_total = TRUE
 )
-# tuner$optimize(instance)
-# instance$result$learner_param_vals[[1]]$c_matrix
+
+weight_plot
+variance_plot
 ```
 
+Representative rendered output from the bootstrap-stability workflow:
 
-## Useful Low-Level Helpers
+![MB-sPLS bootstrap-stable block weights](man/figures/readme_mbspls_weights.png)
 
-| Function | Role |
-| -------- | ---- |
-| `compute_test_ev()` | Compute EV + objective on new matrices (standalone) |
-| `compute_pipeop_test_ev()` | Same for a PipeOp state representation |
-| `mbspls_eval_new_data()` | Score new data given training state (matrix interface) |
-| `mbspls_flip_weights()` | Sign alignment (GraphLearner, PipeOp, list) |
-| `mbspls_extract_bootstrap_means()` | Summarise bootstrap weight means |
-| `aggregate_mbspls_payloads()` | Merge logged payloads (e.g. across resamples) |
-| `collect_mbspls_nested_cv()` | Collect nested CV payload archives |
+![MB-sPLS latent correlation heatmap](man/figures/readme_mbspls_heatmap.png)
 
+## Proper omnibus permutation inference
 
-## Custom Learners (Gower kNN)
+For a fixed analysis, `mbspls_permutation_test()` standardises and refits every
+permuted dataset. Sampled p-values use inclusive ties and
+`(b + 1) / (B + 1)`, so they cannot be zero.
 
 ```r
-knn_cls = lrn("classif.knngower", k = 5)
-knn_reg = lrn("regr.knngower", k = 5)
+suppressPackageStartupMessages(library(mlr3mbspls))
+
+set.seed(20260831L)
+n = 48L
+latent = stats::rnorm(n)
+raw_numeric_blocks = list(
+  clinical = cbind(
+    marker = latent + stats::rnorm(n, sd = 0.25),
+    noise = stats::rnorm(n)
+  ),
+  imaging = cbind(
+    region = latent + stats::rnorm(n, sd = 0.25),
+    noise = stats::rnorm(n)
+  )
+)
+
+global_test = mbspls_permutation_test(
+  blocks = raw_numeric_blocks,
+  statistic = "global_lc1",
+  n_perm = 99L,
+  seed = 20260831L,
+  analysis_seed = 11L
+)
+
+global_test
+global_test$p_value
 ```
 
-These are used implicitly inside `impute_knn_graph()` and can be part of supervised pipelines downstream of MB‑sPLS/MB‑sPCA representations.
+If imputation, filtering, tuning, sparsity, or component count was selected
+from the tested alignment, put the complete procedure inside an
+`mb_permutation_test()` callback so every selection step is repeated. Use
+`exchangeability_unit`, `within_unit`, and `strata` whenever row-wise shuffling
+is not justified.
 
+## LC-specific confirmation inference
 
-## Reproducible Sparsity Specification
-
-Two options:
-
-1. Per‑block constraints automatically created: parameters named `c_<block>` with default upper bound √p.
-2. Provide a `c_matrix` (rows = blocks, cols = components) – overrides `ncomp` and per‑block `c_` values.
+LC-specific p-values require a truly independent confirmation cohort. The
+complete score transformation and the LC family must have been frozen before
+those observations were examined. The data below are generated independently
+of the preceding example by construction.
 
 ```r
-graph_cmat = po("mbspls", blocks = blocks, c_matrix = matrix(c(2,2,3,3,1,1), nrow = 3, byrow = TRUE))
+suppressPackageStartupMessages(library(mlr3mbspls))
+
+set.seed(20260901L)
+n_confirmation = 80L
+confirmation_signal = stats::rnorm(n_confirmation)
+confirmation_scores = list(
+  predictor = cbind(
+    LC1 = confirmation_signal + stats::rnorm(n_confirmation, sd = 0.08),
+    LC2 = stats::rnorm(n_confirmation)
+  ),
+  outcome = cbind(
+    LC1 = confirmation_signal + stats::rnorm(n_confirmation, sd = 0.08),
+    LC2 = stats::rnorm(n_confirmation)
+  )
+)
+
+confirmed = mb_lc_confirmation_test(
+  scores = confirmation_scores,
+  independent_confirmation = TRUE,
+  permute_blocks = "outcome",
+  n_perm = 99L,
+  seed = 20260831L
+)
+
+confirmed
+confirmed$results
 ```
 
+The Holm-adjusted results concern replication of fixed score associations. They
+do not establish that the population cross-block rank is at least two.
 
-## Vignette
-
-See the Quickstart vignette for an end‑to‑end multi‑omics example:
+## Descriptive bootstrap uncertainty
 
 ```r
+suppressPackageStartupMessages(library(mlr3mbspls))
+
+set.seed(20260831L)
+x = stats::rnorm(80L)
+y = 0.6 * x + stats::rnorm(80L, sd = 0.7)
+observed = stats::cor(x, y)
+replicates = replicate(199L, {
+  rows = sample.int(length(x), replace = TRUE)
+  stats::cor(x[rows], y[rows])
+})
+
+uncertainty = mb_bootstrap_summary(
+  replicates = replicates,
+  observed = observed,
+  conf = 0.95,
+  type = "percentile"
+)
+
+uncertainty
+stopifnot(is.na(uncertainty$p_value))
+```
+
+## Supervised MB-sPLS-XY
+
+```r
+suppressPackageStartupMessages({
+  library(mlr3)
+  library(mlr3mbspls)
+})
+
+classification_task = tsk("mbspls_synthetic_classif")
+classification_learner = mbsplsxy_graph_learner(
+  task = classification_task,
+  learner = lrn("classif.featureless"),
+  ncomp = 1L
+)
+classification_learner$train(classification_task)
+classification_prediction = classification_learner$predict(
+  classification_task
+)
+
+regression_task = tsk("mbspls_synthetic_regr")
+regression_learner = mbsplsxy_graph_learner(
+  task = regression_task,
+  learner = lrn("regr.featureless"),
+  ncomp = 1L
+)
+regression_learner$train(regression_task)
+regression_prediction = regression_learner$predict(regression_task)
+
+classification_prediction
+regression_prediction
+```
+
+## Documentation and complete workflow
+
+- [Quickstart vignette](vignettes/quickstart.Rmd): every supported inference
+  route, nested CV, final models, displayed output, and plots; no analysis
+  results are written to the working directory.
+- [Statistical-validity contract](inst/STATISTICAL_VALIDITY.md): leakage,
+  exchangeability, nested tuning, metrics, and interpretation.
+- [Reproducibility protocol](inst/REPRODUCIBILITY.md): seeds, RNG streams,
+  release evidence, and reporting requirements.
+- [Clinical model card](inst/MODEL_CARD.md): study-specific psychiatry and
+  precision-medicine obligations.
+
+To install and open the rendered vignette, also install `knitr` and `rmarkdown`
+and build vignettes during installation (a Pandoc installation is required):
+
+```r no-eval
+install.packages(c("knitr", "rmarkdown"))
+remotes::install_github("coorsaa/mlr3mbspls", build_vignettes = TRUE)
 vignette("quickstart", package = "mlr3mbspls")
 ```
 
+## Selected API
+
+| Function | Role |
+| --- | --- |
+| `TaskMultiBlock()` | Create a task with persistent block membership |
+| `mb_task_overview()` | Audit block size, missingness, constants, and target balance |
+| `mbspls_graph_learner()` | Build an unsupervised MB-sPLS graph learner |
+| `mbsplsxy_graph_learner()` | Build a supervised MB-sPLS-XY graph learner |
+| `mbspls_nested_cv()` | Run sequential tuning inside outer validation |
+| `mbspls_model_summary()` | Extract tidy fitted-model summaries |
+| `mb_permutation_test()` | Rerun one complete analysis under valid shuffles |
+| `mbspls_permutation_test()` | Run a fixed-specification omnibus MB-sPLS test |
+| `mb_lc_confirmation_test()` | Test frozen LCs in independent confirmation data |
+| `mb_bootstrap_summary()` | Summarise descriptive bootstrap uncertainty |
+| `mbspls_plot_block_weight_ci()` | Plot sign-aligned bootstrap stability intervals |
 
 ## Citation
 
-If you use `mlr3mbspls` in academic work please cite:
+If you use `mlr3mbspls` in academic work, cite:
 
+```text
+Coors S, Vetter CS (2026). mlr3mbspls: Multi-Block Sparse Partial Least
+Squares for mlr3. R package version 0.4.0.
+https://github.com/coorsaa/mlr3mbspls
 ```
-@Manual{mlr3mbspls,
-  title = {mlr3mbspls: Multi-Block Sparse PLS for mlr3},
-  author = {Stefan Coors and Clara Sophie Vetter},
-  year = {2026},
-  url = {https://github.com/coorsaa/mlr3mbspls}
-}
-```
-
 
 ## Contributing
 
-Issues & PRs welcome. Please open an issue for substantial interface changes before implementing. Run `pre-commit` hooks + `R CMD check` locally.
+All R code, examples, vignettes, and R fences in Markdown follow the pinned
+`styler.mlr` guide. See [CONTRIBUTING.md](CONTRIBUTING.md) and run:
 
+```sh
+Rscript tools/style.R
+Rscript tools/style.R --check
+```
 
 ## License
 
