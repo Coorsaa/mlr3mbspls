@@ -21,7 +21,11 @@ mb_bootstrap_summary(
 \item{type}{Interval type: \code{"percentile"}, \code{"basic"}, or \code{"normal"}.}
 }
 \value{
-An \code{mbspls_bootstrap_summary} list.
+An \code{mbspls_bootstrap_summary} list with elements \code{estimate},
+\code{bootstrap_mean}, \code{bias}, \code{standard_error}, \code{conf_low}, \code{conf_high},
+\code{confidence_level}, \code{interval_type}, \code{replicates_requested},
+\code{replicates_effective}, \code{replicates_failed}, \code{p_value} (always \code{NA}), and
+\code{p_value_note}.
 }
 \description{
 Reports an observed estimate, bootstrap mean and bias, standard error, and a
@@ -30,6 +34,12 @@ a null distribution, so the returned \code{p_value} is deliberately \code{NA} an
 reason is recorded in \code{p_value_note}.
 }
 \details{
+Percentile and basic endpoints use Hyndman-Fan type-8 sample quantiles
+(\code{stats::quantile(type = 8)}), as does the prediction-side bootstrap of
+\code{PipeOpMBsPLS} (\code{val_test = "bootstrap"}). The normal interval is
+\verb{(estimate - bias) +/- z * standard_error}. The field names match the rows of
+that prediction-side \code{val_bootstrap} payload.
+
 Non-finite replicates are counted as failed rather than silently treated as
 valid. At least two finite replicates are required. Summaries then describe
 the successful replicates only; selective fitting failures can invalidate

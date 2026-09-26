@@ -4,11 +4,7 @@
 \alias{mb_align_component_signs}
 \title{Align PLS component signs to a reference}
 \usage{
-mb_align_component_signs(
-  estimate,
-  reference,
-  tolerance = sqrt(.Machine$double.eps)
-)
+mb_align_component_signs(estimate, reference, tolerance = 0.2)
 }
 \arguments{
 \item{estimate}{Numeric matrix with variables in rows and components in
@@ -16,14 +12,31 @@ columns.}
 
 \item{reference}{Numeric matrix with the identical schema.}
 
-\item{tolerance}{Non-negative ambiguity threshold for absolute dot products.}
+\item{tolerance}{Ambiguity threshold in \verb{[0, 1)} for the absolute cosine
+similarity between matching columns.}
 }
 \value{
-The aligned estimate with \code{signs} and \code{ambiguous} attributes.
+The aligned estimate with attributes \code{signs} (applied signs),
+\code{ambiguous} (logical flags), and \code{cosines} (cosine similarity of each
+estimate column with its reference column before alignment; \code{NA} for
+zero-norm columns).
 }
 \description{
 PLS loadings and weights are sign-indeterminate. This helper flips each
-estimate column according to its dot product with the matching reference
-column before element-wise aggregation. Near-orthogonal matches are marked
-as ambiguous and left unchanged.
+estimate column according to the sign of its cosine similarity with the
+matching reference column before element-wise aggregation. A column whose
+absolute cosine does not exceed \code{tolerance}, or which has zero norm in
+either matrix, is marked as ambiguous and left unchanged: its sign cannot be
+determined reliably, and near-orthogonality usually means that the columns
+do not describe the same component. Because the cosine is scale-free, the
+flag does not depend on how the columns are normalised.
+}
+\details{
+The helper does not match components. Columns must already correspond, for
+example after solving an assignment problem such as \code{clue::solve_LSAP()} on
+\code{1 - abs(cosine)} or on absolute score correlations; a pair of swapped
+components typically shows up as ambiguous. For MB-sPLS, the objective
+depends only on absolute (or squared) cross-block correlations, so the sign
+of every block's weights is identified separately. Call the helper once per
+block on that block's rows, never on weights stacked across blocks.
 }

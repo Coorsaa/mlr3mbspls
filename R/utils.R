@@ -108,40 +108,70 @@ mb_align_named_numeric = function(v, cols, context = "vector", allow_null = FALS
 
 #' Execute code with a temporary RNG seed and restore RNG state afterwards.
 #'
+#' Evaluates `fn()` after seeding the generator `kind` together with the
+#' Inversion normal generator and the Rejection sampler, so a supplied seed
+#' yields the same draws whatever RNG kinds the caller has selected. The
+#' caller's RNG state is preserved: its RNG kinds and `.Random.seed` (including
+#' the absence of `.Random.seed`) are restored on exit, also when `fn()` fails.
+#' As with any seed-based restoration in R, a cached Box-Muller normal variate
+#' of the calling session cannot be restored.
+#'
+#' With `seed = NULL`, `fn()` runs unseeded in the caller's RNG context and
+#' nothing is changed or restored. `seed = 0` is an ordinary seed. The default
+#' Mersenne-Twister generator reproduces results obtained under R's default RNG
+#' kind. Use `kind = "L'Ecuyer-CMRG"` when `fn()` distributes work with
+#' `parallel::mclapply()` or `parallel::mcparallel()` (`mc.set.seed = TRUE`):
+#' these derive reproducible per-child streams only from that generator.
+#'
 #' This helper is intentionally implemented without additional dependencies
 #' (e.g. withr) and is used to make bootstrap/permutation procedures reproducible
 #' without permanently changing the session RNG state.
 #'
+#' @param seed `NULL` or one non-negative integer seed.
+#' @param fn Function without arguments to evaluate.
+#' @param kind RNG algorithm seeded for the evaluation: `"Mersenne-Twister"`
+#'   (default) or `"L'Ecuyer-CMRG"`.
+#' @return The value of `fn()`.
 #' @keywords internal
-with_seed_local = function(seed, fn) {
+with_seed_local = function(seed, fn, kind = c("Mersenne-Twister", "L'Ecuyer-CMRG")) {
   if (!is.function(fn)) {
     stop("`fn` must be a function.", call. = FALSE)
   }
+  kind = match.arg(kind)
   if (is.null(seed)) {
     return(fn())
   }
   seed = .mb_assert_scalar_integer(seed, "seed", lower = 0L)
 
   old_kind = RNGkind()
-  had_seed = exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
-  old_seed = if (had_seed) get(".Random.seed", envir = .GlobalEnv, inherits = FALSE) else NULL
-
-  on.exit({
-    do.call(RNGkind, as.list(old_kind))
-    if (is.null(old_seed)) {
-      if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
-        rm(".Random.seed", envir = .GlobalEnv)
-      }
-    } else {
-      assign(".Random.seed", old_seed, envir = .GlobalEnv)
-    }
-  }, add = TRUE)
+  old_seed = if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+    get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  }
+  on.exit(.mb_restore_rng_state(old_kind, old_seed), add = TRUE)
 
   # Explicit algorithms make a supplied seed independent of ambient RNG kinds.
   # R cannot restore Box-Muller's cached spare normal via .Random.seed.
-  set.seed(seed, kind = "Mersenne-Twister", normal.kind = "Inversion",
-    sample.kind = "Rejection")
+  set.seed(seed, kind = kind, normal.kind = "Inversion", sample.kind = "Rejection")
   fn()
+}
+
+# Restore RNG kinds and `.Random.seed` captured before a local RNG change;
+# `seed = NULL` means the caller had no `.Random.seed`. Re-selecting a legacy
+# kind (e.g. the "Rounding" sampler) makes R repeat the warning the caller
+# already received when choosing it, so warnings of this call are muffled.
+.mb_restore_rng_state = function(kind, seed) {
+  withCallingHandlers(
+    do.call(RNGkind, as.list(kind)),
+    warning = function(w) invokeRestart("muffleWarning")
+  )
+  if (is.null(seed)) {
+    if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+      rm(".Random.seed", envir = .GlobalEnv)
+    }
+  } else {
+    assign(".Random.seed", seed, envir = .GlobalEnv)
+  }
+  invisible(NULL)
 }
 
 # Preserve the actual upstream topology, including single-node prefixes.
@@ -768,5 +798,37 @@ mb_validate_supervised_learner = function(learner, expected_type, context = "mbs
     )
   }
 
+  invisible(TRUE)
+}
+
+
+# ------------------------------------------------------------------------------
+# Suggested packages
+# ------------------------------------------------------------------------------
+
+# Thin wrapper around requireNamespace() so that tests can simulate a missing
+# suggested package.
+.mbspls_has_namespace = function(pkg) {
+  requireNamespace(pkg, quietly = TRUE)
+}
+
+# Stop with an installation hint unless every suggested package in `pkgs` can be
+# loaded. `what` names the feature that needs them, e.g. "autoplot(type = 'x')".
+.mbspls_require_suggested = function(pkgs, what) {
+  checkmate::assert_character(pkgs, any.missing = FALSE, min.len = 1L, .var.name = "pkgs")
+  checkmate::assert_string(what, .var.name = "what")
+
+  missing = pkgs[!vapply(pkgs, .mbspls_has_namespace, logical(1L))]
+  if (length(missing)) {
+    stop(
+      sprintf(
+        "%s requires the suggested package(s) %s. Install with install.packages(c(%s)).",
+        what,
+        paste(sprintf("'%s'", missing), collapse = ", "),
+        paste(sprintf("\"%s\"", missing), collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
   invisible(TRUE)
 }

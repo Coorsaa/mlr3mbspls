@@ -202,18 +202,10 @@ mb_rng_streams = function(n, seed) {
   n = .mb_assert_scalar_integer(n, "n")
   seed = .mb_assert_scalar_integer(seed, "seed", lower = 0L)
   old_kind = RNGkind()
-  had_seed = exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
-  if (had_seed) {
-    old_seed = get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  old_seed = if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+    get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
   }
-  on.exit({
-    do.call(RNGkind, as.list(old_kind))
-    if (had_seed) {
-      assign(".Random.seed", old_seed, envir = .GlobalEnv)
-    } else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
-      rm(".Random.seed", envir = .GlobalEnv)
-    }
-  }, add = TRUE)
+  on.exit(.mb_restore_rng_state(old_kind, old_seed), add = TRUE)
 
   RNGkind("L'Ecuyer-CMRG", "Inversion", "Rejection")
   set.seed(seed)
@@ -253,18 +245,10 @@ with_rng_stream_local = function(stream, fn) {
   }
 
   old_kind = RNGkind()
-  had_seed = exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
-  if (had_seed) {
-    old_seed = get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
+  old_seed = if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+    get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
   }
-  on.exit({
-    do.call(RNGkind, as.list(old_kind))
-    if (had_seed) {
-      assign(".Random.seed", old_seed, envir = .GlobalEnv)
-    } else if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
-      rm(".Random.seed", envir = .GlobalEnv)
-    }
-  }, add = TRUE)
+  on.exit(.mb_restore_rng_state(old_kind, old_seed), add = TRUE)
 
   RNGkind("L'Ecuyer-CMRG", "Inversion", "Rejection")
   assign(".Random.seed", stream, envir = .GlobalEnv)
@@ -374,15 +358,15 @@ mb_permute_group_labels = function(y, group, seed = NULL) {
 
   group_key = as.character(group)
   groups = unique(group_key)
-  by_group = lapply(groups, function(id) unique(y[group_key == id]))
-  inconsistent = lengths(by_group) != 1L
+  first_row = match(groups, group_key)
+  inconsistent = .mb_varies_within_groups(y, group_key, groups, first_row)
   if (any(inconsistent)) {
     stop(sprintf(
       "Outcome labels vary within exchangeability groups: %s.",
       paste(groups[inconsistent], collapse = ", ")
     ), call. = FALSE)
   }
-  group_labels = y[match(groups, group_key)]
+  group_labels = y[first_row]
 
   permute = function() {
     shuffled = group_labels[sample.int(length(groups), replace = FALSE)]
@@ -413,6 +397,25 @@ mb_permute_group_labels = function(y, group, seed = NULL) {
 #'   `bootstrap_cluster` identifier for every selected row.
 #' @export
 mb_cluster_bootstrap = function(group, strata = NULL, seed = NULL) {
+  design = .mb_cluster_design(group, strata)
+  if (is.null(seed)) {
+    .mb_draw_cluster(design)
+  } else {
+    seed = .mb_assert_scalar_integer(seed, "seed", lower = 0L)
+    with_seed_local(seed, function() .mb_draw_cluster(design))
+  }
+}
+
+# For each group (in `groups` order, with `first_row` its first row), whether
+# `x` takes more than one value within the group. Linear in the number of rows.
+.mb_varies_within_groups = function(x, group_key, groups, first_row) {
+  differs = x != x[first_row[match(group_key, groups)]]
+  groups %in% group_key[differs]
+}
+
+# Validate a cluster-bootstrap design once and precompute its row lists, so
+# repeated draws cost O(n) instead of O(n x groups).
+.mb_cluster_design = function(group, strata = NULL) {
   if (!length(group) || anyNA(group)) {
     stop("`group` must be non-empty and contain no missing values.",
       call. = FALSE)
@@ -425,70 +428,83 @@ mb_cluster_bootstrap = function(group, strata = NULL, seed = NULL) {
 
   group_key = as.character(group)
   groups = unique(group_key)
+  first_row = match(groups, group_key)
   group_strata = NULL
   if (!is.null(strata)) {
-    by_group = lapply(groups, function(id) unique(strata[group_key == id]))
-    inconsistent = lengths(by_group) != 1L
+    inconsistent = .mb_varies_within_groups(strata, group_key, groups, first_row)
     if (any(inconsistent)) {
       stop(sprintf(
         "Strata vary within exchangeability groups: %s.",
         paste(groups[inconsistent], collapse = ", ")
       ), call. = FALSE)
     }
-    group_strata = as.character(strata[match(groups, group_key)])
+    group_strata = as.character(strata[first_row])
   }
 
-  draw = function() {
-    if (is.null(group_strata)) {
-      sampled = sample(groups, length(groups), replace = TRUE)
-    } else {
-      strata_levels = unique(group_strata)
-      sampled = unlist(lapply(strata_levels, function(level) {
-        eligible = groups[group_strata == level]
-        sample(eligible, length(eligible), replace = TRUE)
-      }), use.names = FALSE)
-      sampled = sampled[sample.int(length(sampled), replace = FALSE)]
-    }
+  list(
+    groups = groups,
+    rows = unname(split(seq_along(group_key), factor(group_key, levels = groups))),
+    group_strata = group_strata
+  )
+}
 
-    indices = unlist(lapply(sampled, function(id) which(group_key == id)),
-      use.names = FALSE)
-    bootstrap_cluster = unlist(Map(function(id, draw_id) {
-      rep.int(draw_id, sum(group_key == id))
-    }, sampled, seq_along(sampled)), use.names = FALSE)
-
-    list(
-      indices = indices,
-      sampled_groups = sampled,
-      bootstrap_cluster = bootstrap_cluster
-    )
-  }
-
-  if (is.null(seed)) {
-    draw()
+# Draw one cluster-bootstrap sample from a design built by .mb_cluster_design().
+.mb_draw_cluster = function(design) {
+  groups = design$groups
+  group_strata = design$group_strata
+  if (is.null(group_strata)) {
+    sampled = sample(groups, length(groups), replace = TRUE)
   } else {
-    seed = .mb_assert_scalar_integer(seed, "seed", lower = 0L)
-    with_seed_local(seed, draw)
+    strata_levels = unique(group_strata)
+    sampled = unlist(lapply(strata_levels, function(level) {
+      eligible = groups[group_strata == level]
+      sample(eligible, length(eligible), replace = TRUE)
+    }), use.names = FALSE)
+    sampled = sampled[sample.int(length(sampled), replace = FALSE)]
   }
+
+  selected = design$rows[match(sampled, groups)]
+  list(
+    indices = unlist(selected, use.names = FALSE),
+    sampled_groups = sampled,
+    bootstrap_cluster = rep.int(seq_along(selected), lengths(selected))
+  )
 }
 
 #' Align PLS component signs to a reference
 #'
 #' PLS loadings and weights are sign-indeterminate. This helper flips each
-#' estimate column according to its dot product with the matching reference
-#' column before element-wise aggregation. Near-orthogonal matches are marked
-#' as ambiguous and left unchanged.
+#' estimate column according to the sign of its cosine similarity with the
+#' matching reference column before element-wise aggregation. A column whose
+#' absolute cosine does not exceed `tolerance`, or which has zero norm in
+#' either matrix, is marked as ambiguous and left unchanged: its sign cannot be
+#' determined reliably, and near-orthogonality usually means that the columns
+#' do not describe the same component. Because the cosine is scale-free, the
+#' flag does not depend on how the columns are normalised.
+#'
+#' The helper does not match components. Columns must already correspond, for
+#' example after solving an assignment problem such as `clue::solve_LSAP()` on
+#' `1 - abs(cosine)` or on absolute score correlations; a pair of swapped
+#' components typically shows up as ambiguous. For MB-sPLS, the objective
+#' depends only on absolute (or squared) cross-block correlations, so the sign
+#' of every block's weights is identified separately. Call the helper once per
+#' block on that block's rows, never on weights stacked across blocks.
 #'
 #' @param estimate Numeric matrix with variables in rows and components in
 #'   columns.
 #' @param reference Numeric matrix with the identical schema.
-#' @param tolerance Non-negative ambiguity threshold for absolute dot products.
+#' @param tolerance Ambiguity threshold in `[0, 1)` for the absolute cosine
+#'   similarity between matching columns.
 #'
-#' @return The aligned estimate with `signs` and `ambiguous` attributes.
+#' @return The aligned estimate with attributes `signs` (applied signs),
+#'   `ambiguous` (logical flags), and `cosines` (cosine similarity of each
+#'   estimate column with its reference column before alignment; `NA` for
+#'   zero-norm columns).
 #' @export
 mb_align_component_signs = function(
   estimate,
   reference,
-  tolerance = sqrt(.Machine$double.eps)
+  tolerance = 0.2
 ) {
   estimate = .mb_numeric_matrix(estimate, "estimate")
   reference = .mb_numeric_matrix(reference, "reference")
@@ -501,19 +517,21 @@ mb_align_component_signs = function(
       call. = FALSE)
   }
   if (length(tolerance) != 1L || !is.numeric(tolerance) ||
-    !is.finite(tolerance) || tolerance < 0) {
-    stop("`tolerance` must be one finite non-negative number.", call. = FALSE)
+    !is.finite(tolerance) || tolerance < 0 || tolerance >= 1) {
+    stop("`tolerance` must be one finite number in [0, 1).", call. = FALSE)
   }
 
-  dots = colSums(estimate * reference)
-  ambiguous = abs(dots) <= tolerance
-  signs = ifelse(!ambiguous & dots < 0, -1, 1)
-  if (!is.null(colnames(estimate))) {
-    names(signs) = names(ambiguous) = colnames(estimate)
-  }
+  norm_estimate = sqrt(colSums(estimate^2))
+  norm_reference = sqrt(colSums(reference^2))
+  cosines = colSums(estimate * reference) / (norm_estimate * norm_reference)
+  cosines[!(norm_estimate > 0 & norm_reference > 0)] = NA_real_
+  ambiguous = is.na(cosines) | abs(cosines) <= tolerance
+  signs = ifelse(!ambiguous & cosines < 0, -1, 1)
+  names(signs) = names(ambiguous) = names(cosines) = colnames(estimate)
   aligned = sweep(estimate, 2L, signs, FUN = "*")
   attr(aligned, "signs") = signs
   attr(aligned, "ambiguous") = ambiguous
+  attr(aligned, "cosines") = cosines
   aligned
 }
 
@@ -523,6 +541,12 @@ mb_align_component_signs = function(
 #' percentile, basic, or normal interval. Ordinary bootstrap replicates are not
 #' a null distribution, so the returned `p_value` is deliberately `NA` and the
 #' reason is recorded in `p_value_note`.
+#'
+#' Percentile and basic endpoints use Hyndman-Fan type-8 sample quantiles
+#' (`stats::quantile(type = 8)`), as does the prediction-side bootstrap of
+#' `PipeOpMBsPLS` (`val_test = "bootstrap"`). The normal interval is
+#' `(estimate - bias) +/- z * standard_error`. The field names match the rows of
+#' that prediction-side `val_bootstrap` payload.
 #'
 #' Non-finite replicates are counted as failed rather than silently treated as
 #' valid. At least two finite replicates are required. Summaries then describe
@@ -534,7 +558,11 @@ mb_align_component_signs = function(
 #' @param conf Confidence level strictly between zero and one.
 #' @param type Interval type: `"percentile"`, `"basic"`, or `"normal"`.
 #'
-#' @return An `mbspls_bootstrap_summary` list.
+#' @return An `mbspls_bootstrap_summary` list with elements `estimate`,
+#'   `bootstrap_mean`, `bias`, `standard_error`, `conf_low`, `conf_high`,
+#'   `confidence_level`, `interval_type`, `replicates_requested`,
+#'   `replicates_effective`, `replicates_failed`, `p_value` (always `NA`), and
+#'   `p_value_note`.
 #' @export
 mb_bootstrap_summary = function(
   replicates,
@@ -583,8 +611,8 @@ mb_bootstrap_summary = function(
     standard_error = as.numeric(standard_error),
     conf_low = as.numeric(interval[[1L]]),
     conf_high = as.numeric(interval[[2L]]),
-    conf = conf,
-    interval = type,
+    confidence_level = conf,
+    interval_type = type,
     replicates_requested = as.integer(requested),
     replicates_effective = as.integer(length(replicates)),
     replicates_failed = as.integer(requested - length(replicates)),
