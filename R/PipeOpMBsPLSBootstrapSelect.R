@@ -75,11 +75,11 @@
 #' via \code{param_vals}. This PipeOp is designed to be placed downstream of
 #' \code{po("mbspls")} and uses its \code{log_env}.
 #'
-#' @param log_env Environment shared with upstream \code{po("mbspls")} (required).
-#' @param bootstrap Run bootstrap selection (default \code{TRUE}). With
+#' * `log_env`: Environment shared with upstream \code{po("mbspls")} (required).
+#' * `bootstrap`: Run bootstrap selection (default \code{TRUE}). With
 #'   \code{FALSE} no selection is made and only the upstream LV columns are
 #'   kept, at training and prediction time.
-#' @param stability_only Logical; if TRUE, run the bootstrap and selection
+#' * `stability_only`: Logical; if TRUE, run the bootstrap and selection
 #'   computations and store the stability outputs, but do **not** modify the
 #'   task: upstream LV columns and original block features pass through
 #'   unchanged at training and prediction time. The flag is recorded in the
@@ -88,14 +88,15 @@
 #'   \code{predict_weights = "auto"} and rejects explicit stable requests,
 #'   because its emitted LV columns are the raw-weight scores. Default
 #'   \code{FALSE}.
-#' @param B Bootstrap replicates; at least two are required when bootstrap
+#' * `B`: Bootstrap replicates; at least two are required when bootstrap
 #'   selection is enabled (default \code{500}).
-#' @param alpha Interval alpha strictly between zero and one (default
+#' * `alpha`: Interval alpha strictly between zero and one (default
 #'   \code{0.05}, i.e. 95\% percentile intervals). Stored in the state.
-#' @param align Sign alignment of replicate weights to the training weights.
-#'   The MB-sPLS criterion depends only on absolute (or squared) cross-block
-#'   correlations, so every block's sign is identified separately; both modes
-#'   therefore choose one sign per component and block.
+#' * `align`: Sign alignment of replicate weights to the training weights.
+#'   The reported MB-sPLS criterion depends only on absolute (or squared)
+#'   cross-block correlations, and a refit can differ from the training fit in
+#'   its relative block orientation; both modes therefore choose one sign per
+#'   component and block.
 #'   \code{"block_sign"} (default) uses the sign of the inner product between
 #'   the replicate and training weights of the block and falls back to the
 #'   score correlation when the supports are disjoint (inner product zero).
@@ -104,21 +105,21 @@
 #'   and falls back to the weight inner product. If neither is informative the
 #'   replicate sign is kept; fallbacks and unresolved signs are counted in
 #'   \code{alignment_diagnostics}.
-#' @param selection_method \code{"ci"} (default) or \code{"frequency"}.
-#' @param frequency_threshold Only for \code{"frequency"}; default \code{0.60}.
-#' @param magnitude_threshold Non-negative numeric, used only with
+#' * `selection_method`: \code{"ci"} (default) or \code{"frequency"}.
+#' * `frequency_threshold`: Only for \code{"frequency"}; default \code{0.60}.
+#' * `magnitude_threshold`: Non-negative numeric, used only with
 #'   \code{selection_method = "ci"}: a feature is kept only if its interval
 #'   excludes 0 and |bootstrap mean| exceeds this value. Default \code{1e-3}.
-#' @param stable_weight_source Either \code{"training"} (default) or
+#' * `stable_weight_source`: Either \code{"training"} (default) or
 #'   \code{"bootstrap_mean"}. With \code{"training"} the stable weights are the
 #'   training weights restricted to features that are both non-zero in the
 #'   training fit and bootstrap-selected: the support is the intersection, so
 #'   it can remove but never add features, and a block vanishes if none of its
 #'   selected features has a non-zero training weight. Selected features with a
 #'   zero training weight are recorded in \code{selected_not_in_training} and
-#'   reported with a warning. With \code{"bootstrap_mean"} the support equals
+#'   logged. With \code{"bootstrap_mean"} the support equals
 #'   the bootstrap-selected set and the values are the aligned bootstrap means.
-#' @param stratify_by_block Optional name of a retained MB-sPLS block that
+#' * `stratify_by_block`: Optional name of a retained MB-sPLS block that
 #'   dummy-codes a single factor (e.g. \code{"Studygroup"}); units are then
 #'   resampled within its levels. Full one-hot coding (one column per level,
 #'   exactly one active per row) and treatment coding (reference level = all
@@ -127,7 +128,7 @@
 #'   one active indicator. Unknown names, blocks dropped upstream (no numeric,
 #'   non-constant feature) and blocks that are not dummy-coded are errors.
 #'   Strata must be constant within bootstrap groups.
-#' @param bootstrap_groups Optional exchangeability-group vector. If named, its
+#' * `bootstrap_groups`: Optional exchangeability-group vector. If named, its
 #'   names must cover the task row IDs and it is aligned by row ID; otherwise it
 #'   must already follow training-row order. Whole groups are sampled with
 #'   replacement. If \code{NULL} (default) and the task has a \code{group}
@@ -137,23 +138,23 @@
 #'   operator. The source is recorded in \code{bootstrap_group_source}.
 #'   Training stops if only one group can be resampled, and warns if there are
 #'   fewer than 10 groups (see the section on the bootstrap design).
-#' @param min_score_cor Numeric in `[0, 1]`. Minimum mean absolute score correlation
+#' * `min_score_cor`: Numeric in `[0, 1]`. Minimum mean absolute score correlation
 #'   between a bootstrap replicate component and the corresponding training reference
 #'   component required for the replicate to be accepted into the summary statistics.
 #'   Replicates below this threshold are excluded to reduce noise from uninformative
 #'   fits. Default `0.10`. Increase for high-noise data.
-#' @param min_effective_fraction Numeric in `[0, 1]`. A warning is raised for
+#' * `min_effective_fraction`: Numeric in `[0, 1]`. A warning is raised for
 #'   components whose accepted replicates make up less than this fraction of
 #'   \code{B}, and for components without any accepted replicate. These
 #'   components are listed in \code{components_below_effective_floor}: their
 #'   intervals and frequencies rest on few, selectively accepted replicates, or
 #'   are empty. Default \code{0.5}.
-#' @param seed_bootstrap Optional positive integer. When set, each replicate
+#' * `seed_bootstrap`: Optional positive integer. When set, each replicate
 #'   gets its own deterministic RNG stream (\code{\link[=mb_rng_streams]{mb_rng_streams()}}),
 #'   so results do not depend on \code{workers} and the caller's RNG state is
 #'   left unchanged. \code{NULL} (default, as for the other seed parameters of
 #'   the package) uses the ambient RNG.
-#' @param workers Integer. Requested number of parallel workers for the bootstrap loop.
+#' * `workers`: Integer. Requested number of parallel workers for the bootstrap loop.
 #'   Requires \pkg{future} and \pkg{future.apply} when set to a value larger than 1; otherwise an explicit error is raised. Default 1L.
 #'
 #' @return Replaces the task's LV columns with the stable LV columns of the kept

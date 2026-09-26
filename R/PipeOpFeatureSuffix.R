@@ -12,10 +12,10 @@
 #' Hyperparameters are defined in the object's \code{param_set} and can be set
 #' via \code{param_vals} (e.g. for tuning in an \pkg{mlr3} pipeline).
 #'
-#' @param suffix character(1). Suffix to append. Default "_sfx".
-#' @param skip_already_suffixed logical(1). If TRUE (default),
+#' * `suffix`: character(1). Suffix to append. Default "_sfx".
+#' * `skip_already_suffixed`: logical(1). If TRUE (default),
 #'   skip features that already end with \code{suffix}.
-#' @param error_on_collision logical(1). If TRUE (default), error if
+#' * `error_on_collision`: logical(1). If TRUE (default), error if
 #'   any new names would collide with non-feature columns or create duplicates.
 #'
 #' @section Construction:

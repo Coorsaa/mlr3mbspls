@@ -54,6 +54,22 @@ their original values (e.g., the labels of unseen sites). Set
 
 Hyperparameters are defined in the object's \code{param_set} and can be set
 via \code{param_vals}.
+\itemize{
+\item \code{labels}: \code{vector} or \code{NULL}.
+Target label(s) used for filtering.
+If \code{invert = FALSE} (default), rows with \code{target \%in\% labels} are kept.
+If \code{invert = TRUE}, rows with \code{target \%in\% labels} are dropped.
+If \code{NULL}, the task is passed through unchanged.
+\item \code{target}: \code{character(1)} or \code{NULL}. Name of the target column.
+Defaults to the task's first target via \code{task$target_names[1]}.
+\item \code{invert}: \code{logical(1)}. If \code{TRUE}, invert the selection.
+\item \code{drop_unused_levels}: \code{logical(1)}. If \code{TRUE} (default),
+drop unused factor levels on factor \emph{feature} columns after filtering
+and re-apply these training level sets at prediction (see Details).
+The target's level set is controlled explicitly.
+\item \code{drop_stratum}: \code{logical(1)}. If \code{TRUE} (default \code{FALSE}),
+remove the \code{"stratum"} role from columns that are neither features nor targets.
+}
 }
 
 \seealso{
