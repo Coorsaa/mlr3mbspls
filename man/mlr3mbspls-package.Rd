@@ -20,7 +20,24 @@ workflows, with support for unsupervised, classification, and regression pipelin
 \item Visualization and interpretation tools
 \item Block-level task QC via \code{task$overview()} (with \code{mb_task_overview()} retained as a wrapper) and tidy reporting via \code{mbspls_model_summary()}
 \item Hyperparameter tuning support
+\item Statistical-validity, reproducibility, and
+clinical model-card checklists installed with the package
 }
+}
+
+\section{Inference boundary}{
+
+Ordinary bootstrap output is descriptive uncertainty and stability, not a
+null-hypothesis test. Built-in component-wise permutations are conditional
+diagnostics. \code{\link[=mb_permutation_test]{mb_permutation_test()}} reruns a supplied complete analysis and
+\code{\link[=mbspls_permutation_test]{mbspls_permutation_test()}} provides a fixed-analysis omnibus MB-sPLS test.
+\code{\link[=mb_lc_confirmation_test]{mb_lc_confirmation_test()}} tests frozen LC score associations only on
+explicitly independent confirmation observations and applies Holm correction
+across LCs. All require design-valid exchangeability. Confirmation p-values
+test replication of fixed score associations, not unsupported later-LC
+population-rank claims. The package cannot infer the correct grouping,
+causal estimand, deployment population, or clinical-use requirements from
+code or data.
 }
 
 \section{Main Functions}{
@@ -35,6 +52,10 @@ workflows, with support for unsupervised, classification, and regression pipelin
 \item \code{\link{mbspls_eval_new_data}}: Evaluate new data via a trained graph
 \item \code{\link{mbspls_nested_cv}} / \code{\link{mbspls_nested_cv_batchtools}}:
 Nested resampling utilities
+\item \code{\link{mb_permutation_test}} / \code{\link{mbspls_permutation_test}}:
+Complete-analysis and fixed MB-sPLS omnibus permutation inference
+\item \code{\link{mb_lc_confirmation_test}}: Multiplicity-adjusted frozen-LC
+association tests on independent confirmation observations
 }
 }
 

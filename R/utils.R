@@ -114,18 +114,20 @@ mb_align_named_numeric = function(v, cols, context = "vector", allow_null = FALS
 #'
 #' @keywords internal
 with_seed_local = function(seed, fn) {
-  if (is.null(seed) || length(seed) != 1L || !is.finite(seed)) {
+  if (!is.function(fn)) {
+    stop("`fn` must be a function.", call. = FALSE)
+  }
+  if (is.null(seed)) {
     return(fn())
   }
-  seed = as.integer(seed)
-  if (!is.finite(seed) || seed <= 0L) {
-    return(fn())
-  }
+  seed = .mb_assert_scalar_integer(seed, "seed", lower = 0L)
 
+  old_kind = RNGkind()
   had_seed = exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
   old_seed = if (had_seed) get(".Random.seed", envir = .GlobalEnv, inherits = FALSE) else NULL
 
   on.exit({
+    do.call(RNGkind, as.list(old_kind))
     if (is.null(old_seed)) {
       if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
         rm(".Random.seed", envir = .GlobalEnv)
@@ -135,8 +137,56 @@ with_seed_local = function(seed, fn) {
     }
   }, add = TRUE)
 
-  set.seed(seed)
+  # Explicit algorithms make a supplied seed independent of ambient RNG kinds.
+  # R cannot restore Box-Muller's cached spare normal via .Random.seed.
+  set.seed(seed, kind = "Mersenne-Twister", normal.kind = "Inversion",
+    sample.kind = "Rejection")
   fn()
+}
+
+# Preserve the actual upstream topology, including single-node prefixes.
+mb_preprocessing_graph = function(graph, target_id) {
+  if (!target_id %in% graph$ids()) {
+    stop("The requested component node is absent from the graph.", call. = FALSE)
+  }
+  edges = graph$edges
+  ancestors = target_id
+  repeat {
+    expanded = union(ancestors, edges$src_id[edges$dst_id %in% ancestors])
+    if (setequal(expanded, ancestors)) break
+    ancestors = expanded
+  }
+  ancestors = setdiff(ancestors, target_id)
+  result = mlr3pipelines::Graph$new()
+  for (id in intersect(graph$ids(), ancestors)) {
+    result$add_pipeop(graph$pipeops[[id]]$clone(deep = TRUE))
+  }
+  keep = edges$src_id %in% ancestors & edges$dst_id %in% ancestors
+  for (i in which(keep)) {
+    result$add_edge(
+      edges$src_id[[i]], edges$dst_id[[i]],
+      edges$src_channel[[i]], edges$dst_channel[[i]]
+    )
+  }
+  result
+}
+
+mb_assert_resampling_split = function(task, train, test) {
+  if (!length(train) || !length(test) ||
+    anyNA(c(train, test)) ||
+    !all(c(train, test) %in% task$row_ids)) {
+    stop("Resampling indices must select non-empty subsets of the current task.",
+      call. = FALSE)
+  }
+  if (length(intersect(train, test))) {
+    stop("Resampling analysis and assessment rows must be disjoint.", call. = FALSE)
+  }
+  train_groups = mb_task_group_vector(task, train)
+  test_groups = mb_task_group_vector(task, test)
+  if (!is.null(train_groups) || !is.null(test_groups)) {
+    mb_assert_disjoint_groups(train_groups, test_groups)
+  }
+  invisible(TRUE)
 }
 
 # ------------------------------------------------------------------------------
