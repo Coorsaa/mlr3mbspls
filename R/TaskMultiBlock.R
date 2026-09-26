@@ -207,7 +207,15 @@ mb_task_construct_from_source = function(
 #'
 #' `task_multiblock_breast_tcga()` and `task_multiblock_potato()` are optional
 #' dataset adapters for the `mixOmics::breast.TCGA` and `multiblock::potato`
-#' examples discussed in the package README.
+#' examples discussed in the package README. The breast TCGA task has the
+#' blocks `mRNA`, `miRNA`, and `protein` and, for classification, the target
+#' `subtype`.
+#'
+#' `block_features(materialize = TRUE)`, `block_data()`, and `overview()`
+#' resolve declared block columns against the task's current features with
+#' [mb_resolve_block_columns()]: a declared feature that was replaced by
+#' encoded columns (e.g. factor `sex` by `sex.m` and `sex.x` after
+#' `po("encode")`) resolves to those columns.
 #'
 #' @param x A flat tabular object (`data.frame`, `data.table`, `matrix`,
 #'   `mlr3::DataBackend`, or `mlr3::Task`) or a named `list` of aligned blocks.
@@ -267,10 +275,10 @@ mb_task_construct_from_source = function(
 #' toy_class = task_multiblock_synthetic(task_type = "classif")
 #' toy_regr = task_multiblock_synthetic(task_type = "regr")
 #'
-#' \dontrun{
+#' \donttest{
 #' if (requireNamespace("mixOmics", quietly = TRUE)) {
-#'   tcga = try(task_multiblock_breast_tcga(task_type = "classif"), silent = TRUE)
-#'   if (!inherits(tcga, "try-error")) tcga$block_names
+#'   tcga = task_multiblock_breast_tcga(task_type = "classif")
+#'   tcga$block_names
 #' }
 #'
 #' if (requireNamespace("multiblock", quietly = TRUE)) {
@@ -488,15 +496,14 @@ task_multiblock_breast_tcga = function(
   utils::data("breast.TCGA", package = "mixOmics", envir = environment())
   tcga = get("breast.TCGA", envir = environment())
   ds = tcga[[paste0("data.", subset)]]
-  block_candidates = c("mRNA", "miRNA", "protein")
-  blocks_present = Filter(
-    function(nm) {
-      obj = ds[[nm]]
-      !is.null(obj) && isTRUE(length(dim(obj)) == 2L)
-    },
-    block_candidates
-  )
-  if (length(blocks_present) < 2L) {
+  # Canonical block names, matched case-insensitively against the element
+  # names of the installed data set (mixOmics uses `mrna`, `mirna`, `protein`).
+  block_names = c("mRNA", "miRNA", "protein")
+  source_names = names(ds)[match(tolower(block_names), tolower(names(ds)))]
+  present = vapply(source_names, function(nm) {
+    !is.na(nm) && isTRUE(length(dim(ds[[nm]])) == 2L)
+  }, logical(1L), USE.NAMES = FALSE)
+  if (sum(present) < 2L) {
     stop(
       "mixOmics::breast.TCGA does not provide enough 2D omics blocks in this installation.",
       call. = FALSE
@@ -507,15 +514,18 @@ task_multiblock_breast_tcga = function(
     id = if (identical(task_type, "classif")) "breast_tcga_multiblock" else "breast_tcga_multiblock_clust"
   }
   if (identical(label, NA_character_)) {
-    label = if (identical(task_type, "classif")) {
-      "TCGA breast cancer 3-block classification task"
-    } else {
-      "TCGA breast cancer 3-block unsupervised task"
-    }
+    label = sprintf(
+      if (identical(task_type, "classif")) {
+        "TCGA breast cancer %d-block classification task"
+      } else {
+        "TCGA breast cancer %d-block unsupervised task"
+      },
+      sum(present)
+    )
   }
 
   TaskMultiBlock(
-    x = ds[blocks_present],
+    x = stats::setNames(ds[source_names[present]], block_names[present]),
     target = if (identical(task_type, "classif")) ds$subtype else NULL,
     task_type = task_type,
     id = id,
@@ -769,10 +779,7 @@ mb_finalize_target_type = function(dt, target, task_type) {
 mb_task_block_features = function(task, block = NULL, materialize = FALSE) {
   blocks = mb_task_blocks(task, context = class(task)[1L])
   if (isTRUE(materialize)) {
-    blocks = lapply(blocks, function(cols) {
-      intersect(mb_expand_block_cols(task$feature_names, cols), task$feature_names)
-    })
-    blocks = Filter(length, blocks)
+    blocks = Filter(length, mb_resolve_block_columns(task$feature_names, blocks))
   }
 
   if (is.null(block)) {

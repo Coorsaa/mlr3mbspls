@@ -28,7 +28,9 @@
 #'   carries multiblock metadata in `task$blocks` or `task$extra_args$blocks`.
 #' @param rows Optional row ids to summarize. Defaults to all task rows.
 #' @param blocks Optional block subset. Either a character vector of block names
-#'   or a named block mapping.
+#'   or a named block mapping. Declared columns are resolved against the
+#'   task's current features with [mb_resolve_block_columns()], so encoded
+#'   factor columns are summarised with the block that declares the factor.
 #' @param include_target Logical; summarize the target if the task is
 #'   supervised.
 #' @param top_levels Maximum number of classification levels to print in the
@@ -52,19 +54,18 @@ mb_task_overview = function(task, rows = NULL, blocks = NULL, include_target = T
   checkmate::assert_flag(include_target, .var.name = "include_target")
   checkmate::assert_int(top_levels, lower = 1L, .var.name = "top_levels")
 
+  # Block subsets are resolved within the task's full mapping, so encoded
+  # columns are never claimed by a block whose declared name is a prefix of a
+  # feature declared in another block.
   available_blocks = mb_task_blocks(task, context = "mb_task_overview")
   block_map = if (is.null(blocks)) {
-    available_blocks
+    mb_resolve_block_columns(task$feature_names, available_blocks)
   } else if (is.character(blocks) && is.null(names(blocks))) {
     checkmate::assert_subset(blocks, names(available_blocks), .var.name = "blocks")
-    available_blocks[blocks]
+    mb_resolve_block_columns(task$feature_names, available_blocks)[blocks]
   } else {
-    mb_normalize_blocks(blocks, .var.name = "blocks")
+    mb_resolve_block_columns(task$feature_names, mb_normalize_blocks(blocks, .var.name = "blocks"))
   }
-
-  block_map = lapply(block_map, function(cols) {
-    intersect(mb_expand_block_cols(task$feature_names, cols), task$feature_names)
-  })
   block_map = Filter(length, block_map)
 
   block_cols = unique(unlist(block_map, use.names = FALSE))

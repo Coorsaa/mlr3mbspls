@@ -439,21 +439,109 @@ mb_has_finite_variance = function(x, tol = 1e-12) {
 }
 
 
-#' Expand stable base names to concrete task/backend column names.
+#' Resolve declared block columns against concrete data column names.
+#'
+#' Maps a block mapping declared on stable (pre-encoding) feature names to the
+#' columns of a concrete data table. This is the single rule set for resolving
+#' blocks after upstream preprocessing.
+#'
+#' @details
+#' Resolution rules:
+#'
+#' 1. A declared name present in `dt_names` maps exactly to itself.
+#' 2. A declared name absent from `dt_names`, typically a factor replaced by
+#'    encoded columns such as `sex.m`, expands to the columns starting with
+#'    `paste0(name, ".")`, kept in data order. A column equal to a declared name
+#'    of any block is never claimed by such an expansion.
+#' 3. A column matching several absent names is assigned to the longest one,
+#'    e.g. `sex.hormone.high` belongs to `sex.hormone`, not to `sex`.
+#' 4. The resolved blocks must be disjoint; a column resolved into more than
+#'    one block is an error.
+#'
+#' Prefixes are matched literally, so names containing regular-expression
+#' metacharacters need no escaping. Expansion cannot distinguish encoder output
+#' from an undeclared column that happens to start with `<name>.`; declare such
+#' columns in their own block to keep them out of other blocks.
+#'
+#' @param dt_names Character vector of data column names.
+#' @param blocks Named list of declared column names per block.
+#' @return Named list of resolved column vectors in block order. Blocks without
+#'   any matching column yield `character(0)`.
 #' @keywords internal
-mb_expand_block_cols = function(dt_names, cols) {
+mb_resolve_block_columns = function(dt_names, blocks) {
   checkmate::assert_character(dt_names, any.missing = FALSE, .var.name = "dt_names")
-  checkmate::assert_character(cols, any.missing = FALSE, min.len = 1L, .var.name = "cols")
+  checkmate::assert_list(blocks, types = "character", min.len = 1L, names = "unique",
+    .var.name = "blocks")
 
-  esc = function(s) gsub("([][{}()|^$.*+?\\\\-])", "\\\\\\\\1", s)
+  blocks = lapply(blocks, function(cols) unique(as.character(cols)))
+  declared = unique(unlist(blocks, use.names = FALSE))
+  if (anyNA(declared)) {
+    stop("`blocks` must not contain missing column names.", call. = FALSE)
+  }
+  absent = setdiff(declared, dt_names)
 
-  unique(unlist(lapply(cols, function(co) {
-    if (co %in% dt_names) {
-      co
-    } else {
-      grep(paste0("^", esc(co), "(\\\\.|$)"), dt_names, value = TRUE)
+  # Candidates for prefix expansion never include a declared name. Each one is
+  # owned by the longest absent declared name that is a prefix of it.
+  candidates = dt_names[!dt_names %in% declared]
+  owner = rep(NA_character_, length(candidates))
+  if (length(absent) && length(candidates)) {
+    owner_nchar = integer(length(candidates))
+    for (base in absent) {
+      hit = startsWith(candidates, paste0(base, ".")) & nchar(base) > owner_nchar
+      owner[hit] = base
+      owner_nchar[hit] = nchar(base)
     }
-  }), use.names = FALSE))
+  }
+
+  resolved = lapply(blocks, function(cols) {
+    unique(as.character(unlist(lapply(cols, function(co) {
+      if (co %in% dt_names) co else candidates[!is.na(owner) & owner == co]
+    }), use.names = FALSE)))
+  })
+
+  flat = unlist(resolved, use.names = FALSE)
+  shared = unique(flat[duplicated(flat)])
+  if (length(shared)) {
+    block_of = rep(names(resolved), lengths(resolved))
+    detail = vapply(shared, function(cl) {
+      sprintf("%s (%s)", cl, paste(block_of[flat == cl], collapse = ", "))
+    }, character(1L))
+    stop(
+      sprintf(
+        "Resolved block columns must be disjoint across blocks. Column(s) assigned to several blocks: %s",
+        mb_format_truncated(detail)
+      ),
+      call. = FALSE
+    )
+  }
+
+  resolved
+}
+
+
+#' Expand the declared names of one block to concrete data column names.
+#'
+#' Applies the rules of [mb_resolve_block_columns()] to a single block. Pass the
+#' declared names of all blocks as `declared`, so that expansion never claims a
+#' column declared in another block and competing absent names are assigned as
+#' in the full mapping.
+#'
+#' @param dt_names Character vector of data column names.
+#' @param cols Declared column names of the block.
+#' @param declared Declared column names of all blocks. Defaults to `cols`.
+#' @return Character vector of resolved column names.
+#' @keywords internal
+mb_expand_block_cols = function(dt_names, cols, declared = cols) {
+  checkmate::assert_character(cols, any.missing = FALSE, min.len = 1L, .var.name = "cols")
+  checkmate::assert_character(declared, any.missing = FALSE, .var.name = "declared")
+
+  cols = unique(cols)
+  blocks = list(block = cols)
+  others = setdiff(declared, cols)
+  if (length(others)) {
+    blocks$other = others
+  }
+  mb_resolve_block_columns(dt_names, blocks)[["block"]]
 }
 
 
@@ -471,11 +559,11 @@ mb_resolve_blocks = function(
 
   blocks = mb_normalize_blocks(blocks)
   dt = data.table::as.data.table(dt)
-  dt_names = names(dt)
+  resolved = mb_resolve_block_columns(names(dt), blocks)
 
   out = lapply(names(blocks), function(bn) {
     cols = blocks[[bn]]
-    cand = mb_expand_block_cols(dt_names, cols)
+    cand = resolved[[bn]]
 
     if (isTRUE(numeric_only)) {
       cand = cand[vapply(cand, function(cl) is.numeric(dt[[cl]]), logical(1))]

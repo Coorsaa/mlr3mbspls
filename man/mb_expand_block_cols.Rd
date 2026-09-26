@@ -2,11 +2,24 @@
 % Please edit documentation in R/utils.R
 \name{mb_expand_block_cols}
 \alias{mb_expand_block_cols}
-\title{Expand stable base names to concrete task/backend column names.}
+\title{Expand the declared names of one block to concrete data column names.}
 \usage{
-mb_expand_block_cols(dt_names, cols)
+mb_expand_block_cols(dt_names, cols, declared = cols)
+}
+\arguments{
+\item{dt_names}{Character vector of data column names.}
+
+\item{cols}{Declared column names of the block.}
+
+\item{declared}{Declared column names of all blocks. Defaults to \code{cols}.}
+}
+\value{
+Character vector of resolved column names.
 }
 \description{
-Expand stable base names to concrete task/backend column names.
+Applies the rules of \code{\link[=mb_resolve_block_columns]{mb_resolve_block_columns()}} to a single block. Pass the
+declared names of all blocks as \code{declared}, so that expansion never claims a
+column declared in another block and competing absent names are assigned as
+in the full mapping.
 }
 \keyword{internal}

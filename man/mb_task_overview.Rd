@@ -19,7 +19,9 @@ carries multiblock metadata in \code{task$blocks} or \code{task$extra_args$block
 \item{rows}{Optional row ids to summarize. Defaults to all task rows.}
 
 \item{blocks}{Optional block subset. Either a character vector of block names
-or a named block mapping.}
+or a named block mapping. Declared columns are resolved against the
+task's current features with \code{\link[=mb_resolve_block_columns]{mb_resolve_block_columns()}}, so encoded
+factor columns are summarised with the block that declares the factor.}
 
 \item{include_target}{Logical; summarize the target if the task is
 supervised.}
