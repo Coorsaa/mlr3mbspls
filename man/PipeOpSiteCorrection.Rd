@@ -81,7 +81,7 @@ entry per row of the training task) and is therefore only suitable for
 direct use outside resampling.
 }
 
-\strong{ComBat (\code{"combat"}, via \pkg{neuroCombat}) - now with \code{mod} support}
+\strong{ComBat (\code{"combat"}, via \pkg{neuroCombat})}
 \itemize{
 \item \pkg{neuroCombat} is distributed on GitHub only; install it with
 \code{remotes::install_github("Jfortin1/neuroCombat_Rpackage@fbec46a61bc92bedb450b0e44addae4ce6afa934")},

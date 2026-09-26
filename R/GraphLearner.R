@@ -1378,7 +1378,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
     df = .mbspls_df_from_fit(fit_state)
     df = df[is.finite(df$mean) & df$mean != 0, , drop = FALSE]
 
-    # ---- NEW: bootstrap stability overlay on TRAINING weights
+    # ---- Bootstrap stability overlay on training weights
     if (isTRUE(alpha_by_stability)) {
       if (is.null(sel_state)) {
         stop("alpha_by_stability=TRUE with source='weights' requires `sel_state` (bootstrap selection output).")
@@ -1459,7 +1459,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
 }
 
 # ------------------------------------------------------------------------------
-# ------------------- Bootstrap component (unchanged) --------------------------
+# ------------------- Bootstrap component --------------------------------------
 # ------------------------------------------------------------------------------
 .mbspls_plot_bootstrap_component = function(
   model,
@@ -1595,7 +1595,7 @@ autoplot.Graph = function(object, type = c("mbspls_weights"), ...) {
 }
 
 # ------------------------------------------------------------------------------
-# ------------------- Payload reader (unchanged) -------------------------------
+# ------------------- Payload reader -------------------------------------------
 # ------------------------------------------------------------------------------
 .mbspls_get_eval_payload = function(model = NULL, payload = NULL, mbspls_id = NULL) {
   if (!is.null(payload)) {

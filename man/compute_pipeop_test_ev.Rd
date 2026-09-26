@@ -36,7 +36,7 @@ The wrapper always uses \code{deflate = TRUE} to mirror the sequential
 MAC/Frobenius is taken from \code{state$correlation_method} when available;
 otherwise it defaults to \code{"pearson"}.
 
-The wrapper now requires training loadings in \code{state$loadings}; if they are
+The wrapper requires training loadings in \code{state$loadings}; if they are
 absent, it errors instead of silently switching to test-derived least-squares
 loadings.
 

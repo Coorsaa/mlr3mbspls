@@ -101,6 +101,7 @@ test_that("graph constructors agree with PipeOpMBsPLSBootstrapSelect on alignmen
   graph = mbspls_graph(blocks = blocks, ncomp = 1L, align = "score_correlation")
   graph_po = graph$pipeops$mbspls_bootstrap_select
   expect_identical(graph_po$param_set$values$align, "score_correlation")
+  expect_null(effective_seed(select_po))
   expect_identical(effective_seed(graph_po), effective_seed(select_po))
   expect_identical(formals(mbspls_graph)$seed_bootstrap, formals(mbspls_graph_learner)$seed_bootstrap)
 })

@@ -24,7 +24,7 @@ number of rows (samples). Column names are used to align named weights/loadings.
 \item{W_all}{\code{list}. Component-wise weight vectors learned in training.
 Must be a list of length \code{K}; each element is a block-wise list of length
 \code{B} containing weight vectors. Named vectors are aligned to the test
-block column names and must cover all trained features; missing entries now
+block column names and must cover all trained features; missing entries
 raise an error instead of being silently zero-filled.}
 
 \item{P_all}{\code{list} or \code{NULL}. Optional component-wise block loadings.
@@ -142,8 +142,8 @@ yielding a "weights-only" EV diagnostic (note this uses test data to
 estimate \eqn{p}).
 }
 If \code{P_all} is \code{NULL} or empty, callers must choose
-\code{loading_source = "test_ls"} explicitly; \code{"auto"} now errors
-instead of silently changing the diagnostic definition.
+\code{loading_source = "test_ls"} explicitly; \code{"auto"} errors instead
+of silently changing the diagnostic definition.
 
 \strong{Latent correlation (MAC/Frobenius).}
 For each component, the function computes pairwise correlations between block

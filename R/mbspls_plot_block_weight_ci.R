@@ -3,7 +3,7 @@
 #' @param x Either:
 #'   - a trained GraphLearner built with `mbspls_graph_learner()` (recommended), or
 #'   - a list like `list(mbspls = <pipeop or state>, mbspls_bootstrap_select = <pipeop or state>)`,
-#'     or your previous `c(glearner$model$mbspls, glearner$model$mbspls_bootstrap_select)`.
+#'     or a combined list such as `c(glearner$model$mbspls, glearner$model$mbspls_bootstrap_select)`.
 #' @param source One of c("weights","bootstrap").
 #'   * "bootstrap": uses the aligned summaries of the selection state
 #'     (`weights_ci` + `weights_selectfreq`). Bars show aligned bootstrap means,
@@ -27,7 +27,7 @@
 #'   from zero. With a single fit there is no interval, so both filters keep
 #'   nothing and an error is raised.
 #' @param top_n Integer or NULL. Keep top-N features per blockxcomponent by |mean|.
-#' @param add_block_rule Logical; thin rule between block facets (default FALSE; safe implementation).
+#' @param add_block_rule Logical; whether to draw a thin rule between block facets.
 #' @param font Character; font family (default "sans").
 #' @param alpha_by_stability Logical; for source="bootstrap", map bar alpha to selection frequency.
 #'
@@ -38,7 +38,7 @@ mbspls_plot_block_weight_ci = function(
   source = c("weights", "bootstrap"),
   ci_filter = c("none", "excludes_zero", "overlaps_zero"),
   top_n = NULL,
-  add_block_rule = TRUE, # now FALSE by default to avoid separator pitfalls
+  add_block_rule = TRUE,
   font = "sans",
   alpha_by_stability = TRUE
 ) {

@@ -110,8 +110,9 @@ test_that("perm_test_component_mbspca consumes every requested permutation", {
   X = list(matrix(rnorm(36), 12, 3), matrix(rnorm(36), 12, 3))
   fit = cpp_mbspca_one_lv(X, c(sqrt(3), sqrt(3)))
 
-  # With the former partial-loop shortcut, alpha = 0 stopped both calls after
-  # the same 52 replicates, so the following RNG draws were identical.
+  # Stopping early at alpha = 0 would end both calls after the same 52
+  # replicates and leave identical RNG states; using every requested
+  # permutation makes the following draws differ.
   set.seed(44)
   perm_test_component_mbspca(
     X, fit$W, c(sqrt(3), sqrt(3)), n_perm = 55L, alpha = 0

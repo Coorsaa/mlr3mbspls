@@ -29,11 +29,8 @@ This vignette shows a straightforward, script-style MB-sPLS workflow:
 
 - Uses the packaged synthetic `TaskMultiBlock` `mbspls_synthetic_blocks`.
 - Notes the matching supervised toy tasks `mbspls_synthetic_classif` and `mbspls_synthetic_regr`.
-- Generic naming only.
 - Sequential objects that are easy to inspect in an interactive R session.
 - Executes every supported permutation-inference route and shows its output.
-- Embeds plots from temporary devices without retaining figure, result, model,
-  or cache files in the working directory.
 
 The sequence mirrors a typical analysis run:
 
@@ -811,9 +808,8 @@ variance_plot
 
 # 11) Inspect Results in Memory
 
-The analysis does not write results to the working directory. Rendering uses
-temporary plot files; nested-CV results, fitted models, summaries, predictions,
-and runtime versions remain available in the current R session.
+Nested-CV results, fitted models, summaries, predictions, and runtime versions
+remain available in the current R session.
 
 `mbspls_model_summary()` extracts reporting tables from fitted MB-sPLS,
 MB-sPLS-XY, or MB-sPCA models. Its `conditional_p_value` column holds the
@@ -838,7 +834,7 @@ runtime_versions = data.table(
 runtime_versions
 ```
 
-# 12) Objects to Inspect During Development
+# 12) Objects to Inspect
 
 At any point, inspect objects such as:
 
@@ -857,5 +853,3 @@ At any point, inspect objects such as:
 - `final_clusters`
 - `final_models$raw$model$mbspls`
 - `final_models$stable_ci$model$mbspls_bootstrap_select`
-
-This keeps the workflow easy to debug while remaining fully executable end-to-end.

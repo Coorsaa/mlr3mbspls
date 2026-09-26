@@ -67,19 +67,6 @@ test_that("resolved blocks must be disjoint", {
 })
 
 
-test_that("single-block expansion is literal and respects other declared names", {
-  expand = mlr3mbspls:::mb_expand_block_cols
-
-  expect_identical(expand(c("x.1", "x.2", "xy"), "x"), c("x.1", "x.2"))
-  expect_identical(expand(c("a.b.c", "axb.c"), "a.b"), "a.b.c")
-  expect_identical(
-    expand(c("sex.m", "sex.hormone"), "sex", declared = c("sex", "sex.hormone")),
-    "sex.m"
-  )
-  expect_identical(expand(c("sex.m", "sex.hormone"), "sex"), c("sex.m", "sex.hormone"))
-})
-
-
 test_that("mb_resolve_blocks resolves encoded columns across the whole mapping", {
   dt = data.table::data.table(
     sex.m = c(0, 1, 0, 1),

@@ -44,29 +44,13 @@
 8. Align PLS component signs and explicitly match components before aggregating
    loadings across resamples. For MB-sPLS, align signs per block.
 9. Keep bootstrap uncertainty separate from permutation/randomisation tests.
-10. Rebuild and test the package from the source archive used for analysis.
-11. Record the source archive SHA-256, `R CMD build` output, full
-    `R CMD check` log, installed-package smoke test, and archive inventory.
-12. Run the installed `validation/null_behavior.R` regression when changing
-    permutation code. Its fixed-weight exchangeable-null simulation checks the
-    add-one calculation, the p-value floor `1 / (n_perm + 1)` and a broad
-    type-I bound (rejection rate at most 0.10 at alpha = 0.05). Run directly
-    with `Rscript`, it takes the number of simulations and permutations as
-    optional command-line arguments (defaults 400 and 199; sourcing the file
-    uses the defaults); it requires at least 100 simulations and at least
-    19 permutations, the smallest number for which a p-value can reach 0.05.
-    It does not validate a study-specific exchangeability design or a
-    data-adaptive full pipeline.
-13. Run the installed `validation/omnibus_permutation.R` regression when
-    changing complete-analysis inference. It checks iid-null calibration,
-    whole-unit-null calibration, strong-signal sensitivity, independent-
-    confirmation family-wise error and sensitivity, and the finite p-value
-    floor. The environment variables `MBSPLS_VALIDATION_N_SIM` (default 200,
-    at least 20) and `MBSPLS_VALIDATION_N_PERM` (default 99, at least 59) set
-    its size; with fewer than 59 permutations the smallest Holm-adjusted
-    p-value of its three-LC confirmation family, `3 / (n_perm + 1)`, cannot
-    reach 0.05. Its confirmation checks use the direction-agnostic statistic.
-14. For the scientific analysis, retain the permutation seed, analysis seed,
+10. Record the installed `mlr3mbspls` version and, when it was installed from a
+    source archive, that archive's SHA-256 checksum.
+11. To check the permutation calculations of the installed package, run the
+    installed `validation/null_behavior.R` and `validation/omnibus_permutation.R`
+    scripts. They cover small reference scenarios and do not validate a
+    study-specific exchangeability design or a data-adaptive full pipeline.
+12. For the scientific analysis, retain the permutation seed, analysis seed,
     exchangeability vectors, callback source or fixed specification (statistic,
     `ncomp`, `c_matrix`, standardisation, `max_iter`, `tol`), exact scalar
     statistic, discovery/confirmation split, `reference_signs` for a

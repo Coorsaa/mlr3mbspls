@@ -660,12 +660,7 @@ test_that("predictions centre the blocks with the upstream training means", {
   task_lv = upstream$train(list(task))[[1L]]
   # The upstream fit stores centred training blocks and their means.
   st = log_env$mbspls_state
-  if (is.null(st$center)) {
-    st$center = lapply(st$X_train_blocks, colMeans)
-    st$X_train_blocks = lapply(st$X_train_blocks, function(m) sweep(m, 2L, colMeans(m)))
-    log_env$mbspls_state = st
-    log_env$mbspls_states[[st$run_id]] = st
-  }
+  expect_false(is.null(st$center))
   expect_true(max(abs(unlist(lapply(st$X_train_blocks, colMeans)))) < 1e-10)
 
   selector = PipeOpMBsPLSBootstrapSelect$new(param_vals = list(
@@ -1072,7 +1067,7 @@ test_that("stable predictions on new rows deflate with the stored stable loading
   st = selector$state
   X = lapply(names(blocks), function(b) {
     m = as.matrix(task$data(rows = new_rows, cols = blocks[[b]]))
-    mu = st$center[[b]] %||% stats::setNames(numeric(ncol(m)), colnames(m))
+    mu = st$center[[b]]
     sweep(m, 2L, mu[colnames(m)])
   })
   names(X) = names(blocks)

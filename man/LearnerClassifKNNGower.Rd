@@ -31,8 +31,8 @@ pairwise (also for single-level ordered features).
 The encoder is shared with \link{LearnerRegrKNNGower}; ranges and level sets are
 fitted on the training data and reused unchanged at prediction.
 
-If no neighbour has sufficient comparable features, prediction now errors
-explicitly instead of silently reverting to training class priors.
+If no neighbour has sufficient comparable features, prediction fails with
+an error; there is no fallback to the training class priors.
 }
 \section{Parameters (in \code{param_set})}{
 

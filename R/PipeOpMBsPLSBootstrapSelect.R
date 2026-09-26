@@ -1317,7 +1317,7 @@ PipeOpMBsPLSBootstrapSelect = R6::R6Class(
       st_env$T_mat_train_stable_all = T_all_m
       st_env$T_mat_train_stable_kept = T_keep_m
 
-      # Keep backwards compatibility if you want
+      # Compatibility alias of T_mat_train_stable_kept
       st_env$T_mat_train_kept = T_keep_m
 
       # Only overwrite raw T_mat_train when NOT in stability-only mode

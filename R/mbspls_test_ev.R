@@ -61,8 +61,8 @@
 #'         estimate \eqn{p}).
 #' }
 #' If \code{P_all} is \code{NULL} or empty, callers must choose
-#' \code{loading_source = "test_ls"} explicitly; \code{"auto"} now errors
-#' instead of silently changing the diagnostic definition.
+#' \code{loading_source = "test_ls"} explicitly; \code{"auto"} errors instead
+#' of silently changing the diagnostic definition.
 #'
 #' \strong{Latent correlation (MAC/Frobenius).}
 #' For each component, the function computes pairwise correlations between block
@@ -88,7 +88,7 @@
 #' @param W_all \code{list}. Component-wise weight vectors learned in training.
 #'   Must be a list of length \code{K}; each element is a block-wise list of length
 #'   \code{B} containing weight vectors. Named vectors are aligned to the test
-#'   block column names and must cover all trained features; missing entries now
+#'   block column names and must cover all trained features; missing entries
 #'   raise an error instead of being silently zero-filled.
 #' @param P_all \code{list} or \code{NULL}. Optional component-wise block loadings.
 #'   Same nesting convention as \code{W_all}. Required when
@@ -306,7 +306,7 @@ compute_test_ev = function(
 #' MAC/Frobenius is taken from \code{state$correlation_method} when available;
 #' otherwise it defaults to \code{"pearson"}.
 #'
-#' The wrapper now requires training loadings in \code{state$loadings}; if they are
+#' The wrapper requires training loadings in \code{state$loadings}; if they are
 #' absent, it errors instead of silently switching to test-derived least-squares
 #' loadings.
 #'

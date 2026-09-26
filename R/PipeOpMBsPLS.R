@@ -1010,7 +1010,7 @@ PipeOpMBsPLS = R6::R6Class(
         log_env_store_last(log_env, payload, run_id = payload$run_id)
       }
 
-      # Output (append vs replace) as before
+      # Output: append the latent variables to the input or return them alone
       if (isTRUE(pv$append)) {
         dt_out = cbind(data.table::as.data.table(dt), dt_lat)
         data.table::setDT(dt_out)

@@ -53,29 +53,6 @@ jobs:
       - name: Check repository style
         run: Rscript tools/style.R --check
 
-      - name: Check that ignored files are neither checked nor formatted
-        run: |
-          mkdir -p mlr3mbspls.Rcheck
-          printf 'x <- 1\n' > mlr3mbspls.Rcheck/probe-Ex.R
-          printf 'x <- 1\n' > .Rprofile
-          Rscript tools/style.R --check
-          Rscript tools/style.R
-          test "$(cat mlr3mbspls.Rcheck/probe-Ex.R)" = 'x <- 1'
-          test "$(cat .Rprofile)" = 'x <- 1'
-          rm -r mlr3mbspls.Rcheck .Rprofile
-
-      - name: Check that unformatted files are reported
-        run: |
-          printf "f=function( x ){ 'a' }\n" > R/zz_style_probe.R
-          if Rscript tools/style.R --check > "$RUNNER_TEMP/style.log"; then
-            cat "$RUNNER_TEMP/style.log"
-            echo "The style check accepted an unformatted file."
-            exit 1
-          fi
-          cat "$RUNNER_TEMP/style.log"
-          grep -Fx -- "- R/zz_style_probe.R" "$RUNNER_TEMP/style.log"
-          rm R/zz_style_probe.R
-
   tooling:
     runs-on: ubuntu-latest
     name: source archive

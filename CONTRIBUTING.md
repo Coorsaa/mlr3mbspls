@@ -5,8 +5,7 @@ particular, use `=` for assignment, double-quoted strings, lower snake case for
 functions and variables, `UpperCamelCase` for R6 classes, one statement per
 line, and two-space indentation.
 
-The repository pins the newest verified-compatible engine, `styler` 1.10.3,
-and `styler.mlr` 0.1.0 at revision
+The repository pins `styler` 1.10.3 and `styler.mlr` 0.1.0 at revision
 `e950499afb6b28610400489f3ae6faacc6897358`. Install that toolchain with:
 
 ```r

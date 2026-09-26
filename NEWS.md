@@ -434,9 +434,9 @@ versions.
 - The README uses compact, executable examples and links to the vignette and
   the installed methodological guidance.
 - The installed `STATISTICAL_VALIDITY.md`, `REPRODUCIBILITY.md` and
-  `MODEL_CARD.md` describe the inferential contract, the reproducibility
-  protocol and a study checklist. `inst/validation/` contains regression
-  scripts for the permutation calculations.
+  `MODEL_CARD.md` describe the statistical-validity requirements, the
+  reproducibility protocol and a study checklist. `inst/validation/` contains
+  regression scripts for the permutation calculations.
 - The help pages of `PipeOpMBsPLS` and `PipeOpMBsPLSXY` document every
   hyperparameter; Rd examples are repaired.
 
@@ -452,10 +452,8 @@ versions.
   `remotes::install_github("Jfortin1/neuroCombat_Rpackage@fbec46a61bc92bedb450b0e44addae4ce6afa934")`.
 - CI action references and the GitHub-only `neuroCombat` package are pinned to
   commit SHAs, and `neuroCombat` is installed with its hard dependencies only.
-  The JOSS draft-PDF action still runs the floating `openjournals/inara:latest`
-  image. Pull-request pkgdown builds run read-only; only the separate
-  deployment job has write permission, and the deployed site keeps
-  `.nojekyll`.
+  Pull-request pkgdown builds run read-only; only the separate deployment job
+  has write permission, and the deployed site keeps `.nojekyll`.
 - The pinned `styler.mlr` guide is enforced across package R sources, tests,
   scripts, vignettes and R code in Markdown, in pre-commit and CI.
   `R/RcppExports.R` is committed exactly as `Rcpp::compileAttributes()`

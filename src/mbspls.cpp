@@ -143,7 +143,7 @@ double compute_block_objective_core(const ScoreMatrix& scores,
                    : acc / valid_pairs;      // ⟨|r|⟩
 }
 
-// CORE: Alternative direct computation (for when you have X and W)
+// CORE: Objective computed directly from the blocks X and weights W
 double compute_objective_direct_core(const std::vector<arma::mat>& X,
                                      const std::vector<arma::vec>& W,
                                      bool spearman = false,
@@ -281,7 +281,7 @@ arma::vec build_target_score_core(const ScoreMatrix& scores, int exclude_block) 
   return target;               // may be zero if no usable blocks
 }
 
-// Enhanced block-wise deflation with validation
+// Block-wise deflation with validation
 inline bool deflate_block(arma::mat&      X_b,
                          const arma::vec& t_b,
                          const arma::vec& p_b)
@@ -841,7 +841,7 @@ double perm_test_component(
     }
   }
 
-  // Add-one smoothing (same convention you used before)
+  // Add-one estimate (ge + 1) / (n_perm + 1); never zero.
   return (ge + 1.0) / (n_perm + 1.0);
 }
 
@@ -1102,7 +1102,7 @@ Rcpp::List cpp_mbspls_multi_lv_cmatrix(const Rcpp::List&  X_blocks,
           /* spearman*/ spearman,
           /* max_iter*/ max_iter,
           /* tol     */ tol,
-          /* early   */ alpha,       // <-- wire alpha for early stop
+          /* early   */ alpha,       // ignored: every permutation is used
           /* frob    */ frobenius
         );
         keep_it = (p_val <= alpha);

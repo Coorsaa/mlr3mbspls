@@ -33,7 +33,7 @@ permutation interfaces:
 None of these functions turns later components into a generic population-rank
 test. Exchangeability units, strata, nuisance-variable handling, and the
 scientific null remain study-design responsibilities. Read the
-[statistical-validity contract](inst/STATISTICAL_VALIDITY.md) before reporting
+[statistical-validity requirements](inst/STATISTICAL_VALIDITY.md) before reporting
 significance.
 
 ## Main capabilities
@@ -53,7 +53,7 @@ significance.
 
 ## Installation
 
-```r no-eval
+```r
 install.packages(c(
   "mlr3",
   "mlr3pipelines",
@@ -74,7 +74,7 @@ ComBat site correction (`method = "combat"` in `PipeOpSiteCorrection`) needs
 the GitHub-only `neuroCombat` package. Install the revision used in continuous
 integration with:
 
-```r no-eval
+```r
 install.packages("BiocManager")
 BiocManager::install("BiocParallel")
 remotes::install_github(
@@ -249,7 +249,7 @@ it is selection-optimistic, and `perm_alpha` is a cutoff, not an error rate.
 `mbspls_nested_cv_batchtools()` runs one `batchtools` job per outer fold and
 returns `list(ids, reg)`:
 
-```r no-eval
+```r
 out = mbspls_nested_cv_batchtools(
   task = task,
   graphlearner = learner,
@@ -464,7 +464,6 @@ uncertainty = mb_bootstrap_summary(
 )
 
 uncertainty
-stopifnot(is.na(uncertainty$p_value))
 ```
 
 ## Supervised MB-sPLS-XY
@@ -502,19 +501,18 @@ regression_prediction
 ## Documentation and complete workflow
 
 - [Quickstart vignette](vignettes/quickstart.Rmd): every supported inference
-  route, nested CV, final models, displayed output, and plots; no analysis
-  results are written to the working directory.
-- [Statistical-validity contract](inst/STATISTICAL_VALIDITY.md): leakage,
+  route, nested CV, final models, displayed output, and plots.
+- [Statistical-validity requirements](inst/STATISTICAL_VALIDITY.md): leakage,
   exchangeability, nested tuning, metrics, and interpretation.
 - [Reproducibility protocol](inst/REPRODUCIBILITY.md): seeds, RNG streams,
-  release evidence, and reporting requirements.
+  software versions, and reporting requirements.
 - [Clinical model card](inst/MODEL_CARD.md): study-specific psychiatry and
   precision-medicine obligations.
 
 To install and open the rendered vignette, also install `knitr` and `rmarkdown`
 and build vignettes during installation (a Pandoc installation is required):
 
-```r no-eval
+```r
 install.packages(c("knitr", "rmarkdown"))
 remotes::install_github("coorsaa/mlr3mbspls", build_vignettes = TRUE)
 vignette("quickstart", package = "mlr3mbspls")

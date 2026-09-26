@@ -19,7 +19,7 @@ mbspls_plot_block_weight_ci(
 \itemize{
 \item a trained GraphLearner built with \code{mbspls_graph_learner()} (recommended), or
 \item a list like \verb{list(mbspls = <pipeop or state>, mbspls_bootstrap_select = <pipeop or state>)},
-or your previous \code{c(glearner$model$mbspls, glearner$model$mbspls_bootstrap_select)}.
+or a combined list such as \code{c(glearner$model$mbspls, glearner$model$mbspls_bootstrap_select)}.
 }}
 
 \item{source}{One of c("weights","bootstrap").
@@ -52,7 +52,7 @@ nothing and an error is raised.}
 
 \item{top_n}{Integer or NULL. Keep top-N features per blockxcomponent by |mean|.}
 
-\item{add_block_rule}{Logical; thin rule between block facets (default FALSE; safe implementation).}
+\item{add_block_rule}{Logical; whether to draw a thin rule between block facets.}
 
 \item{font}{Character; font family (default "sans").}
 

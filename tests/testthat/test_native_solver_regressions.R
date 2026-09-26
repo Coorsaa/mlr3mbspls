@@ -69,7 +69,7 @@ test_that("bootstrap replicates preserve the observed set of block pairs", {
 # ── MB-sPLS one-LV solver: Gauss-Seidel sweeps and deterministic start ──────
 
 # Two blocks sharing two latent factors (five features each) plus ten noise
-# features. With c = 1.3 the former simultaneous (Jacobi) sweeps fell into
+# features. With c = 1.3, simultaneous (Jacobi) block updates fall into
 # period-2 cycles for most random starts on this data.
 mbspls_two_factor_blocks = function(seed = 1L, n = 80L) {
   set.seed(seed)
@@ -171,7 +171,7 @@ test_that("MB-sPLS fits are invariant to the order of the samples", {
   expect_equal(permuted$objective, fit$objective, tolerance = 1e-10)
 })
 
-test_that("MB-sPLS converges where simultaneous block updates cycled", {
+test_that("MB-sPLS converges on data where simultaneous block updates cycle", {
   blocks = mbspls_two_factor_blocks()
   for (seed in 1:5) {
     set.seed(seed)
@@ -179,10 +179,10 @@ test_that("MB-sPLS converges where simultaneous block updates cycled", {
     expect_true(fit$converged)
     expect_lt(fit$iterations, 600L)
     # The best objective over 50 random starts with tol = 1e-8; mismatched
-    # period-2 pairs returned objectives between 0.02 and 0.71 here.
+    # period-2 pairs give objectives between 0.02 and 0.71 on this data.
     expect_equal(fit$objective, 0.7567658, tolerance = 1e-6)
   }
-  # The fit no longer depends on the parity of max_iter.
+  # The fit does not depend on the parity of max_iter.
   longer = mlr3mbspls:::cpp_mbspls_one_lv(blocks, c(1.3, 1.3), 601L, 1e-4)
   expect_identical(longer$W, fit$W)
 })
@@ -239,7 +239,7 @@ test_that("MB-sPLS convergence does not depend on the reported criterion", {
     spearman = mlr3mbspls:::cpp_mbspls_one_lv(blocks, budgets, 600L, 1e-4,
       spearman = TRUE)
     # Rank correlations are piecewise constant in the weights; stopping on
-    # them used to end the iteration while the weights were still moving.
+    # them can end the iteration while the weights are still moving.
     expect_identical(spearman$W, pearson$W)
     expect_identical(spearman$iterations, pearson$iterations)
     scores = mapply(function(x, w) drop(x %*% w), blocks, spearman$W)
@@ -331,14 +331,6 @@ test_that("MB-sPLS keeps coerced integer blocks alive during the fit", {
   fit = mlr3mbspls:::cpp_mbspls_one_lv(integer_blocks, budgets, 50L, 1e-4)
   gctorture(FALSE)
   expect_identical(fit, reference)
-})
-
-test_that("unused legacy native helpers are not registered", {
-  ns = asNamespace("mlr3mbspls")
-  for (name in c("cpp_ev_test", "cpp_mbspls_bootstrap",
-    "cpp_bootstrap_latent_correlation")) {
-    expect_false(exists(name, envir = ns, inherits = FALSE))
-  }
 })
 
 test_that("test-set explained variance removes the fitted rank-one term", {

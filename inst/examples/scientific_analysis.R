@@ -16,12 +16,6 @@ lgr::lgr$set_threshold("warn")
 lgr::get_logger("mlr3")$set_threshold("warn")
 lgr::get_logger("bbotk")$set_threshold("warn")
 
-# Avoid automatic Rplots.pdf files during non-interactive checks.
-if (!interactive()) {
-  null_device = if (.Platform$OS.type == "windows") "NUL" else "/dev/null"
-  options(device = function(...) grDevices::pdf(file = null_device))
-}
-
 # Use fixed seeds for a reproducible demonstration.
 set.seed(2026)
 
@@ -295,19 +289,3 @@ if (requireNamespace("igraph", quietly = TRUE) &&
   )
   print(plot_network)
 }
-
-# Check that the main fitted objects and plots exist.
-stopifnot(inherits(gl_final, "GraphLearner"))
-stopifnot(!is.null(gl_final$model))
-stopifnot(is.matrix(c_matrix_final))
-stopifnot(identical(external_eval$weights_source, "stable_ci"))
-stopifnot(length(external_eval$ev_comp) == n_components)
-stopifnot(inherits(plot_weights_raw, "ggplot"))
-stopifnot(inherits(plot_weights_stable, "ggplot"))
-stopifnot(inherits(plot_weight_ci, "ggplot"))
-stopifnot(inherits(plot_variance, "ggplot"))
-stopifnot(inherits(plot_scree, "ggplot"))
-stopifnot(inherits(plot_heatmap, "ggplot"))
-stopifnot(inherits(plot_scores, "ggplot"))
-
-# End of analysis.

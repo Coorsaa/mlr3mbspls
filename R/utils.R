@@ -589,32 +589,6 @@ mb_resolve_block_columns = function(dt_names, blocks) {
 }
 
 
-#' Expand the declared names of one block to concrete data column names.
-#'
-#' Applies the rules of [mb_resolve_block_columns()] to a single block. Pass the
-#' declared names of all blocks as `declared`, so that expansion never claims a
-#' column declared in another block and competing absent names are assigned as
-#' in the full mapping.
-#'
-#' @param dt_names Character vector of data column names.
-#' @param cols Declared column names of the block.
-#' @param declared Declared column names of all blocks. Defaults to `cols`.
-#' @return Character vector of resolved column names.
-#' @keywords internal
-mb_expand_block_cols = function(dt_names, cols, declared = cols) {
-  checkmate::assert_character(cols, any.missing = FALSE, min.len = 1L, .var.name = "cols")
-  checkmate::assert_character(declared, any.missing = FALSE, .var.name = "declared")
-
-  cols = unique(cols)
-  blocks = list(block = cols)
-  others = setdiff(declared, cols)
-  if (length(others)) {
-    blocks$other = others
-  }
-  mb_resolve_block_columns(dt_names, blocks)[["block"]]
-}
-
-
 #' Resolve blocks against a concrete data table.
 #' @keywords internal
 mb_resolve_blocks = function(

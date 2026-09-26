@@ -69,7 +69,7 @@
 #'   entry per row of the training task) and is therefore only suitable for
 #'   direct use outside resampling.
 #'
-#' **ComBat (`"combat"`, via \pkg{neuroCombat}) - now with `mod` support**
+#' **ComBat (`"combat"`, via \pkg{neuroCombat})**
 #' - \pkg{neuroCombat} is distributed on GitHub only; install it with
 #'   `remotes::install_github("Jfortin1/neuroCombat_Rpackage@fbec46a61bc92bedb450b0e44addae4ce6afa934")`,
 #'   the revision used in continuous integration.

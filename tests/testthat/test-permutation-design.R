@@ -1,6 +1,5 @@
-# Name-based reference sampler equivalent to the original implementation. The
-# production sampler precomputes integer structures and must reproduce these
-# maps and the RNG stream exactly.
+# Name-based reference sampler. The production sampler precomputes integer
+# structures and must reproduce these maps and the RNG stream exactly.
 reference_exchangeability = function(n, exchangeability_unit = NULL,
   within_unit = NULL, strata = NULL) {
   strata_key = if (is.null(strata)) rep.int(".all", n) else as.character(strata)

@@ -1,9 +1,8 @@
 # Statistical validity requirements for mlr3mbspls
 
-This document defines the inferential contract for multiblock sparse PLS/PCA
-workflows. It is part of the installed package because these requirements are
-not optional presentation advice: violating them changes the estimand or makes
-reported uncertainty invalid.
+This document describes the statistical requirements for valid multiblock
+sparse PLS/PCA workflows with mlr3mbspls. Violating them changes the estimand
+or makes reported uncertainty invalid.
 
 ## 1. Unit of analysis and exchangeability
 
@@ -131,10 +130,10 @@ requires a null-generating mechanism appropriate to the estimand, such as a
 valid randomisation/permutation design, a restricted model, or a bootstrap
 constructed under the null.
 
-`mb_bootstrap_summary()` implements this descriptive contract with type-8
-sample quantiles for percentile and basic intervals. The prediction-side
-`val_test = "bootstrap"` payload uses the same fields and keeps legacy p-value
-columns only as explicit `NA` values.
+`mb_bootstrap_summary()` reports these quantities and uses type-8 sample
+quantiles for percentile and basic intervals. The prediction-side
+`val_test = "bootstrap"` payload uses the same fields; its p-value columns are
+always `NA`.
 
 When bootstrapping PLS loadings or coefficients, match components and align
 their signs to a reference solution before averaging or constructing
