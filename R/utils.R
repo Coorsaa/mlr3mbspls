@@ -464,16 +464,6 @@ assert_blocks_present = function(colnames_dt, blocks_map, context = "task") {
   invisible(TRUE)
 }
 
-#' Create a backend primary-key column name that does not collide.
-#' @keywords internal
-mb_make_backend_key_name = function(existing, key_name = "..row_id") {
-  key_name = key_name %||% "..row_id"
-  if (!(key_name %in% existing)) {
-    return(key_name)
-  }
-  make.unique(c(existing, key_name))[length(existing) + 1L]
-}
-
 # ------------------------------------------------------------------------------
 # Multi-block task helpers
 # ------------------------------------------------------------------------------
@@ -709,9 +699,24 @@ mb_graph_blocks = function(blocks = NULL, task = NULL, context = "mbspls_graph")
 }
 
 
-#' Validate that referenced site-correction columns exist on a task.
+#' Validate site-correction columns against a task
+#'
+#' Checks that every column referenced in `site_correction` exists on the task
+#' and that no column read at prediction time is a target column: all
+#' `"partial_corr"` and `"dir"` columns and the ComBat `site`. ComBat
+#' `covariates` are only used to estimate the batch parameters on the training
+#' rows and may reference the target. This mirrors the training-time guard of
+#' [PipeOpSiteCorrection].
+#'
+#' @param task Optional [mlr3::Task]; without a task nothing is checked.
+#' @param site_correction Named list (by block) of site-correction
+#'   specifications.
+#' @param context Name of the calling function, used in error messages.
+#' @param methods Named list (by block) of methods; blocks without an entry use
+#'   `"partial_corr"`.
 #' @keywords internal
-mb_validate_site_correction = function(task, site_correction = list(), context = "mbspls_graph") {
+mb_validate_site_correction = function(task, site_correction = list(), context = "mbspls_graph",
+  methods = list()) {
   if (is.null(task) || !length(site_correction)) {
     return(invisible(TRUE))
   }
@@ -722,10 +727,8 @@ mb_validate_site_correction = function(task, site_correction = list(), context =
     return(invisible(TRUE))
   }
 
-  available = unique(c(
-    task$feature_names,
-    tryCatch(task$target_names, error = function(e) character(0))
-  ))
+  target_cols = tryCatch(task$target_names, error = function(e) character(0))
+  available = unique(c(task$feature_names, target_cols))
   missing = setdiff(cols, available)
   if (length(missing)) {
     stop(
@@ -736,6 +739,31 @@ mb_validate_site_correction = function(task, site_correction = list(), context =
       ),
       call. = FALSE
     )
+  }
+
+  for (bn in names(site_correction)) {
+    spec = site_correction[[bn]]
+    method = as.character(methods[[bn]] %||% "partial_corr")[1L]
+    # ComBat reads only the batch column at prediction time.
+    read_at_predict = if (identical(method, "combat")) {
+      if (is.list(spec)) as.character(spec$site) else as.character(spec)[1L]
+    } else {
+      as.character(unlist(spec, recursive = TRUE, use.names = FALSE))
+    }
+    leak = intersect(read_at_predict, target_cols)
+    if (length(leak)) {
+      stop(
+        sprintf(
+          paste0(
+            "%s: block '%s' (%s) uses target column(s) %s as site, protected or ",
+            "partial-correlation columns, which are read at prediction time; only ",
+            "ComBat `covariates` may reference a target (training only)."
+          ),
+          context, bn, method, paste(leak, collapse = ", ")
+        ),
+        call. = FALSE
+      )
+    }
   }
 
   invisible(TRUE)

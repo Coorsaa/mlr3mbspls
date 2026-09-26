@@ -21,19 +21,29 @@ in the graph. If \code{NULL} (default), exactly one node inheriting from
 \code{list} with the following elements (all computed on the \strong{new} data):
 \itemize{
 \item \code{ev_block} (\verb{matrix [ncomp x n_blocks]}): explained variance per block and component.
-\item \code{ev_comp}  (\code{numeric [ncomp]}): total explained variance per component (across blocks).
+\item \code{ev_comp}  (\code{numeric [ncomp]}): explained variance per component,
+SS-weighted across blocks.
 \item \code{mac_comp} (\code{numeric [ncomp]}): objective per component on new data
 (MAC or Frobenius, matching the trained operator).
-\item \code{T_mat} (\verb{matrix [n_obs x (ncomp*n_blocks)]}): block scores; columns
-ordered as \code{LV1_<block1>, ..., LV1_<blockB>, LV2_<block1>, ...}.
+\item \code{T_mat} (\verb{matrix [n_obs x (ncomp*n_blocks)]}): block scores of the
+evaluated weights; columns ordered as
+\code{LV1_<block1>, ..., LV1_<blockB>, LV2_<block1>, ...}.
 \item \code{blocks} (\code{character [n_blocks]}): block names (for convenience).
-\item \code{weights} (\code{list}): trained weights \eqn{w_b^{(k)}}\; list-of-lists:
-component -> block -> named numeric vector (feature weights).
-\item \code{loadings} (\code{list}): trained loadings \eqn{p_b^{(k)}} used for deflation.
+\item \code{weights_source} (\code{character(1)}): \code{"raw"}, \code{"stable_ci"} or
+\code{"stable_frequency"}, the source of \code{weights}.
+\item \code{weights} (\code{list}): the evaluated weights \eqn{w_b^{(k)}};
+list-of-lists: component -> block -> named numeric vector.
+\item \code{loadings} (\code{list}): the evaluated loadings \eqn{p_b^{(k)}} used
+for deflation.
+\item \code{weights_raw}, \code{loadings_raw} (\code{list}): the raw trained weights and
+loadings; identical to \code{weights}/\code{loadings} when \code{weights_source} is
+\code{"raw"}.
 \item \code{blocks_map} (\code{list}): mapping block -> feature names (training).
-\item \code{ncomp} (\code{integer(1)}): number of retained components.
+\item \code{ncomp} (\code{integer(1)}): number of evaluated components.
 \item \code{perf_metric} (\code{character(1)}): \code{"mac"} or \code{"frobenius"} (from training).
 }
+Prediction-side diagnostics requested on the node (\code{val_test}) are included
+as described in \link{PipeOpMBsPLS}.
 }
 \description{
 Runs a trained \pkg{mlr3} graph that contains a \code{PipeOpMBsPLS} on a \strong{new}
@@ -41,13 +51,18 @@ Runs a trained \pkg{mlr3} graph that contains a \code{PipeOpMBsPLS} on a \strong
 block-wise explained variances per component, component-wise totals, the
 latent-correlation objective (MAC or Frobenius), and the block scores.
 
-Internally, this function temporarily attaches a logging environment to the
-MB-sPLS node (via its \code{log_env} parameter), calls \code{gl$predict(task)},
-retrieves the payload written by the operator, and augments it with the
-\strong{trained} weights/loadings/blocks from the fitted model.
+Internally, this function temporarily attaches a fresh logging environment
+to the MB-sPLS node (via its \code{log_env} parameter), seeded with the node's
+training snapshots, calls \code{gl$predict(task)}, retrieves the payload
+written by the operator, and augments it with the trained blocks and raw
+weights from the fitted model.
 
-This ensures perfect parity with the training/prediction implementation
-(deflation order, preprocessing upstream in the graph, etc.).
+The metrics are computed exactly as in an ordinary prediction of the graph
+(preprocessing upstream, training centring, deflation order). In particular
+the evaluated weights follow the node's \code{predict_weights} setting: with a
+\link{PipeOpMBsPLSBootstrapSelect} on the same shared \code{log_env}, the
+stability-selected weights the pipeline uses are evaluated. \code{weights_source}
+reports which weights were used.
 }
 \details{
 The function \strong{does not} modify the learner permanently. Any existing
@@ -87,7 +102,7 @@ res$ev_block
 res$ev_comp
 res$mac_comp
 
-# Access trained weights for LC_01, block "block_a":
+# Evaluated weights for LC_01, block "block_a" (see res$weights_source):
 res$weights[["LC_01"]][["block_a"]]
 }
 

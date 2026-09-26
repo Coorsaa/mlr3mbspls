@@ -292,3 +292,190 @@ test_that("PipeOpMBsPLS rejects non-finite blocks and impossible component count
   )
   expect_error(rank_limited$train(list(rank_task)), "effective block rank")
 })
+
+
+make_mbspls_signal_blocks = function(n = 70L, n_blocks = 2L, seed = 1L) {
+  set.seed(seed)
+  l1 = rnorm(n)
+  l2 = rnorm(n)
+  mats = lapply(seq_len(n_blocks), function(b) {
+    m = cbind(
+      l1 + rnorm(n, sd = 0.4),
+      l2 + rnorm(n, sd = 0.6),
+      matrix(rnorm(n * 3L), n)
+    )
+    colnames(m) = paste0("b", b, "_", seq_len(ncol(m)))
+    m
+  })
+  names(mats) = paste0("b", seq_len(n_blocks))
+  list(
+    task = mlr3::TaskRegr$new(
+      id = "mbspls_signal",
+      backend = data.frame(do.call(cbind, mats), y = rnorm(n)),
+      target = "y"
+    ),
+    blocks = lapply(mats, colnames)
+  )
+}
+
+publish_stable_weights = function(log_env, state, W_stable) {
+  st_env = log_env$mbspls_states[[state$run_id]]
+  st_env$weights_stable = W_stable
+  st_env$loadings_stable = state$loadings
+  st_env$selection_method = "ci"
+  log_env_store_state(log_env, st_env, warn_overwrite = FALSE)
+}
+
+
+test_that("prediction-side diagnostics skip components with fewer than two informative blocks", {
+  d = make_mbspls_signal_blocks()
+  log_env = new.env(parent = emptyenv())
+  pipeop = PipeOpMBsPLS$new(
+    blocks = d$blocks,
+    param_vals = list(
+      ncomp = 2L, c_b1 = 1.5, c_b2 = 1.5, log_env = log_env,
+      val_test_n = 19L, seed_validation = 11L
+    )
+  )
+  pipeop$train(list(d$task))
+  st = pipeop$state
+
+  # Stability selection may zero a whole block of a later component.
+  W_stable = st$weights
+  W_stable$LC_02$b2[] = 0
+  publish_stable_weights(log_env, st, W_stable)
+
+  pipeop$param_set$values$val_test = "permutation"
+  expect_no_error(pipeop$predict(list(d$task)))
+  payload = log_env$last
+  expect_identical(payload$weights_source, "stable_ci")
+  expect_true(is.finite(payload$val_test_p[["LC_01"]]))
+  expect_true(payload$val_test_p[["LC_01"]] > 0 && payload$val_test_p[["LC_01"]] <= 1)
+  expect_true(is.na(payload$val_test_p[["LC_02"]]))
+  expect_identical(payload$val_test_status[["LC_01"]], "computed")
+  expect_match(payload$val_test_status[["LC_02"]], "fewer than two blocks")
+
+  # LC_01 keeps its own RNG stream, so skipping LC_02 does not change it.
+  pipeop$param_set$values$predict_weights = "raw"
+  pipeop$predict(list(d$task))
+  expect_identical(log_env$last$val_test_p[["LC_01"]], payload$val_test_p[["LC_01"]])
+  pipeop$param_set$values$predict_weights = "auto"
+
+  pipeop$param_set$values$val_test = "bootstrap"
+  expect_no_error(pipeop$predict(list(d$task)))
+  boot = log_env$last$val_bootstrap
+  expect_equal(nrow(boot), 2L)
+  expect_true(is.finite(boot$estimate[[1L]]))
+  expect_true(is.na(boot$estimate[[2L]]))
+  expect_identical(boot$replicates_effective[[2L]], 0L)
+  expect_match(boot$p_value_note[[2L]], "fewer than two blocks")
+  expect_match(log_env$last$val_test_status[["LC_02"]], "fewer than two blocks")
+})
+
+
+test_that("prediction-side diagnostics still run when two informative blocks remain", {
+  d = make_mbspls_signal_blocks(n_blocks = 3L, seed = 2L)
+  log_env = new.env(parent = emptyenv())
+  pipeop = PipeOpMBsPLS$new(
+    blocks = d$blocks,
+    param_vals = list(
+      ncomp = 2L, c_b1 = 1.5, c_b2 = 1.5, c_b3 = 1.5, log_env = log_env,
+      val_test = "permutation", val_test_n = 19L, seed_validation = 3L
+    )
+  )
+  pipeop$train(list(d$task))
+  W_stable = pipeop$state$weights
+  W_stable$LC_02$b3[] = 0
+  publish_stable_weights(log_env, pipeop$state, W_stable)
+
+  pipeop$predict(list(d$task))
+  expect_true(all(is.finite(log_env$last$val_test_p)))
+  expect_true(all(log_env$last$val_test_status == "computed"))
+})
+
+
+test_that("c_matrix budgets are bounded by structural widths and capped at retained widths", {
+  set.seed(9)
+  n = 50L
+  a = cbind(matrix(rnorm(n * 3L), n), 1)
+  colnames(a) = paste0("a", 1:4)
+  b = matrix(rnorm(n * 3L), n)
+  colnames(b) = paste0("b", 1:3)
+  task = mlr3::TaskRegr$new("mbspls_capped", data.frame(a, b, y = rnorm(n)), target = "y")
+  blocks = list(a = colnames(a), b = colnames(b))
+
+  # 2 = sqrt(4) is admissible for the declared block a, whose constant column
+  # is removed in these training rows.
+  cm = matrix(c(2, sqrt(3)), nrow = 2L, dimnames = list(c("a", "b"), "LC1"))
+  po_cm = PipeOpMBsPLS$new(blocks = blocks, param_vals = list(c_matrix = cm))
+  expect_no_error(po_cm$train(list(task)))
+  expect_equal(unname(po_cm$state$c_matrix["a", 1L]), sqrt(3))
+  expect_null(attr(po_cm$state$c_matrix, "capped"))
+
+  po_vec = PipeOpMBsPLS$new(blocks = blocks, param_vals = list(c_a = 2, c_b = sqrt(3)))
+  po_vec$train(list(task))
+  expect_equal(po_cm$state$weights, po_vec$state$weights, tolerance = 1e-8)
+
+  too_large = matrix(c(2.1, 1), nrow = 2L, dimnames = list(c("a", "b"), "LC1"))
+  po_bad = PipeOpMBsPLS$new(blocks = blocks, param_vals = list(c_matrix = too_large))
+  expect_error(po_bad$train(list(task)), "sparsity budget.*sqrt\\(p_block\\)")
+})
+
+
+test_that("c_matrix set through param_set rejects ambiguous rows and uses the declared layout", {
+  d = make_mbspls_signal_blocks(n_blocks = 3L, seed = 4L)
+  pipeop = PipeOpMBsPLS$new(blocks = d$blocks)
+
+  pipeop$param_set$values$c_matrix = matrix(
+    c(1, 1, 1, 2),
+    nrow = 4L,
+    dimnames = list(c("b1", "b2", "b3", "b1"), "LC1")
+  )
+  expect_error(pipeop$train(list(d$task)), "row names must be unique")
+
+  pipeop$param_set$values$c_matrix = matrix(1, nrow = 3L, dimnames = list(c("b1", NA, "b3"), "LC1"))
+  expect_error(pipeop$train(list(d$task)), "row names must be unique and non-empty")
+
+  # An unnamed matrix is matched to the declared blocks even when one drops out.
+  dt = data.table::as.data.table(d$task$data())
+  dt[, (d$blocks$b2) := 1]
+  task_drop = mlr3::TaskRegr$new("mbspls_declared", dt, target = "y")
+  pipeop$param_set$values$c_matrix = matrix(c(1.2, 1.3, 1.4), nrow = 3L)
+  pipeop$train(list(task_drop))
+  expect_equal(rownames(pipeop$state$c_matrix), c("b1", "b3"))
+  expect_equal(unname(pipeop$state$c_matrix[, 1L]), c(1.2, 1.4))
+})
+
+
+test_that("PipeOpMBsPLS stores named training EV and solver convergence", {
+  d = make_mbspls_signal_blocks(n_blocks = 3L, seed = 5L)
+  pipeop = PipeOpMBsPLS$new(
+    blocks = d$blocks,
+    param_vals = list(ncomp = 2L, c_b1 = 1.5, c_b2 = 1.5, c_b3 = 1.5)
+  )
+  pipeop$train(list(d$task))
+  st = pipeop$state
+  comps = c("LC_01", "LC_02")
+
+  expect_null(dim(st$ev_comp))
+  expect_named(st$ev_comp, comps)
+  expect_identical(dimnames(st$ev_block), list(comps, names(d$blocks)))
+  # ev_comp is SS-weighted across the (centred) blocks, not the row sum.
+  sst = vapply(st$blocks, function(cols) {
+    x = as.matrix(d$task$data(cols = cols))
+    sum(sweep(x, 2L, colMeans(x))^2)
+  }, numeric(1L))
+  expect_equal(unname(st$ev_comp), as.numeric(st$ev_block %*% (sst / sum(sst))), tolerance = 1e-8)
+
+  expect_named(st$converged, comps)
+  expect_type(st$converged, "logical")
+  expect_named(st$iterations, comps)
+  expect_type(st$iterations, "integer")
+  expect_true(all(st$iterations >= 1L))
+
+  expect_warning(
+    .mb_warn_nonconverged(c(LC_01 = TRUE, LC_02 = FALSE), "[x] MB-sPLS", 600L),
+    "did not converge within 600 iterations for component\\(s\\) LC_02"
+  )
+  expect_no_warning(.mb_warn_nonconverged(c(LC_01 = TRUE), "[x] MB-sPLS", 600L))
+})

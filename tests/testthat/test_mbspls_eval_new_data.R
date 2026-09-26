@@ -132,6 +132,10 @@ test_that("mbspls_eval_new_data works with custom MB-sPLS node id", {
 
 test_that("mbspls_plot_block_weight_ci works with custom MB-sPLS node id", {
   testthat::skip_if_not_installed("ggplot2")
+  testthat::skip_if_not_installed("dplyr")
+  testthat::skip_if_not_installed("tibble")
+  testthat::skip_if_not_installed("stringr")
+  testthat::skip_if_not_installed("RColorBrewer")
   testthat::skip_if_not("regr.featureless" %in% mlr3::mlr_learners$keys())
 
   set.seed(204)
@@ -172,6 +176,10 @@ test_that("mbspls_plot_block_weight_ci works with custom MB-sPLS node id", {
 
 test_that("mbspls_plot_block_weight_ci bootstrap path works with custom node ids", {
   testthat::skip_if_not_installed("ggplot2")
+  testthat::skip_if_not_installed("dplyr")
+  testthat::skip_if_not_installed("tibble")
+  testthat::skip_if_not_installed("stringr")
+  testthat::skip_if_not_installed("RColorBrewer")
   testthat::skip_if_not("regr.featureless" %in% mlr3::mlr_learners$keys())
 
   set.seed(205)
@@ -266,5 +274,57 @@ test_that("mbspls_eval_new_data restores the original log_env on template and fi
   fitted_env_after = tryCatch(gl$model$mbspls$param_set$values$log_env, error = function(e) NULL)
   if (inherits(fitted_env_before, "environment")) {
     expect_identical(fitted_env_after, fitted_env_before)
+  }
+})
+
+
+test_that("mbspls_eval_new_data evaluates the stability-selected weights the pipeline uses", {
+  testthat::skip_if_not("regr.featureless" %in% mlr3::mlr_learners$keys())
+
+  set.seed(207)
+  n = 90L
+  l1 = rnorm(n)
+  l2 = rnorm(n)
+  make_block = function(prefix) {
+    m = cbind(l1 + rnorm(n, sd = 0.4), l2 + rnorm(n, sd = 0.6), matrix(rnorm(n * 4L), n))
+    colnames(m) = paste0(prefix, seq_len(ncol(m)))
+    m
+  }
+  X1 = make_block("x")
+  X2 = make_block("z")
+  task = mlr3::TaskRegr$new("mb_eval_stable", data.frame(X1, X2, y = l1 + rnorm(n)), target = "y")
+  blocks = list(b1 = colnames(X1), b2 = colnames(X2))
+
+  for (predict_weights in c("auto", "stable_ci")) {
+    log_env = new.env(parent = emptyenv())
+    log_env$warn_overwrite = FALSE
+    gl = mbspls_graph_learner(
+      learner = mlr3::lrn("regr.featureless"),
+      blocks = blocks,
+      ncomp = 2L,
+      B = 30L,
+      predict_weights = predict_weights,
+      log_env = log_env
+    )
+    gl$train(task)
+    gl$predict(task)
+    reference = log_env$last
+    last_before = log_env$last
+    states_before = log_env$mbspls_states
+
+    res = mbspls_eval_new_data(gl, task)
+
+    expect_identical(res$weights_source, reference$weights_source)
+    expect_match(res$weights_source, "^stable_")
+    expect_equal(res$mac_comp, reference$mac_comp)
+    expect_equal(res$ev_block, reference$ev_block)
+    expect_equal(res$ev_comp, reference$ev_comp)
+    expect_equal(res$T_mat, reference$T_mat)
+    stable = log_env$mbspls_states[[gl$model$mbspls$run_id]]$weights_stable
+    expect_equal(res$weights, stable, ignore_attr = TRUE)
+    expect_identical(res$weights_raw, gl$model$mbspls$weights)
+    expect_identical(res$ncomp, 2L)
+    expect_identical(log_env$last, last_before)
+    expect_identical(log_env$mbspls_states, states_before)
   }
 })

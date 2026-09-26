@@ -14,8 +14,8 @@ After each component the corresponding rank-1 structure is removed
 (block-wise score deflation in the sense of Westerhuis et al., 2001),
 ensuring that successive LVs are orthogonal within every block.
 
-The association criterion used for convergence and evaluation is controlled
-by \code{performance_metric}:
+The association criterion reported per component is controlled by
+\code{performance_metric}:
 \itemize{
 \item \code{"mac"}: mean absolute correlation (average of \eqn{|r|}
 across all block-score pairs) per component;
@@ -23,10 +23,23 @@ across all block-score pairs) per component;
 block-score correlations \eqn{\sqrt{\sum_{i<j} r_{ij}^2}}.
 }
 We refer to this scalar as the \emph{latent correlation}. Weights are updated
-by constrained PMD steps against standardized scores from the other blocks.
-These updates do not directly optimize the reported correlation criterion;
-changing the criterion changes convergence, evaluation, and tuning rather
-than the weight-update formula.
+block by block (Gauss-Seidel sweeps) by constrained PMD steps against
+standardized scores from the other blocks, starting from a deterministic
+cross-covariance start, so fits do not depend on the random seed. The
+updates do not directly optimize the reported correlation criterion, and the
+solution is a local optimum of a non-convex problem: with strong sparsity,
+pure noise or many more features than rows, other local optima can reach a
+higher objective. \code{correlation_method} and \code{performance_metric}
+change evaluation, tuning and testing, not the weight update or the stopping
+rule. A component is converged when the largest change of a block weight
+vector between two sweeps is below \code{1e-4}; after at most 600 sweeps the
+last iterate is returned and a warning names the components that did not
+converge.
+
+\strong{Centring.} Every retained block column is centred by its training
+mean before fitting; the means are stored in the state and subtracted from
+prediction data. The fitted weights do not depend on centring, but the
+deflation loadings, explained variances and scores do.
 
 During prediction, the same criterion (MAC/Frobenius) and explained variances
 are computed on test data and, if \code{log_env} is provided, a compact
@@ -35,8 +48,9 @@ diagnostics can be requested (permutation or descriptive bootstrap; see
 Parameters).
 
 The operator is a pure transformer: it performs no internal resampling,
-tuning or preprocessing. Hyper-parameters such as the L1 sparsity levels
-\eqn{c_\mathrm{block}} are tuned externally (e.g., with \pkg{mlr3tuning}).
+tuning or preprocessing beyond centring. Hyper-parameters such as the L1
+sparsity levels \eqn{c_\mathrm{block}} are tuned externally (e.g., with
+\pkg{mlr3tuning}).
 }
 \details{
 Multi-Block Sparse Partial Least Squares (MB-sPLS) Transformer
@@ -44,23 +58,52 @@ Multi-Block Sparse Partial Least Squares (MB-sPLS) Transformer
 \section{State (after training)}{
 
 \describe{
-\item{\code{blocks}}{Named list mapping block names to feature column IDs.}
+\item{\code{blocks}}{Named list mapping block names to the resolved feature
+columns used for fitting.}
+\item{\code{center}}{Named list (by block) of training column means,
+each a numeric vector named by column; subtracted from prediction
+data.}
 \item{\code{weights}}{List of length \code{ncomp}; block-specific weight vectors \eqn{w_b^{(k)}}.}
 \item{\code{loadings}}{List of block loadings \eqn{p_b^{(k)}} used for deflation.}
 \item{\code{ncomp}}{Number of components retained.}
 \item{\code{obj_vec}}{Objective values (MAC/Frobenius) per component (training).}
 \item{\code{latent_cor_train}}{Objective value of the last retained component (training).}
-\item{\code{ev_block}}{Training explained variance per block (rows = components, cols = blocks).}
-\item{\code{ev_comp}}{Training explained variance per component (summed across blocks).}
+\item{\code{ev_block}}{Training explained variance per block, a matrix
+with rows \code{LC_xx} and one column per block.}
+\item{\code{ev_comp}}{Training explained variance per component, a named
+numeric vector (\code{LC_xx}). It is SS-weighted across blocks,
+\eqn{\sum_b SS_{exp,b} / \sum_b SS_{tot,b}}, not the row sum of
+\code{ev_block}.}
+\item{\code{converged}, \code{iterations}}{Per component: whether the
+solver converged and the number of sweeps it used.}
 \item{\code{p_values}}{Conditional component-wise permutation p-values if
-enabled during training. They assume the supplied preprocessed data
-and hyperparameters are fixed and are not full-pipeline inference.}
-\item{\code{performance_metric}}{\code{"mac"} or \code{"frobenius"}.}
-\item{\code{c_matrix}}{If provided/derived, the block-by-component sparsity matrix.}
+enabled during training (\code{NA} otherwise). They assume the
+supplied preprocessed data and hyperparameters are fixed and are not
+full-pipeline inference.}
+\item{\code{p_value_scope}}{Description of that scope when the diagnostic
+ran, otherwise \code{NULL}.}
+\item{\code{performance_metric}, \code{correlation_method}}{Settings used
+for the objective.}
+\item{\code{c_matrix}}{If provided, the block-by-component sparsity matrix
+actually used (retained blocks; entries capped at
+\eqn{\sqrt{p_b}} of the retained columns).}
 \item{\code{T_mat}}{Training score matrix (per-component deflation applied);
 columns ordered \code{LV1_<block1>, ..., LV1_<blockB>, LV2_<block1>, ...}.}
-\item{\code{weights_stable}}{Optional stability-filtered weights (from the bootstrap PipeOp).}
+\item{\code{run_id}}{Identifier of the training snapshot in \code{log_env},
+if a \code{log_env} is used.}
 }
+}
+
+\section{Emitted features}{
+
+The \code{LVk_<block>} columns are always computed from the training fit:
+raw weights, training centring and training deflation loadings, both at
+train and at predict time, so a downstream learner sees one feature
+definition. Stability-selected weights published by a
+\link{PipeOpMBsPLSBootstrapSelect} only affect the prediction-side payload
+(see \code{predict_weights}); stable LV features reach a learner only through
+a PipeOpMBsPLSBootstrapSelect that is not in stability-only mode, which
+replaces the upstream LV columns consistently at train and predict.
 }
 
 \section{Prediction-side logging (\code{log_env$last})}{
@@ -69,14 +112,26 @@ A list containing:
 \itemize{
 \item \code{mac_comp}: numeric vector (length \code{ncomp}) with test MAC/Frobenius per component,
 \item \code{ev_block}: matrix \code{(ncomp x n_blocks)} with test per-block explained variances,
-\item \code{ev_comp}: numeric vector \code{(ncomp)} with test per-component EV (summed across blocks),
-\item \code{T_mat}: test scores \code{(n_test x (ncomp * n_blocks))} with the same column order as training,
+\item \code{ev_comp}: numeric vector \code{(ncomp)} with test per-component
+EV, SS-weighted across blocks (see \code{\link[=compute_test_ev]{compute_test_ev()}}),
+\item \code{ev_block_cum}, \code{ev_comp_cum}: cumulative counterparts,
+\item \code{T_mat}: test scores \code{(n_test x (ncomp * n_blocks))} of the
+evaluated weights, with the same column order as training,
+\item \code{weights}, \code{loadings}: the evaluated weights and loadings,
+aligned to the trained features,
+\item \code{weights_source}: \code{"raw"}, \code{"stable_ci"} or
+\code{"stable_frequency"}, the source of \code{weights},
+\item \code{emitted_weights_source}: always \code{"raw"}; the emitted LV
+features use the training weights,
 \item \code{blocks}: character vector with block names,
-\item \code{perf_metric}: objective used (\code{"mac"} or \code{"frobenius"}),
+\item \code{perf_metric}, \code{corr_method}: evaluation settings,
+\item \code{run_id}: identifier of the matching training snapshot,
 \item \code{time}: POSIXct timestamp,
 \item \code{val_test_p}: (if \code{val_test = "permutation"}) per-component
 conditional permutation p-values,
 \item \code{val_test_stat}: (if available) observed test statistic per component,
+\item \code{val_test_status}: (if \code{val_test != "none"}) per component,
+\code{"computed"} or the reason the diagnostic was not computed,
 \item \code{val_bootstrap}: (if \code{val_test = "bootstrap"}) data.table with
 the observed statistic, bias, standard error, interval, confidence
 level, and effective replicate count. Its p-value fields are \code{NA}
@@ -88,26 +143,96 @@ because an ordinary bootstrap distribution is not a null distribution.
 
 Hyperparameters are defined in the object's \code{param_set} and can be set
 via \code{param_vals}. Block membership (\code{blocks}) is a constructor
-argument and stored in the object state.
+argument and stored in the object.
+\itemize{
+\item \code{blocks} (\code{uty}, default: the constructor \code{blocks}; tag \code{"train"}): named
+list mapping block names to declared feature names. Declared names absent
+from the data expand to encoded columns \verb{<name>.<suffix>} as described in
+\code{\link[=mb_resolve_block_columns]{mb_resolve_block_columns()}}; the resolved blocks must be disjoint.
+Non-numeric columns and columns without finite positive variance in the
+training data are dropped, and blocks without usable columns are dropped.
+\item \code{ncomp} (\code{int}, default \code{1}; tag \code{"train"}): number of latent components to
+extract. Replaced by \code{ncol(c_matrix)} when \code{c_matrix} is set.
+\item \verb{c_<block>} (one \code{dbl} per block, lower \code{1}, upper \code{sqrt(p_b)} of the
+declared names, default \code{max(1, sqrt(p_b) / 3)}; tags \code{c("train", "tune")}):
+L1 budget of the unit-L2 weight vector of that block. Budgets above
+\code{sqrt(p)} of the retained columns are nonbinding.
+\item \code{c_matrix} (\code{uty}, default \code{NULL}; tags \code{c("train", "tune")}): matrix of L1
+budgets (rows = blocks, columns = components) that overrides \verb{c_<block>}
+and \code{ncomp}. Named rows must be unique and non-empty and match either all
+declared or all retained blocks; an unnamed matrix is matched by position
+to the declared blocks. Every entry must lie in \verb{[1, sqrt(p_b)]}, where
+\code{p_b} is the structural width of the block (its resolved numeric columns
+before constant columns are removed). Entries above \code{sqrt(p)} of the
+retained columns are nonbinding; they are capped there and logged.
+\item \code{efficient} (\code{lgl}, default \code{FALSE}; tag \code{"train"}): reserved; no effect.
+\item \code{correlation_method} (\code{fct}, \code{"pearson"} (default) or \code{"spearman"}; tags
+\code{c("train", "predict")}): correlation of block scores used for the
+objective, the prediction-side payload and the diagnostics.
+\item \code{performance_metric} (\code{fct}, \code{"mac"} (default) or \code{"frobenius"}; tags
+\code{c("train", "predict")}): latent-correlation summary reported per component
+and used by tuning, measures and diagnostics.
+\item \code{permutation_test} (\code{lgl}, default \code{FALSE}; tag \code{"train"}): run a
+conditional component-wise permutation diagnostic during training and stop
+extraction when its empirical p-value exceeds \code{perm_alpha} (LV1 is always
+retained). It conditions on the supplied preprocessed data and
+hyperparameters and does not replace a design-valid full-pipeline
+permutation analysis (see \code{\link[=mbspls_permutation_test]{mbspls_permutation_test()}}).
+\item \code{n_perm} (\code{int}, default \code{100}; tag \code{"train"}): permutations of the
+training diagnostic.
+\item \code{perm_alpha} (\code{dbl} in \verb{[0, 1]}, default \code{0.05}; tag \code{"train"}): cutoff for
+the conditional training diagnostic.
+\item \code{store_train_blocks} (\code{lgl}, default \code{FALSE}; tag \code{"train"}): if \code{TRUE} and
+\code{log_env} is set, store the centred training block matrices
+(\code{X_train_blocks}) and the sparsity settings in the training snapshot.
+Required by \link{PipeOpMBsPLSBootstrapSelect}.
+\item \code{predict_weights} (\code{fct}, one of \code{"auto"} (default), \code{"raw"},
+\code{"stable_ci"}, \code{"stable_frequency"}; tag \code{"predict"}): weights evaluated in
+the prediction-side payload (\code{log_env$last}) and by \code{val_test}. The emitted
+LV features always use the training weights (see Emitted features).
+\code{"auto"} uses the stable weights published by a
+\link{PipeOpMBsPLSBootstrapSelect} for the same run on the same \code{log_env}, and
+raw weights if there are none or if that stage ran with
+\code{stability_only = TRUE}. Explicit \code{"stable_ci"}/\code{"stable_frequency"}
+requests error if the requested weights are unavailable, or if the
+bootstrap stage ran in stability-only mode, where stable weights define no
+feature a downstream learner sees.
+\item \code{val_test} (\code{fct}, \code{"none"} (default), \code{"permutation"} or \code{"bootstrap"};
+tag \code{"predict"}): prediction-side diagnostic with the trained weights held
+fixed: a conditional held-out permutation diagnostic of the latent
+correlation, or descriptive bootstrap uncertainty (no p-value). A component
+with fewer than two blocks that have non-zero weights and non-degenerate
+held-out scores is not tested: its results are \code{NA} and \code{val_test_status}
+records the reason. A design-level hypothesis test must rerun the complete
+preprocessing, tuning and fitting pipeline within each valid permutation.
+\item \code{val_test_alpha} (\code{dbl} in \verb{[0, 1]}, default \code{0.05}; tag \code{"predict"}): alpha
+of the descriptive bootstrap confidence interval. Retained for permutation
+calls for API compatibility; sampled permutation p-values always use all
+replicates.
+\item \code{val_test_n} (\code{int}, default \code{1000}; tag \code{"predict"}): permutations or
+bootstrap replicates of the prediction-side diagnostic.
+\item \code{val_test_permute_all} (\code{lgl}, default \code{TRUE}; tag \code{"predict"}): permute all
+blocks; for two blocks, \code{FALSE} permutes block 2 only.
+\item \code{seed_validation} (\code{int} or \code{NULL}, default \code{NULL}; tag \code{"predict"}):
+optional seed for the prediction-side diagnostics. One L'Ecuyer-CMRG stream
+is assigned per component and the caller's RNG state is restored.
+\item \code{log_env} (\code{environment} or \code{NULL}, default \code{NULL}; tags
+\code{c("train", "predict")}): if set, training stores a snapshot via
+\code{log_env$mbspls_state} / \code{log_env$mbspls_states} and prediction writes the
+payload to \code{log_env$last} and \code{log_env$mbspls_last[[run_id]]}.
+\item \code{append} (\code{lgl}, default \code{FALSE}; tags \code{c("train", "predict")}): if \code{TRUE},
+keep the original features and append the LV columns; otherwise output only
+the LV columns.
+\item \code{seed_train} (\code{int} or \code{NULL}, default \code{NULL}; tag \code{"train"}): optional
+seed for random draws during training, i.e. the permutations of
+\code{permutation_test}. The fit itself is deterministic and does not depend on
+the seed.
+}
 }
 
 \section{Construction}{
 
 \code{PipeOpMBsPLS$new(id = "mbspls", blocks, param_vals = list())}
-}
-
-\section{Methods}{
-
-\itemize{
-\item \verb{$new(id, blocks, param_vals)} : Initialize the PipeOpMBsPLS.
-}
-}
-
-\section{Fields}{
-
-\itemize{
-\item \code{blocks} : Named list mapping block names to character vectors of feature names. Set during initialization.
-}
 }
 
 \seealso{

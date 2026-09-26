@@ -24,7 +24,31 @@ multiple multi-block nodes.}
 they are available.}
 }
 \value{
-A named list of \code{data.table} objects.
+A named list of \code{data.table} objects:
+\itemize{
+\item \code{overview}: one row with \code{source}, \code{model}, \code{pipeop_id}, \code{n_components},
+\code{n_blocks}, \code{performance_metric}, \code{correlation_method} and \code{run_id} (for
+MB-sPLS-XY also \code{emit_y_scores}).
+\item \code{components}: one row per component. MB-sPLS and MB-sPLS-XY report
+\code{objective} (training latent correlation) and MB-sPLS/MB-sPCA report
+\code{ev_comp} (training explained variance, SS-weighted across blocks); all
+models report \code{conditional_p_value} and \code{p_value_scope}, and MB-sPLS-XY
+also \code{n_target_columns}. \code{conditional_p_value} is the train-time
+component-wise permutation diagnostic (\code{permutation_test = TRUE}): it
+conditions on the fixed preprocessed data and hyperparameters, is not
+full-pipeline or LC-specific inference and is \code{NA} when the diagnostic did
+not run. \code{p_value_scope} states this scope (\code{NA} without a diagnostic).
+For reportable inference use \code{\link[=mbspls_permutation_test]{mbspls_permutation_test()}},
+\code{\link[=mb_permutation_test]{mb_permutation_test()}} or \code{\link[=mb_lc_confirmation_test]{mb_lc_confirmation_test()}}.
+\item \code{blocks}: one row per component and block with \code{n_features}, \code{n_selected}
+(non-zero weights) and, where available, \code{ev_block}.
+\item \code{weights} (if \code{include_weights = TRUE}): one row per component, block and
+feature with \code{weight}, \code{loading} and \code{selected}; MB-sPLS-XY adds the target
+block as \code{".target"}.
+\item \code{stability} (MB-sPLS with a bootstrap-selection node and
+\code{include_stability = TRUE}): bootstrap means, standard deviations,
+intervals, selection frequencies and stable weights per feature.
+}
 }
 \description{
 \code{mbspls_model_summary()} extracts compact, tidy summaries from fitted

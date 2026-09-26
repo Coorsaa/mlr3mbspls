@@ -115,6 +115,13 @@ Because this is a true out-of-sample measure, incremental EV may be
 \emph{negative} (the deflation step increases SS on new data), unless you
 clamp values via \code{clamp_ev}.
 
+\strong{Centring.} The trained weights and loadings refer to blocks centred
+by their \emph{training} column means, so \code{X_blocks_test} must be
+centred with those training means (not with the test means) before calling
+this function; \link{PipeOpMBsPLS} and \code{\link[=compute_pipeop_test_ev]{compute_pipeop_test_ev()}} do this. The
+total SS \eqn{\|X_{b,\mathrm{test}}^{(0)}\|_F^2} then includes any shift
+of the test means away from the training means.
+
 \strong{Deflation behavior.}
 If \code{deflate = TRUE} (recommended; matches training), components are applied
 sequentially and the test residuals are updated after each component.

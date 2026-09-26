@@ -10,6 +10,10 @@
 //                                         per-component sparsity matrix
 //  The one-component solver uses Gauss-Seidel block updates from a
 //  deterministic cross-covariance start, so fits do not depend on the RNG.
+//  The multi-component routines assume column-centred blocks: the weights are
+//  invariant to column shifts, but the deflation loadings p_b = X_b' t_b /
+//  t_b't_b, the explained variances (relative to sum-of-squares) and the
+//  scores are not. The R callers centre each block by its training means.
 // =====================================================================
 #define ARMA_DONT_ALIGN_MEMORY
 #include <RcppArmadillo.h>
@@ -1231,9 +1235,10 @@ Rcpp::List cpp_compute_test_ev_core(const Rcpp::List& X_blocks_test,
         }
       }
     }
-    // n_pairs == 0 means all block score pairs had degenerate (zero-variance) scores;
-    // return NaN so the R layer (na.rm=TRUE) can exclude this component rather than
-    // silently treating missing correlation as zero correlation.
+    // n_pairs == 0 means no identifiable cross-block pair: fewer than two blocks
+    // have non-degenerate (non-zero variance) scores. NaN records that the
+    // correlation is undefined here, rather than an observed zero; the R measures
+    // score such a component as zero association.
     mac_comp(k) = (n_pairs > 0) ? (frobenius ? std::sqrt(acc) : acc / n_pairs) : arma::datum::nan;
 
     double ss_exp_total_k = 0.0;

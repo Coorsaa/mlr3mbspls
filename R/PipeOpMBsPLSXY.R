@@ -6,18 +6,25 @@
 #' **PipeOpMBsPLSXY** is a supervised variant of MB-sPLS. During training, the
 #' target (\eqn{Y}) is appended as its own block alongside the input blocks
 #' \eqn{X_1,\dots,X_B}, so that extracted components reflect associations
-#' among the input and target blocks. The PMD weight updates are those of
-#' [PipeOpMBsPLS]; correlation criteria control convergence and evaluation.
-#' For downstream learners, only the **X-side** latent
-#' scores (LVs) are output (no Y leakage).
+#' among the input and target blocks. The block-wise (Gauss-Seidel) PMD weight
+#' updates, the deterministic start and the stopping rule are those of
+#' [PipeOpMBsPLS]; correlation criteria control evaluation only. For downstream
+#' learners, only the **X-side** latent scores (LVs) are output, at train and
+#' at predict time; target-side scores never become features.
 #'
 #' **Handling encoded column names.** If upstream encoding expands/renames factors
 #' into dummy columns like `"base.level"` (e.g., via
 #' \code{PipeOpEncode(method = "treatment" | "one-hot")}), you may keep using the
 #' **base names** in `blocks` (e.g., `"MINI_dx"`). At `$train()`, base names are
-#' expanded to the actual post-encoding columns via regex \code{^<base>(\\.|$)}.
-#' The resolved names are stored and reused at prediction; missing trained columns
-#' now raise an explicit error instead of being synthesized as zeros.
+#' resolved to the actual post-encoding columns by [mb_resolve_block_columns()];
+#' the resolved blocks must be disjoint. The resolved names are stored and
+#' reused at prediction; missing trained columns raise an explicit error
+#' instead of being synthesized as zeros.
+#'
+#' **Centring.** Every retained X column is centred by its training mean; the
+#' means are stored in the state and subtracted from prediction data. The target
+#' block is centred (and optionally scaled) with its training statistics during
+#' training only.
 #'
 #' For classification tasks, Y is internally one-hot encoded (no intercept).
 #' `y_rep` repeats target columns within the same block. This can change the
@@ -36,9 +43,32 @@
 #' @section State after training:
 #' \describe{
 #'   \item{\code{blocks_x}}{Resolved X-blocks (numeric, non-constant features).}
+#'   \item{\code{center}}{Named list (by X-block) of training column means,
+#'         each a numeric vector named by column.}
+#'   \item{\code{target_columns}}{Names of the fitted target-block columns.}
 #'   \item{\code{ncomp}}{Number of extracted components.}
-#'   \item{\code{weights_x}, \code{loadings_x}}{Lists per component with weights/loadings per X-block.}
-#'   \item{\code{performance_metric}}{\code{"mac"} (mean absolute correlation) or \code{"frobenius"}.}
+#'   \item{\code{weights_x}, \code{loadings_x}}{Lists per component with named
+#'         weights/loadings per X-block.}
+#'   \item{\code{weights_y}, \code{loadings_y}}{Lists per component with the
+#'         target-block weights/loadings.}
+#'   \item{\code{c_matrix}}{Sparsity matrix actually used when \code{c_matrix}
+#'         was supplied (retained X-blocks plus \code{.target}), otherwise
+#'         \code{NULL}.}
+#'   \item{\code{obj_vec}}{Training objective (MAC/Frobenius) per component,
+#'         computed over the X-blocks and the target block.}
+#'   \item{\code{p_values}}{Conditional component-wise permutation p-values of
+#'         the training diagnostic (\code{NA} when \code{permutation_test =
+#'         FALSE}). They assume the supplied preprocessed data and
+#'         hyperparameters are fixed and are not full-pipeline inference.}
+#'   \item{\code{p_value_scope}}{Description of that scope when the diagnostic
+#'         ran, otherwise \code{NULL}.}
+#'   \item{\code{converged}, \code{iterations}}{Per component: whether the
+#'         solver converged and the number of sweeps it used.}
+#'   \item{\code{performance_metric}, \code{correlation_method}}{Settings used
+#'         for the objective.}
+#'   \item{\code{emit_y_scores}, \code{scores_y}}{Whether target-side scores
+#'         were requested and, if so, the training target scores (matrix with
+#'         columns \code{LVk_.Y}, rows in training-task order).}
 #' }
 #'
 #' @section Prediction:
@@ -50,32 +80,60 @@
 #' @section Parameters:
 #' Hyperparameters are defined in the object's \code{param_set} and can be set
 #' via \code{param_vals}.
-#'
-#' @param blocks \code{list}. **Required.** Named list: block name -> character
-#'   vector of base feature names (expanded to post-encoding columns at training).
-#' @param ncomp \code{integer(1)}. Number of components to extract (default \code{1L}).
-#' @param correlation_method \code{character(1)}. Either \code{"pearson"} (default)
-#'   or \code{"spearman"}.
-#' @param performance_metric \code{character(1)}. Either \code{"mac"} (default, mean absolute correlation)
-#'   or \code{"frobenius"}.
-#' @param permutation_test \code{logical(1)}. If \code{TRUE}, run a permutation
-#'   test after each latent component (default \code{FALSE}).
-#' @param n_perm \code{integer(1)}. Number of permutations.
-#' @param perm_alpha \code{numeric(1)}. Cutoff for the conditional permutation diagnostic.
-#' @param c_matrix \code{matrix} or \code{NULL}. L1 constraints, rows = blocks,
-#'   columns = components. If the Y-row is missing, it is automatically added
-#'   using \code{c_target}.
-#' @param y_rep \code{integer(1)}. Replications of the target block (default \code{1L}).
-#' @param emit_y_scores \code{logical(1)}. If \code{TRUE}, also outputs Y-block
-#'   latent scores during training (columns \code{LVk_.Y*}). For prediction/ML
-#'   pipelines this should remain \code{FALSE} to avoid leakage.
-#' @param center_y,scale_y \code{logical(1)}. Centering/scaling of the target
-#'   block (defaults \code{TRUE}/\code{TRUE}).
-#' @param c_<block> \code{numeric(1)}. (Auto-generated) L1 limit per X-block;
-#'   upper bound \eqn{\sqrt{p_b}}.
-#' @param c_target \code{numeric(1)}. L1 limit for the target block (default \code{5}).
-#' @param log_env \code{environment} or \code{NULL}. If non-\code{NULL}, then
-#'   `$predict()` writes a compact result payload to \code{$last}.
+#' * `blocks` (`uty`, default: the constructor `blocks`; tag `"train"`): named
+#'   list mapping X-block names to declared feature names (base names are
+#'   resolved to post-encoding columns). Non-numeric columns and columns
+#'   without finite positive variance in the training data are dropped, and
+#'   blocks without usable columns are dropped.
+#' * `ncomp` (`int`, default `1`; tag `"train"`): number of components; at most
+#'   the effective rank of the preprocessed target block. Replaced by
+#'   `ncol(c_matrix)` when `c_matrix` is set.
+#' * `correlation_method` (`fct`, `"pearson"` (default) or `"spearman"`; tags
+#'   `c("train", "predict")`): correlation of block scores used for the
+#'   objective and the permutation diagnostic.
+#' * `performance_metric` (`fct`, `"mac"` (default) or `"frobenius"`; tags
+#'   `c("train", "predict")`): latent-correlation summary reported per
+#'   component.
+#' * `permutation_test` (`lgl`, default `FALSE`; tag `"train"`): run a
+#'   conditional component-wise permutation diagnostic after each component and
+#'   stop extraction when its p-value exceeds `perm_alpha` (LV1 is always
+#'   retained). The p-values are stored in `$state$p_values`. It conditions on
+#'   the supplied preprocessed data and hyperparameters and is not a
+#'   full-pipeline test.
+#' * `n_perm` (`int`, default `100`; tag `"train"`): permutations of the
+#'   diagnostic.
+#' * `perm_alpha` (`dbl` in `[0, 1]`, default `0.05`; tag `"train"`): cutoff for
+#'   the conditional diagnostic.
+#' * `c_matrix` (`uty`, default `NULL`; tags `c("train", "tune")`): matrix of L1
+#'   budgets (rows = X-blocks and optionally `".target"`, columns = components).
+#'   Named rows must be unique and non-empty, and the X rows must match either
+#'   all declared or all retained X-blocks. An unnamed matrix is matched by
+#'   position to the declared layout: one row per declared X-block, optionally
+#'   followed by the target row. A missing target row is filled with
+#'   `min(c_target, sqrt(p_target))`. X entries must lie in `[1, sqrt(p_b)]`,
+#'   where `p_b` is the structural width of the block (its resolved numeric
+#'   columns before constant columns are removed); entries above `sqrt(p)` of
+#'   the retained columns are nonbinding, capped there and logged. The target
+#'   entry must lie in `[1, sqrt(p_target)]` of the fitted target columns.
+#' * `y_rep` (`int`, default `1`; tags `c("train", "tune")`): replications of the
+#'   target columns within the target block.
+#' * `emit_y_scores` (`lgl`, default `FALSE`; tag `"train"`): store the training
+#'   target-block latent scores in `$state$scores_y` for inspection. They are
+#'   never added to the task features, because they are functions of the
+#'   outcome.
+#' * `center_y` (`lgl`, default `TRUE`; tag `"train"`): retained for backward
+#'   compatibility. The target block is always centred by its training means;
+#'   `FALSE` is ignored with a warning.
+#' * `scale_y` (`lgl`, default `TRUE`; tag `"train"`): scale the target columns
+#'   to unit training standard deviation.
+#' * `c_<block>` (one `dbl` per X-block, lower `1`, upper `sqrt(p_b)` of the
+#'   declared names, default `max(1, sqrt(p_b) / 3)`; tags `c("train", "tune")`):
+#'   L1 budget of the unit-L2 weight vector of that block.
+#' * `c_target` (`dbl` in `[1, 20]`, default `5`; tags `c("train", "tune")`): L1
+#'   budget of the target block, capped at `sqrt(p_target)`.
+#' * `log_env` (`environment` or `NULL`, default `NULL`; tag `"predict"`): if
+#'   set, `$predict()` writes a compact payload (test scores, block names,
+#'   `ncomp`, metric) to `log_env$last`.
 #'
 #' @return A \code{PipeOpMBsPLSXY} that appends columns \code{LVk_<block>} for
 #'   each X-block.
@@ -120,7 +178,7 @@ PipeOpMBsPLSXY = R6::R6Class(
         perm_alpha           = paradox::p_dbl(lower = 0, upper = 1, default = 0.05, tags = "train"),
         c_matrix             = paradox::p_uty(tags = c("train", "tune"), default = NULL),
         y_rep                = paradox::p_int(lower = 1L, default = 1L, tags = c("train", "tune")),
-        emit_y_scores        = paradox::p_lgl(default = FALSE, tags = c("train", "predict")),
+        emit_y_scores        = paradox::p_lgl(default = FALSE, tags = "train"),
         center_y             = paradox::p_lgl(default = TRUE, tags = "train"),
         scale_y              = paradox::p_lgl(default = TRUE, tags = "train"),
         log_env              = paradox::p_uty(tags = c("predict"), default = NULL)
@@ -266,29 +324,6 @@ PipeOpMBsPLSXY = R6::R6Class(
       as.matrix(y_mat)
     },
 
-    # Expand base names to actual columns in dt that match regex ^name(\.|$)
-    .expand_block_cols = function(dt_names, cols) {
-      esc = function(s) gsub("([][{}()|^$.*+?\\\\-])", "\\\\\\1", s)
-      unique(unlist(lapply(cols, function(co) {
-        if (co %in% dt_names) co else grep(paste0("^", esc(co), "(\\.|$)"), dt_names, value = TRUE)
-      })))
-    },
-
-    # Clean blocks: expand base names, restrict to numeric and non-constant columns
-    .clean_blocks = function(dt, blocks) {
-      dt_names = names(dt)
-      out = lapply(blocks, function(cols) {
-        resolved = private$.expand_block_cols(dt_names, cols)
-        resolved = resolved[vapply(resolved, function(cl) is.numeric(dt[[cl]]), logical(1))]
-        if (!length(resolved)) {
-          return(character(0))
-        }
-        keep = vapply(resolved, function(cl) mb_has_finite_variance(dt[[cl]]), logical(1))
-        resolved[keep]
-      })
-      Filter(length, out)
-    },
-
     # Convert block columns to matrices
     .as_block_mats = function(dt, blocks) {
       lapply(blocks, function(cols) {
@@ -304,9 +339,19 @@ PipeOpMBsPLSXY = R6::R6Class(
         self$param_set$get_values(tags = "train"),
         keep.null = TRUE)
 
+      if (!isTRUE(pv$center_y)) {
+        warning(
+          paste0(
+            "PipeOpMBsPLSXY: `center_y = FALSE` is ignored. The target block is ",
+            "always centred by its training means because the solver requires ",
+            "column-centred blocks."
+          ),
+          call. = FALSE
+        )
+      }
       task = private$.get_task_safe()
       y_mat = private$.build_y_matrix(task, target_vec = target, levs = base::levels(target),
-        center = pv$center_y, scale = pv$scale_y)
+        center = TRUE, scale = pv$scale_y)
 
       y_fit = as.matrix(y_mat)
       storage.mode(y_fit) = "double"
@@ -319,10 +364,10 @@ PipeOpMBsPLSXY = R6::R6Class(
       }
 
       rank_y = qr(y_fit)$rank
-      requested_components = if (is.null(pv$c_matrix)) {
-        as.integer(pv$ncomp)
-      } else {
+      requested_components = if (is.matrix(pv$c_matrix)) {
         ncol(pv$c_matrix)
+      } else {
+        as.integer(pv$ncomp)
       }
       if (requested_components > rank_y) {
         stop(sprintf(
@@ -344,17 +389,21 @@ PipeOpMBsPLSXY = R6::R6Class(
         colnames(y_fit) = paste0(rep(base_names, pv$y_rep), "_rep", rep_id)
       }
 
-      blocks = private$.clean_blocks(dt, pv$blocks)
+      resolved = .mb_training_blocks(dt, pv$blocks)
+      blocks = resolved$blocks
       if (!length(blocks)) stop("PipeOpMBsPLSXY: no valid X blocks found.")
-      X_list = private$.as_block_mats(dt, blocks)
-      names(X_list) = names(blocks)
-      X_list = lapply(names(X_list), function(name) {
+      X_raw = private$.as_block_mats(dt, blocks)
+      names(X_raw) = names(blocks)
+      X_raw = lapply(names(X_raw), function(name) {
         .mb_numeric_matrix(
-          X_list[[name]],
+          X_raw[[name]],
           sprintf("training block '%s'", name)
         )
       }) |>
         stats::setNames(names(blocks))
+      # The solver assumes column-centred blocks for deflation, EV and scores.
+      center = .mb_block_means(X_raw)
+      X_list = .mb_center_blocks(X_raw, center)
       .mb_assert_component_rank(
         X_list,
         requested_components,
@@ -373,72 +422,43 @@ PipeOpMBsPLSXY = R6::R6Class(
 
       X_list_all = c(X_list, list(.target = as.matrix(y_fit)))
       use_frob = identical(pv$performance_metric, "frobenius")
+      # Solver settings of PipeOpMBsPLS: at most 600 Gauss-Seidel sweeps, stop
+      # when no block weight changes by 1e-4 or more between sweeps.
+      max_iter = 600L
+      tol = 1e-4
       cm = NULL
 
       if (!is.null(pv$c_matrix)) {
-        cm = pv$c_matrix
-        if (!is.null(rownames(cm))) {
-          target_present = ".target" %in% rownames(cm)
-          x_rows = setdiff(rownames(cm), ".target")
-          allowed_x_sets = list(names(pv$blocks), names(blocks))
-          valid_x_set = any(vapply(
-            allowed_x_sets,
-            function(expected) setequal(x_rows, expected),
-            logical(1L)
+        cm = .mb_align_c_matrix(
+          pv$c_matrix,
+          declared = names(pv$blocks),
+          retained = names(blocks),
+          extra = ".target"
+        )
+        if (!".target" %in% rownames(cm)) {
+          cm = rbind(cm, matrix(
+            min(pv$c_target, sqrt(ncol(y_fit))),
+            nrow = 1L,
+            ncol = ncol(cm),
+            dimnames = list(".target", colnames(cm))
           ))
-          if (!valid_x_set) {
-            stop(
-              paste0(
-                "c_matrix X rows must match either all declared or all ",
-                "retained X blocks exactly."
-              ),
-              call. = FALSE
-            )
-          }
-          cm_x = cm[names(blocks), , drop = FALSE]
-          if (target_present) {
-            cm_target = cm[".target", , drop = FALSE]
-          } else {
-            cm_target = matrix(
-              min(pv$c_target, sqrt(ncol(y_fit))),
-              nrow = 1L,
-              ncol = ncol(cm),
-              dimnames = list(".target", colnames(cm))
-            )
-          }
-          cm = rbind(cm_x, cm_target)
-        } else {
-          if (!nrow(cm) %in% c(length(X_list), length(X_list) + 1L)) {
-            stop(sprintf(
-              paste0(
-                "An unnamed c_matrix must have %d rows (retained X blocks) ",
-                "or %d rows (retained X blocks + target); got %d"
-              ),
-              length(X_list),
-              length(X_list) + 1L,
-              nrow(cm)
-            ), call. = FALSE)
-          }
-          if (nrow(cm) == length(X_list)) {
-            cm = rbind(
-              cm,
-              rep(min(pv$c_target, sqrt(ncol(y_fit))), ncol(cm))
-            )
-          }
-          rownames(cm) = names(X_list_all)
         }
+        # The target block has no data-dependent column filtering: its
+        # structural width is its fitted width.
         cm = .mb_prepare_c_matrix(
           blocks = X_list_all,
           c_matrix = cm,
           ncomp = ncol(cm),
-          ncomp_missing = FALSE
+          ncomp_missing = FALSE,
+          upper_p = c(resolved$p_struct, .target = ncol(y_fit))
         )
+        cm = .mb_finalize_c_matrix(cm, X_list_all, self$id)
 
         fit = cpp_mbspls_multi_lv_cmatrix(
           X_blocks = X_list_all,
           c_matrix = cm,
-          max_iter = 1000L,
-          tol = 1e-4,
+          max_iter = max_iter,
+          tol = tol,
           spearman = identical(pv$correlation_method, "spearman"),
           do_perm = isTRUE(pv$permutation_test),
           n_perm = pv$n_perm,
@@ -451,7 +471,7 @@ PipeOpMBsPLSXY = R6::R6Class(
         names(c_vec)[length(c_vec)] = ".target"
         fit = cpp_mbspls_multi_lv(
           X_blocks = X_list_all, c_constraints = c_vec,
-          K = pv$ncomp, max_iter = 1000L, tol = 1e-6,
+          K = pv$ncomp, max_iter = max_iter, tol = tol,
           spearman = identical(pv$correlation_method, "spearman"),
           do_perm = isTRUE(pv$permutation_test),
           n_perm = pv$n_perm, alpha = pv$perm_alpha,
@@ -462,53 +482,66 @@ PipeOpMBsPLSXY = R6::R6Class(
       Bx = length(blocks)
       K = length(fit$W)
       if (K < 1L) stop("PipeOpMBsPLSXY: no components extracted.")
+      comp_names = sprintf("LC_%02d", seq_len(K))
+
+      converged = stats::setNames(as.logical(fit$converged %||% rep(NA, K)), comp_names)
+      iterations = stats::setNames(
+        as.integer(fit$iterations %||% rep(NA_integer_, K)),
+        comp_names
+      )
+      .mb_warn_nonconverged(converged, sprintf("[%s] MB-sPLS-XY", self$id), max_iter)
+      p_values = stats::setNames(
+        as.numeric(fit$p_values %||% rep(NA_real_, K)),
+        comp_names
+      )
+      if (isTRUE(pv$permutation_test)) {
+        lgr$info("[%s] Permutation p-values: %s", self$id, paste(signif(p_values, 3), collapse = ", "))
+      }
 
       y_cols = colnames(y_fit) %||% paste0(".Y_", seq_len(ncol(y_fit)))
+      # Loadings of blocks with degenerate scores come back empty; they are zero.
+      pad_and_name = function(x, feat_names) {
+        x = as.numeric(x)
+        if (!length(x)) {
+          x = numeric(length(feat_names))
+        }
+        if (length(x) != length(feat_names)) {
+          stop(sprintf("Internal size mismatch: expected %d, got %d", length(feat_names), length(x)))
+        }
+        stats::setNames(x, feat_names)
+      }
       W_X = P_X = vector("list", K)
       W_Y = P_Y = vector("list", K)
       for (k in seq_len(K)) {
-        W_X[[k]] = fit$W[[k]][seq_len(Bx)]
-        P_X[[k]] = fit$P[[k]][seq_len(Bx)]
-        W_Y[[k]] = stats::setNames(as.numeric(fit$W[[k]][[Bx + 1L]]), y_cols)
-        P_Y[[k]] = stats::setNames(as.numeric(fit$P[[k]][[Bx + 1L]]), y_cols)
+        W_X[[k]] = lapply(seq_len(Bx), function(b) pad_and_name(fit$W[[k]][[b]], blocks[[b]]))
+        P_X[[k]] = lapply(seq_len(Bx), function(b) pad_and_name(fit$P[[k]][[b]], blocks[[b]]))
+        W_Y[[k]] = pad_and_name(fit$W[[k]][[Bx + 1L]], y_cols)
+        P_Y[[k]] = pad_and_name(fit$P[[k]][[Bx + 1L]], y_cols)
         names(W_X[[k]]) = names(P_X[[k]]) = names(blocks)
       }
-      names(W_X) = names(P_X) = names(W_Y) = names(P_Y) = sprintf("LC_%02d", seq_len(K))
+      names(W_X) = names(P_X) = names(W_Y) = names(P_Y) = comp_names
 
-      X_cur = X_list
-      score_tables = vector("list", K)
-      for (k in seq_len(K)) {
-        Tk = matrix(0, nrow(dt), Bx)
-        for (b in seq_len(Bx)) {
-          Tk[, b] = X_cur[[b]] %*% as.numeric(W_X[[k]][[b]])
-        }
-        score_tables[[k]] = data.table::as.data.table(Tk)
-        data.table::setnames(score_tables[[k]], paste0("LV", k, "_", names(blocks)))
-        if (k < K) {
-          for (b in seq_len(Bx)) {
-            Pk = as.numeric(P_X[[k]][[b]])
-            X_cur[[b]] = X_cur[[b]] - Tk[, b, drop = FALSE] %*% t(Pk)
-          }
-        }
-      }
-      dt_lat = do.call(cbind, score_tables)
+      dt_lat = data.table::as.data.table(
+        .mb_deflated_scores(X_list, W_X, P_X, names(blocks))$T
+      )
 
+      # Target-side scores are kept for inspection only; they are derived from
+      # the outcome and are never added to the task features.
+      scores_y = NULL
       if (isTRUE(pv$emit_y_scores)) {
         Y_cur = as.matrix(y_fit)
-        score_tables_y = vector("list", K)
+        scores_y = matrix(0, nrow(Y_cur), K, dimnames = list(NULL, paste0("LV", seq_len(K), "_.Y")))
         for (k in seq_len(K)) {
           ty = drop(Y_cur %*% as.numeric(W_Y[[k]]))
-          score_tables_y[[k]] = data.table::data.table(ty)
-          data.table::setnames(score_tables_y[[k]], paste0("LV", k, "_.Y"))
+          scores_y[, k] = ty
           if (k < K) {
-            py = as.numeric(P_Y[[k]])
-            Y_cur = Y_cur - ty %*% t(py)
+            Y_cur = Y_cur - ty %*% t(as.numeric(P_Y[[k]]))
           }
         }
-        dt_lat = cbind(dt_lat, do.call(cbind, score_tables_y))
       }
 
       self$state$blocks_x = blocks
+      self$state$center = center
       self$state$target_columns = y_cols
       self$state$ncomp = K
       self$state$weights_x = W_X
@@ -516,9 +549,19 @@ PipeOpMBsPLSXY = R6::R6Class(
       self$state$weights_y = W_Y
       self$state$loadings_y = P_Y
       self$state$c_matrix = cm
+      self$state$obj_vec = stats::setNames(as.numeric(fit$objective), comp_names)
+      self$state$p_values = p_values
+      self$state$p_value_scope = if (isTRUE(pv$permutation_test)) {
+        .mb_train_p_value_scope("mbspls")
+      } else {
+        NULL
+      }
+      self$state$converged = converged
+      self$state$iterations = iterations
       self$state$performance_metric = pv$performance_metric
       self$state$correlation_method = pv$correlation_method
       self$state$emit_y_scores = isTRUE(pv$emit_y_scores)
+      self$state$scores_y = scores_y
 
       dt_lat
     },
@@ -540,28 +583,25 @@ PipeOpMBsPLSXY = R6::R6Class(
         hint = "Apply the same preprocessing used during training and retain all trained predictor columns before PipeOpMBsPLSXY."
       )
 
-      X_cur = lapply(blocks, function(cols) {
-        mat = as.matrix(dt[, ..cols])
-        storage.mode(mat) = "double"
-        mat
-      })
+      X_cur = private$.as_block_mats(dt, blocks)
+      names(X_cur) = names(blocks)
+      # Apply the training centre (absent in states fitted before centring)
+      X_cur = .mb_center_blocks(X_cur, st$center,
+        context = sprintf("[%s] Training centre", self$id))
 
-      score_tables = vector("list", K)
-      for (k in seq_len(K)) {
-        Tk = matrix(0, nrow(dt), Bx)
-        for (b in seq_len(Bx)) {
-          Tk[, b] = X_cur[[b]] %*% as.numeric(st$weights_x[[k]][[b]])
-        }
-        score_tables[[k]] = data.table::as.data.table(Tk)
-        data.table::setnames(score_tables[[k]], paste0("LV", k, "_", names(blocks)))
-        if (k < K) {
-          for (b in seq_len(Bx)) {
-            Pk = as.numeric(st$loadings_x[[k]][[b]])
-            X_cur[[b]] = X_cur[[b]] - Tk[, b, drop = FALSE] %*% t(Pk)
-          }
-        }
-      }
-      dt_lat = do.call(cbind, score_tables)
+      W_X = lapply(seq_len(K), function(k) {
+        lapply(seq_len(Bx), function(b) {
+          as.numeric(st$weights_x[[k]][[b]])
+        }) |> stats::setNames(names(blocks))
+      })
+      P_X = lapply(seq_len(K), function(k) {
+        lapply(seq_len(Bx), function(b) {
+          as.numeric(st$loadings_x[[k]][[b]])
+        }) |> stats::setNames(names(blocks))
+      })
+      dt_lat = data.table::as.data.table(
+        .mb_deflated_scores(X_cur, W_X, P_X, names(blocks))$T
+      )
 
       log_env = self$param_set$values$log_env
       if (!is.null(log_env) && inherits(log_env, "environment")) {
@@ -577,7 +617,7 @@ PipeOpMBsPLSXY = R6::R6Class(
     },
 
     .additional_phash_input = function() {
-      list(blocks = self$param_set$values$blocks)
+      list(blocks = self$blocks)
     }
   )
 )

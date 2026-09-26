@@ -34,6 +34,13 @@
 #' \emph{negative} (the deflation step increases SS on new data), unless you
 #' clamp values via \code{clamp_ev}.
 #'
+#' \strong{Centring.} The trained weights and loadings refer to blocks centred
+#' by their \emph{training} column means, so \code{X_blocks_test} must be
+#' centred with those training means (not with the test means) before calling
+#' this function; [PipeOpMBsPLS] and [compute_pipeop_test_ev()] do this. The
+#' total SS \eqn{\|X_{b,\mathrm{test}}^{(0)}\|_F^2} then includes any shift
+#' of the test means away from the training means.
+#'
 #' \strong{Deflation behavior.}
 #' If \code{deflate = TRUE} (recommended; matches training), components are applied
 #' sequentially and the test residuals are updated after each component.
@@ -303,6 +310,10 @@ compute_test_ev = function(
 #' absent, it errors instead of silently switching to test-derived least-squares
 #' loadings.
 #'
+#' The test blocks are centred with the training means stored in
+#' \code{state$center} (states without \code{center}, fitted before centring
+#' was introduced, are used as supplied).
+#'
 #' @param X_blocks_test \code{list} of numeric matrices; test data blocks
 #'   (\code{n_test × p_b}). All blocks must have the same number of rows.
 #' @param state \code{list}. Trained PipeOp state. Must contain at least:
@@ -310,7 +321,8 @@ compute_test_ev = function(
 #'     \item \code{weights}: component-wise block weights (as in training),
 #'     \item \code{loadings}: (optional) component-wise block loadings,
 #'     \item \code{performance_metric}: \code{"mac"} or \code{"frobenius"},
-#'     \item \code{correlation_method}: (optional) \code{"pearson"} or \code{"spearman"}.
+#'     \item \code{correlation_method}: (optional) \code{"pearson"} or \code{"spearman"},
+#'     \item \code{center}: (optional) training column means per block.
 #'   }
 #'
 #' @return
@@ -321,6 +333,12 @@ compute_test_ev = function(
 #' @keywords internal
 #' @export
 compute_pipeop_test_ev = function(X_blocks_test, state) {
+  if (!is.null(state$center)) {
+    if (is.null(names(X_blocks_test))) {
+      names(X_blocks_test) = names(state$center)
+    }
+    X_blocks_test = .mb_center_blocks(X_blocks_test, state$center)
+  }
   compute_test_ev(
     X_blocks_test      = X_blocks_test,
     W_all              = state$weights,

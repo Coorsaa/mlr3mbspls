@@ -664,8 +664,26 @@ print.mb_permutation_test = function(x, ...) {
     stats::setNames(names(blocks))
 }
 
-.mb_prepare_c_matrix = function(blocks, c_matrix, ncomp, ncomp_missing) {
+# `upper_p` optionally gives the structural width of each block (named like
+# `blocks`), e.g. its numeric columns before data-dependent constant-column
+# filtering. Budgets are then validated against sqrt(upper_p) and capped at
+# sqrt(p) of the supplied blocks, where larger L1 budgets are nonbinding. The
+# logical matrix attribute "capped" marks the capped entries.
+.mb_prepare_c_matrix = function(blocks, c_matrix, ncomp, ncomp_missing, upper_p = NULL) {
   p = vapply(blocks, ncol, integer(1L))
+  structural = !is.null(upper_p)
+  if (!structural) {
+    upper_p = p
+  } else {
+    if (is.numeric(upper_p) && !is.null(names(upper_p)) && !is.null(names(blocks))) {
+      upper_p = upper_p[names(blocks)]
+    }
+    if (!is.numeric(upper_p) || length(upper_p) != length(blocks) ||
+      anyNA(upper_p) || any(upper_p < p)) {
+      stop("`upper_p` must give one structural width >= ncol(block) per block.",
+        call. = FALSE)
+    }
+  }
   if (!ncomp_missing) {
     ncomp = .mb_assert_scalar_integer(ncomp, "ncomp")
   }
@@ -718,7 +736,7 @@ print.mb_permutation_test = function(x, ...) {
 
   lower_bad = c_matrix < 1
   upper = matrix(
-    rep(sqrt(p), ncomp), nrow = length(blocks), ncol = ncomp
+    rep(sqrt(upper_p), ncomp), nrow = length(blocks), ncol = ncomp
   )
   upper_bad = c_matrix > upper + sqrt(.Machine$double.eps)
   if (any(lower_bad) || any(upper_bad)) {
@@ -730,6 +748,15 @@ print.mb_permutation_test = function(x, ...) {
   dimnames(c_matrix) = list(
     names(blocks), colnames(c_matrix) %||% paste0("LC", seq_len(ncomp))
   )
+  if (structural) {
+    retained_upper = matrix(
+      rep(sqrt(p), ncomp), nrow = length(blocks), ncol = ncomp
+    )
+    capped = c_matrix > retained_upper
+    c_matrix[capped] = retained_upper[capped]
+    dimnames(capped) = dimnames(c_matrix)
+    attr(c_matrix, "capped") = capped
+  }
   c_matrix
 }
 

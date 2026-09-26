@@ -28,7 +28,10 @@ impute_knn_graph = function(k = 5) {
 #' @param task Optional [mlr3::Task] carrying multi-block metadata via
 #'   [TaskMultiBlock()]. Used when `blocks = NULL`.
 #' @param site_correction Named list of features used for site correction.
-#'   Defaults to `list()` (no correction).
+#'   Defaults to `list()` (no correction). When `task` is supplied, the columns
+#'   read at prediction time (all `"partial_corr"` and `"dir"` columns and the
+#'   ComBat `site`) must exist and must not be target columns; ComBat
+#'   `covariates` may name the target (see [PipeOpSiteCorrection]).
 #' @param site_correction_methods Named list of methods for site correction.
 #'   Defaults to `list()`.
 #' @param keep_site_col Keep site column after correction?
@@ -50,7 +53,12 @@ mbspls_preproc_graph = function(
   assert_list(blocks, types = "character", names = "unique")
   assert_list(site_correction, types = c("character", "list"), names = "unique")
   assert_list(site_correction_methods, types = "character", names = "unique")
-  mb_validate_site_correction(task = task, site_correction = site_correction, context = "mbspls_preproc_graph")
+  mb_validate_site_correction(
+    task = task,
+    site_correction = site_correction,
+    context = "mbspls_preproc_graph",
+    methods = site_correction_methods
+  )
 
   id_with_suffix = function(base) {
     if (is.null(id_suffix)) base else paste0(base, "_", id_suffix)
@@ -104,22 +112,30 @@ mbspls_preproc_graph = function(
 #' @param permutation_test,n_perm,perm_alpha Conditional component-wise
 #'   train-time permutation diagnostic (MB-sPLS), not a full-pipeline test.
 #' @param predict_weights character; one of "auto","raw","stable_ci","stable_frequency".
-#'   Controls which weights PipeOpMBsPLS uses at predict/validation time.
+#'   Weights that [PipeOpMBsPLS] evaluates in its prediction-side payload and
+#'   `val_test` diagnostics. The emitted LV features always use the training
+#'   weights; with bootstrap selection active (and `stability_only = FALSE`),
+#'   [PipeOpMBsPLSBootstrapSelect] replaces them by stable-weight LVs at train
+#'   and predict time. With `stability_only = TRUE`, `"auto"` evaluates the raw
+#'   weights and `"stable_ci"`/`"stable_frequency"` are rejected, because no
+#'   feature of that graph is derived from the stable weights.
 #' @param val_test,val_test_alpha,val_test_n,val_test_permute_all Prediction-side
 #'   conditional permutation diagnostic or descriptive bootstrap uncertainty.
 #' @param seed_validation Optional seed for prediction-side diagnostics; one
 #'   deterministic stream is assigned per component.
 #'
 #' @param bootstrap Logical; run bootstrap selection (default TRUE).
-#' @param store_train_blocks Logical; retain the fitted raw block matrices for
-#'   post-fit summaries and plots. The default follows `bootstrap`. It must be
-#'   `TRUE` when bootstrap selection is enabled.
+#' @param store_train_blocks Logical; retain the fitted (training-centred)
+#'   block matrices for bootstrap selection, post-fit summaries and plots. The
+#'   default follows `bootstrap`. It must be `TRUE` when bootstrap selection is
+#'   enabled.
 #' @param bootstrap_selection Logical; whether to run bootstrap-based feature
 #'   selection inside [PipeOpMBsPLSBootstrapSelect] (default TRUE).
 #' @param stability_only Logical; only compute stability, no selection (default FALSE).
 #' @param B Integer; bootstrap replicates (default 500).
 #' @param alpha Numeric; CI alpha (default 0.05).
-#' @param align "block_sign" (default) or "global_correlation".
+#' @param align Bootstrap sign alignment passed to [PipeOpMBsPLSBootstrapSelect]:
+#'   `"block_sign"` (default) or `"score_correlation"`.
 #' @param selection_method "ci" (default) or "frequency".
 #' @param frequency_threshold Numeric in `[0,1]`; only if selection_method="frequency" (default 0.6).
 #' @param stable_weight_source "training" (default) or "bootstrap_mean".
@@ -127,8 +143,13 @@ mbspls_preproc_graph = function(
 #' @param bootstrap_groups Optional exchangeability-group vector for cluster
 #'   bootstrap sampling. Named vectors are aligned to task row IDs.
 #' @param workers Integer; number of cross-platform bootstrap workers.
-#' @param seed_train Optional seed for MB-sPLS training.
-#' @param seed_bootstrap Optional seed for bootstrap selection.
+#' @param seed_train Optional seed for random draws during MB-sPLS training,
+#'   i.e. the permutations of `permutation_test`. The fit itself is
+#'   deterministic and does not depend on the seed.
+#' @param seed_bootstrap Optional seed for the bootstrap replicates of
+#'   [PipeOpMBsPLSBootstrapSelect]; when set, each replicate gets its own
+#'   deterministic RNG stream. The default `NULL` matches the PipeOp and uses
+#'   the ambient RNG, so results are reproducible with [set.seed()].
 #' @param id_suffix Optional suffix for PipeOp ids.
 #' @param log_env Shared environment (created if NULL).
 #'
@@ -183,6 +204,20 @@ mbspls_graph = function(
   performance_metric = match.arg(performance_metric)
   correlation_method = match.arg(correlation_method)
   predict_weights = match.arg(predict_weights)
+  if (isTRUE(stability_only) && predict_weights %in% c("stable_ci", "stable_frequency")) {
+    stop(
+      sprintf(
+        paste0(
+          "`predict_weights = \"%s\"` cannot be combined with `stability_only = TRUE`: ",
+          "that graph passes the LV features of the raw training weights to the learner, ",
+          "so no feature is derived from the stable weights. Use \"raw\" or \"auto\", ",
+          "or set `stability_only = FALSE`."
+        ),
+        predict_weights
+      ),
+      call. = FALSE
+    )
+  }
   if (isTRUE(stability_only) && identical(predict_weights, "auto")) {
     predict_weights = "raw"
   }
@@ -380,8 +415,13 @@ mbspls_graph_learner = function(
 #' @param permutation_test,n_perm,perm_alpha Conditional component-wise
 #'   train-time permutation diagnostic for MB-sPLS-XY.
 #' @param y_rep Integer replication count for the target block.
-#' @param emit_y_scores Logical; append Y-side scores to the transformed task.
-#' @param center_y,scale_y Logical target centering/scaling flags.
+#' @param emit_y_scores Logical; store the training target-block scores in the
+#'   state of [PipeOpMBsPLSXY] (`$state$scores_y`) for inspection. They are
+#'   never added to the task features.
+#' @param center_y,scale_y Logical target centering/scaling flags. The target
+#'   block is always centred by its training means (`center_y = FALSE` is
+#'   ignored with a warning); `scale_y` scales it to unit training standard
+#'   deviation.
 #' @param id_suffix Optional suffix for PipeOp ids.
 #' @param log_env Shared environment (created if NULL).
 #'
@@ -413,7 +453,12 @@ mbsplsxy_graph = function(
   checkmate::assert_list(blocks, types = "character", names = "unique")
   checkmate::assert_list(site_correction, types = c("character", "list"), names = "unique")
   checkmate::assert_list(site_correction_methods, types = "character", names = "unique")
-  mb_validate_site_correction(task = task, site_correction = site_correction, context = "mbsplsxy_graph")
+  mb_validate_site_correction(
+    task = task,
+    site_correction = site_correction,
+    context = "mbsplsxy_graph",
+    methods = site_correction_methods
+  )
   mb_validate_supervised_task(task = task, context = "mbsplsxy_graph")
   checkmate::assert_int(ncomp, lower = 1)
   performance_metric = match.arg(performance_metric)

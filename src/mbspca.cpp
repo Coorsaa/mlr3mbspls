@@ -8,8 +8,9 @@
 //    * perm_test_component_mbspca()         – cross‑block permutation test
 //                                             on the variance statistic
 //
-//  Compile with:
-//    Rcpp::sourceCpp("src/mbspca.cpp"), or within an R package's src/
+//  Blocks must be column-centred; PipeOpMBsPCA and TunerSeqMBsPCA centre
+//  them with training means. The shared PMD update is defined in mbspls.cpp,
+//  so this file is compiled as part of the package, not on its own.
 //
 #include <RcppArmadillo.h>
 #include <limits>

@@ -44,9 +44,14 @@ train-time permutation diagnostic for MB-sPLS-XY.}
 
 \item{y_rep}{Integer replication count for the target block.}
 
-\item{emit_y_scores}{Logical; append Y-side scores to the transformed task.}
+\item{emit_y_scores}{Logical; store the training target-block scores in the
+state of \link{PipeOpMBsPLSXY} (\verb{$state$scores_y}) for inspection. They are
+never added to the task features.}
 
-\item{center_y, scale_y}{Logical target centering/scaling flags.}
+\item{center_y, scale_y}{Logical target centering/scaling flags. The target
+block is always centred by its training means (\code{center_y = FALSE} is
+ignored with a warning); \code{scale_y} scales it to unit training standard
+deviation.}
 
 \item{id_suffix}{Optional suffix for PipeOp ids.}
 

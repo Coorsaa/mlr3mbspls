@@ -16,9 +16,19 @@ if \code{log_env} is supplied, writes prediction-side EV payloads.
 multiple, predefined feature blocks. Each component is estimated with a
 GSMV-style algorithm (\code{cpp_mbspca_one_lv()}), and after extraction a
 block-wise rank-1 deflation is applied so later components capture novel
-structure. Optionally, a conditional component-wise permutation diagnostic
-(\code{perm_test_component_mbspca()}) can stop extraction early if a component
-explains no more variance than expected under the null.
+structure. Every retained column is centred by its training mean before
+fitting (and the stored means are subtracted at prediction), so explained
+variance, loadings and scores refer to centred data.
+
+Optionally, a conditional component-wise permutation diagnostic
+(\code{perm_test_component_mbspca()}) can stop extraction early. Its null
+hypothesis is \strong{no cross-block association}: the rows of each block are
+permuted independently, which preserves every within-block covariance and
+destroys only the alignment between blocks. A component that carries only
+block-specific variance therefore does not pass, and the diagnostic needs at
+least two blocks. With fewer than two usable blocks it is skipped with a
+warning, the requested number of components is kept and \code{p_values} are
+\code{NA}.
 
 The operator appends one column per \emph{block x component} (name:
 \verb{PC<k>_<block>}) to the feature table.
@@ -27,9 +37,11 @@ The operator appends one column per \emph{block x component} (name:
 Multi-Block Sparse PCA (MB-sPCA) PipeOp
 
 During training, non-numeric or constant features are removed from
-each block before fitting. If no usable block remains, training errors explicitly. If \code{c_matrix} is supplied, its number of columns determines the
-maximum number of components (overrides \code{ncomp}). Deflation is performed
-block-wise after each component.
+each block and the remaining columns are centred by their training means
+before fitting. If no usable block remains, training errors explicitly. If
+\code{c_matrix} is supplied, its number of columns determines the maximum number
+of components (overrides \code{ncomp}). Deflation is performed block-wise after
+each component.
 }
 \section{Input and Output}{
 
@@ -45,15 +57,25 @@ scores for each block & component.
 
 The \verb{$state} stores:
 \itemize{
-\item \code{blocks}: the (sanitised) named list of block -> feature names used.
+\item \code{blocks}: the resolved named list of block -> feature names used.
+\item \code{center}: named list (by block) of training column means, each a numeric
+vector named by column; subtracted from prediction data.
 \item \code{ncomp}: number of retained components.
 \item \code{weights}: list(\code{PCk} -> list(\code{block} -> numeric named vector)).
 \item \code{loadings}: same shape as \code{weights}, block-wise loadings used for deflation.
 \item \code{ev_block}: matrix \verb{[components x blocks]} of variance explained by each PC
 within each block.
-\item \code{ev_comp}: numeric vector of total variance explained by each PC.
-\item \code{p_values}: conditional component-wise permutation diagnostics, or \code{NA}
-when the diagnostic is disabled.
+\item \code{ev_comp}: numeric vector of total variance explained by each PC,
+SS-weighted across blocks.
+\item \code{p_values}: conditional component-wise cross-block permutation diagnostics,
+or \code{NA} when the diagnostic is disabled or skipped.
+\item \code{p_value_scope}: description of that scope when the diagnostic ran,
+otherwise \code{NULL}.
+\item \code{converged}: per component, whether the solver converged within
+\code{max_iter} iterations (a warning names components that did not).
+\item \code{c_matrix}: the sparsity matrix actually used when \code{c_matrix} was supplied
+(retained blocks; entries capped at \code{sqrt(p)} of the retained columns),
+otherwise \code{NULL}.
 \item \code{T_mat}: numeric matrix of appended latent scores (column names match the
 appended features).
 \item \code{run_id}: optional identifier used to match prediction-side payloads to the
@@ -65,17 +87,31 @@ trained fit when a shared \code{log_env} is used.
 
 \itemize{
 \item \code{blocks} (\code{uty}, \strong{required}; tag \code{"train"}): named list mapping block IDs
-to character vectors of feature names.
+to character vectors of feature names. Declared names absent from the data
+expand to encoded columns \verb{<name>.<suffix>} as described in
+\code{\link[=mb_resolve_block_columns]{mb_resolve_block_columns()}}; the resolved blocks must be disjoint.
 \item \code{ncomp} (\code{int}, default \code{1}; tag \code{"train"}): number of components to target
 (may be shortened by permutation early-stopping).
-\item \code{permutation_test} (\code{lgl}, default \code{FALSE}; tag \code{"train"}): enable early-stop test.
+\item \code{permutation_test} (\code{lgl}, default \code{FALSE}; tag \code{"train"}): enable the
+conditional cross-block early-stop diagnostic (see Description).
 \item \code{n_perm} (\code{int}, default \code{500}; tag \code{"train"}): permutations for the test.
 \item \code{perm_alpha} (\code{dbl} in \verb{[0,1]}, default \code{0.05}; tag \code{"train"}): test alpha.
+\item \code{max_iter} (\code{int}, default \code{60}; tag \code{"train"}): maximum solver iterations
+per component.
+\item \code{tol} (\code{dbl}, default \code{1e-4}; tag \code{"train"}): convergence tolerance on the
+change of the variance-explained objective between iterations.
 \item \verb{c_<block>} (one \code{dbl} per block, lower \code{1}, upper \verb{sqrt(#features in block)},
 default \verb{sqrt(#features)}; tags \code{c("train","tune")}): L1-norm budget for
-the unit-L2 loading vector in that block.
+the unit-L2 loading vector in that block; capped at \code{sqrt(p)} of the
+retained columns.
 \item \code{c_matrix} (\code{uty}, default \code{NULL}; tags \code{c("train","tune")}): optional
-matrix (\verb{blocks x components}) overriding single-value \verb{c_<block>} parameters.
+matrix (\verb{blocks x components}) overriding single-value \verb{c_<block>}
+parameters and \code{ncomp}. Named rows must be unique and non-empty and match
+either all declared or all retained blocks; an unnamed matrix is matched by
+position to the declared blocks. Entries must lie in \verb{[1, sqrt(p_b)]},
+where \code{p_b} is the structural width of the block (its resolved numeric
+columns before constant columns are removed); entries above \code{sqrt(p)} of
+the retained columns are nonbinding, capped there and logged.
 \item \code{log_env} (\code{uty}, default \code{NULL}; tags \code{c("train","predict")}): optional
 environment that stores a training snapshot and prediction-side explained-
 variance payloads for measures and diagnostics.

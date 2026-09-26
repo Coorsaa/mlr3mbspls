@@ -22,7 +22,10 @@ mapping is taken from \code{task$blocks}.}
 \code{\link[=TaskMultiBlock]{TaskMultiBlock()}}. Used when \code{blocks = NULL}.}
 
 \item{site_correction}{Named list of features used for site correction.
-Defaults to \code{list()} (no correction).}
+Defaults to \code{list()} (no correction). When \code{task} is supplied, the columns
+read at prediction time (all \code{"partial_corr"} and \code{"dir"} columns and the
+ComBat \code{site}) must exist and must not be target columns; ComBat
+\code{covariates} may name the target (see \link{PipeOpSiteCorrection}).}
 
 \item{site_correction_methods}{Named list of methods for site correction.
 Defaults to \code{list()}.}
