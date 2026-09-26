@@ -215,11 +215,12 @@ independent data. The function requires an explicit independence assertion,
 supports row/stratum/whole-unit exchangeability, and reports Holm-adjusted
 p-values across the complete supplied LC family. A directional replication
 claim requires `reference_signs`, the expected signs of the pairwise score
-correlations fixed from discovery; the one-sided test then rejects only for
-association in the discovery direction. With more than two blocks the
-directional statistic is the mean of the sign-oriented pairwise correlations,
-so a rejection shows association in the discovery direction on average, not
-for every pair; check the returned `pairwise_correlations` before claiming
+correlations fixed from discovery; the one-sided test then rejects for large
+values of the sign-oriented statistic relative to the permutation null of the
+design. With more than two blocks the directional statistic is the mean of the
+sign-oriented pairwise correlations, so a replication shows association in
+the discovery direction on average, not for every pair; check the returned
+`pairwise_correlations` before claiming
 that each pair replicated. A significant directional p-value alone does not
 establish the discovery sign: stratified or whole-unit permutations keep
 between-stratum or between-unit structure fixed, so a pooled correlation of

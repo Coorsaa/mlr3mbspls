@@ -118,8 +118,9 @@ Frozen weights fix the sign of every block score, so the sign of each
 pairwise score correlation is meaningful. With \code{reference_signs}, each LC is
 tested directionally: the statistic is the mean of the active pairwise
 correlations multiplied by their expected signs from discovery, and the
-one-sided test rejects only for association in the discovery direction.
-Replication additionally requires the observed statistic to be positive,
+one-sided test rejects for large values of this statistic relative to the
+permutation null of the design. Replication additionally requires the
+observed statistic to be positive,
 i.e. the sign-oriented correlations to agree with discovery on average:
 restricted designs (strata or whole units) keep between-stratum or
 between-unit structure fixed under the null, so a significant upper-tail

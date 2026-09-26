@@ -203,8 +203,8 @@ versions.
   and returns the observed signed pairwise score correlations
   (`pairwise_correlations`). With `reference_signs` taken from discovery, each
   LC is tested directionally: the statistic is the mean sign-oriented pairwise
-  correlation, so a rejection shows association in the discovery direction on
-  average across block pairs. The replication decision `replicated` also
+  correlation, so a replication shows association in the discovery direction
+  on average across block pairs. The replication decision `replicated` also
   requires the observed sign-oriented statistic to be positive
   (`direction_agrees`), because stratified or whole-unit permutations can make
   a pooled correlation of the opposite sign significant relative to the
