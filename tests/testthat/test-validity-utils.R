@@ -394,10 +394,15 @@ test_that("RNG streams are independent of ambient generators and reject invalid 
     before = .Random.seed
     second = mb_rng_streams(2L, 42L)
     expect_identical(first, second)
-    expect_identical(RNGkind(), c("Wichmann-Hill", "Ahrens-Dieter", "Rejection"))
+    # Newer R versions report further kinds after the first three.
+    expect_identical(RNGkind()[1:3], c("Wichmann-Hill", "Ahrens-Dieter", "Rejection"))
     expect_identical(.Random.seed, before)
     expect_error(with_stream(.Random.seed, function() runif(1L)), "L'Ecuyer")
     expect_error(with_stream(as.numeric(first[[1L]]), function() runif(1L)), "L'Ecuyer")
+    # A Box-Muller normal generator keeps state outside the seed.
+    box_muller = first[[1L]]
+    box_muller[[1L]] = box_muller[[1L]] %/% 10000L * 10000L + 207L
+    expect_error(with_stream(box_muller, function() runif(1L)), "normal generator")
     bad = first[[1L]]
     bad[2:4] = 0L
     expect_error(with_stream(bad, function() runif(1L)), "generator state")

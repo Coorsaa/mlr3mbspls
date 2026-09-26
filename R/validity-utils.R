@@ -223,10 +223,13 @@ with_rng_stream_local = function(stream, fn) {
   if (!is.function(fn)) {
     stop("`fn` must be a function.", call. = FALSE)
   }
+  # The last two digits of `.Random.seed[1]` encode the generator and the next
+  # two the normal generator. Box-Muller (2) and user-supplied (3) generators
+  # keep state outside the seed. Higher digits encode further kinds (sample,
+  # and in newer R versions binomial) and are deliberately not constrained.
   if (!is.integer(stream) || length(stream) != 7L || is.na(stream[[1L]]) ||
     stream[[1L]] < 0L || stream[[1L]] %% 100L != 7L ||
-    !stream[[1L]] %/% 100L %% 100L %in% c(0L, 1L, 4L, 5L) ||
-    !stream[[1L]] %/% 10000L %in% 0:1) {
+    stream[[1L]] %/% 100L %% 100L %in% c(2L, 3L)) {
     stop(paste(
       "`stream` must be a valid L'Ecuyer-CMRG `.Random.seed` vector",
       "with a normal generator whose state is stored in the seed."
