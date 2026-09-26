@@ -315,12 +315,22 @@ collect_mbspls_nested_cv = function(ids = NULL, reg, allow_partial = FALSE) {
   if (length(measure_ids) > 1L || length(measure_keys) > 1L) {
     stop("collect_mbspls_nested_cv() expects a single tuning measure per registry.", call. = FALSE)
   }
-  measure_spec = list(
-    id = if (length(measure_ids)) measure_ids[[1L]] else "mbspls.mac_evwt",
-    key = if (length(measure_keys)) measure_keys[[1L]] else "mbspls.mac_evwt"
-  )
+  # The objective is part of every job's registered arguments, so rows of
+  # unfinished jobs are labelled correctly even when no job has finished.
+  registered = batchtools::makeJob(ids[[1L]], reg = reg)$pars
+  measure_spec = mbspls_nested_cv_resolve_measure(registered$measure)
+  if ((length(measure_keys) && !identical(measure_keys[[1L]], measure_spec$key)) ||
+    (length(measure_ids) && !identical(measure_ids[[1L]], measure_spec$id))) {
+    stop("Finished jobs report a tuning measure that differs from the registered one.", call. = FALSE)
+  }
   perf_metrics = unique(stats::na.omit(done_rows$perf_metric %||% NA_character_))
-  perf_metric = if (length(perf_metrics) == 1L) perf_metrics[[1L]] else NA_character_
+  perf_metric = if (length(perf_metrics) == 1L) {
+    perf_metrics[[1L]]
+  } else if (!length(perf_metrics) && checkmate::test_string(registered$performance_metric)) {
+    registered$performance_metric
+  } else {
+    NA_character_
+  }
 
   # One entry per requested outer split, ordered by split.
   ordered_ids = as.character(ids[order(split_of[as.character(ids)])])

@@ -1,4 +1,4 @@
-batchtools_nested_cv = function(task, rs_outer, reg_dir) {
+batchtools_nested_cv = function(task, rs_outer, reg_dir, measure = mlr3::msr("mbspls.mac_evwt")) {
   gl = mbspls_graph_learner(
     learner = mlr3::lrn("clust.kmeans", centers = 2L),
     task = task,
@@ -10,7 +10,7 @@ batchtools_nested_cv = function(task, rs_outer, reg_dir) {
   mbspls_nested_cv_batchtools(
     task = task, graphlearner = gl, rs_outer = rs_outer, rs_inner = mlr3::rsmp("holdout"),
     ncomp = 1L, tuner_budget = 1L, tuning_early_stop = FALSE, n_perm_tuning = 1L,
-    reg_dir = reg_dir,
+    measure = measure, reg_dir = reg_dir,
     cluster_function = batchtools::makeClusterFunctionsInteractive(external = FALSE)
   )
 }
@@ -67,6 +67,32 @@ test_that("collect_mbspls_nested_cv reports unfinished and failed outer folds", 
   # Requested ids that are not in the registry are reported, not dropped.
   expect_error(collect_mbspls_nested_cv(ids = c(1L, 7L, 9L), reg = out$reg),
     "Job id\\(s\\) not found in the registry: 7, 9")
+})
+
+test_that("collect_mbspls_nested_cv labels unfinished folds with the registered measure", {
+  testthat::skip_if_not_installed("batchtools")
+  task = task_multiblock_synthetic(task_type = "clust", n = 45L, seed = 37L)
+  ids = task$row_ids
+  rs_outer = mlr3::rsmp("custom")
+  rs_outer$instantiate(task,
+    train_sets = list(ids[1:30], ids[16:45]),
+    test_sets = list(ids[31:45], ids[1:15])
+  )
+  reg_dir = tempfile("mbspls_nested_cv_reg_")
+  on.exit(unlink(reg_dir, recursive = TRUE), add = TRUE)
+  out = suppressMessages(batchtools_nested_cv(task, rs_outer, reg_dir,
+    measure = mlr3::msr("mbspls.mac")))
+
+  res = NULL
+  expect_warning(
+    {
+      res = collect_mbspls_nested_cv(reg = out, allow_partial = TRUE)
+    },
+    "2 of 2 outer fold jobs did not complete"
+  )
+  expect_identical(res$measure_id, "mbspls.mac")
+  expect_identical(unique(res$results$measure_id), "mbspls.mac")
+  expect_true(all(is.na(res$results$measure_test)))
 })
 
 test_that("mbspls_nested_cv_batchtools reproduces the in-process result schema", {
