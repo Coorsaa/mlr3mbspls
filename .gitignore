@@ -175,7 +175,6 @@ renv.lock
 
 # vscode
 .vscode
-.cursor
 
 # revdep
 revdep/
@@ -183,14 +182,6 @@ revdep/
 # misc
 Meta/
 Rplots.pdf
-.cursor/
 slides/
 release/
 .styler-cache/
-
-# Local collaboration instructions and working notes
-AGENTS.md
-.agents/
-.codex/
-inst/AUDIT_REPORT.md
-inst/INFERENCE_RESEARCH.md

@@ -34,14 +34,10 @@ repos:
       - id: check-added-large-files
         args: ["--maxkb=1000"]
       - id: end-of-file-fixer
-        exclude: '\.Rd'
+        # Rcpp::compileAttributes() ends R/RcppExports.R with a blank line.
+        exclude: '\.Rd|^R/RcppExports\.R$'
   - repo: local
     hooks:
-      - id: forbid-local-working-notes
-        name: Keep local instructions and working notes out of commits
-        entry: Local instructions and working notes must remain untracked.
-        language: fail
-        files: '(^|/)(AGENTS\.md|\.agents/|\.codex/)|^inst/(AUDIT_REPORT|INFERENCE_RESEARCH)\.md$'
       - id: mlr-style
         name: Check repository-wide styler.mlr formatting
         entry: Rscript tools/style.R --check

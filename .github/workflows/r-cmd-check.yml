@@ -26,6 +26,9 @@ jobs:
     runs-on: ubuntu-latest
     name: styler.mlr
 
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
@@ -49,6 +52,58 @@ jobs:
 
       - name: Check repository style
         run: Rscript tools/style.R --check
+
+      - name: Check that ignored files are neither checked nor formatted
+        run: |
+          mkdir -p mlr3mbspls.Rcheck
+          printf 'x <- 1\n' > mlr3mbspls.Rcheck/probe-Ex.R
+          printf 'x <- 1\n' > .Rprofile
+          Rscript tools/style.R --check
+          Rscript tools/style.R
+          test "$(cat mlr3mbspls.Rcheck/probe-Ex.R)" = 'x <- 1'
+          test "$(cat .Rprofile)" = 'x <- 1'
+          rm -r mlr3mbspls.Rcheck .Rprofile
+
+      - name: Check that unformatted files are reported
+        run: |
+          printf "f=function( x ){ 'a' }\n" > R/zz_style_probe.R
+          if Rscript tools/style.R --check > "$RUNNER_TEMP/style.log"; then
+            cat "$RUNNER_TEMP/style.log"
+            echo "The style check accepted an unformatted file."
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/style.log"
+          grep -Fx -- "- R/zz_style_probe.R" "$RUNNER_TEMP/style.log"
+          rm R/zz_style_probe.R
+
+  tooling:
+    runs-on: ubuntu-latest
+    name: source archive
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - uses: r-lib/actions/setup-r@465b7d8e732ca3921382b1674c59bada9cbf3399 # v2
+        with:
+          r-version: release
+
+      - name: Check that local files stay out of the source archive
+        run: |
+          mkdir -p .probe revdep
+          printf 'probe\n' > .probe/probe.md
+          printf 'probe\n' > PROBE.md
+          printf 'probe\n' > cran-comments.md
+          printf 'probe\n' > README.html
+          printf 'x = 1\n' > revdep/probe.R
+          R CMD build --no-build-vignettes .
+          tar -tzf mlr3mbspls_*.tar.gz > "$RUNNER_TEMP/archive.txt"
+          if grep -E '^[^/]+/([.]|PROBE[.]md|cran-comments[.]md|README[.]html|revdep(/|$))' "$RUNNER_TEMP/archive.txt"; then
+            echo "Local files were included in the source archive."
+            exit 1
+          fi
+          for entry in README.md NEWS.md inst/MODEL_CARD.md inst/REPRODUCIBILITY.md inst/STATISTICAL_VALIDITY.md inst/examples/ inst/validation/ vignettes/quickstart.Rmd; do
+            grep -Fx "mlr3mbspls/$entry" "$RUNNER_TEMP/archive.txt"
+          done
 
   r-cmd-check:
     runs-on: ${{ matrix.config.os }}
@@ -98,7 +153,7 @@ jobs:
           remotes::install_github(
             "Jfortin1/neuroCombat_Rpackage@fbec46a61bc92bedb450b0e44addae4ce6afa934",
             upgrade = "never",
-            dependencies = TRUE
+            dependencies = NA
           )
         shell: Rscript {0}
 
@@ -154,7 +209,7 @@ jobs:
           remotes::install_github(
             "Jfortin1/neuroCombat_Rpackage@fbec46a61bc92bedb450b0e44addae4ce6afa934",
             upgrade = "never",
-            dependencies = TRUE
+            dependencies = NA
           )
         shell: Rscript {0}
 

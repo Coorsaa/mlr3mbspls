@@ -81,19 +81,82 @@ styler.mlr::cache_activate(
   verbose = FALSE
 )
 
-project_files = list.files(
-  ".",
-  recursive = TRUE,
-  all.files = TRUE,
-  full.names = TRUE,
-  include.dirs = FALSE
-)
-project_files = sub("^\\./", "", project_files)
-excluded = grepl(
-  "^(\\.git|\\.agents|\\.codex|\\.Rproj\\.user|\\.styler-cache|docs|release)(/|$)|(^|/)AGENTS[.]md$|^inst/(AUDIT_REPORT|INFERENCE_RESEARCH)[.]md$",
-  project_files
-)
-project_files = sort(project_files[!excluded])
+# Rendered sites, release staging, and generator output are never formatted.
+# `R/RcppExports.R` is committed exactly as `Rcpp::compileAttributes()` writes
+# it, so that compiling the package never leaves the working tree modified.
+unformatted_pattern = "^(docs|release)(/|$)|^R/RcppExports[.]R$"
+# Without git, skip hidden top-level entries and common local artefacts that
+# the ignore rules would otherwise exclude.
+untracked_pattern = "^([.][^/]*|[^/]+[.]Rcheck|renv|revdep|rsconnect|slides)(/|$)"
+
+list_git_files = function() {
+  inside = suppressWarnings(tryCatch(
+    system2(
+      "git",
+      c("rev-parse", "--is-inside-work-tree"),
+      stdout = TRUE,
+      stderr = FALSE
+    ),
+    error = function(error) character()
+  ))
+  if (!identical(inside, "true")) {
+    return(NULL)
+  }
+
+  # Tracked files plus untracked files that no ignore rule (including
+  # `.git/info/exclude`) matches. `system2(stdout = TRUE)` truncates
+  # NUL-separated output at the first path, so read the listing as bytes.
+  listing = tempfile("mlr3mbspls-files-")
+  on.exit(unlink(listing), add = TRUE)
+  status = system2(
+    "git",
+    c("ls-files", "-z", "--cached", "--others", "--exclude-standard"),
+    stdout = listing,
+    stderr = FALSE
+  )
+  if (!identical(as.integer(status), 0L)) {
+    stop("Could not list repository files with git.", call. = FALSE)
+  }
+  bytes = readBin(listing, "raw", n = file.size(listing))
+  ends = which(bytes == as.raw(0L))
+  starts = c(1L, ends[-length(ends)] + 1L)
+  files = vapply(seq_along(ends), function(i) {
+    rawToChar(bytes[seq.int(starts[[i]], ends[[i]] - 1L)])
+  }, character(1L))
+  Encoding(files) = "UTF-8"
+
+  # Drop deleted but still tracked paths, submodules, and symbolic links.
+  files = files[file_test("-f", files) & !nzchar(Sys.readlink(files))]
+  if (!"DESCRIPTION" %in% files) {
+    # The package root is ignored by an enclosing repository.
+    return(NULL)
+  }
+  files
+}
+
+list_tree_files = function() {
+  files = list.files(
+    ".",
+    recursive = TRUE,
+    all.files = TRUE,
+    full.names = TRUE,
+    include.dirs = FALSE
+  )
+  files = sub("^\\./", "", files)
+  root = paste0(normalizePath(".", winslash = "/"), "/")
+  inside_root = startsWith(
+    normalizePath(files, winslash = "/", mustWork = FALSE),
+    root
+  )
+  files[inside_root & !grepl(untracked_pattern, files)]
+}
+
+project_files = list_git_files()
+if (is.null(project_files)) {
+  cat("No git work tree found; scanning the directory tree instead.\n")
+  project_files = list_tree_files()
+}
+project_files = sort(project_files[!grepl(unformatted_pattern, project_files)])
 
 source_extensions = c(".r", ".rmd", ".rmarkdown", ".qmd", ".rprofile")
 source_files = project_files[
@@ -125,9 +188,11 @@ style_source_files = function(files, dry) {
   result = NULL
   tryCatch(
     {
-      invisible(utils::capture.output(
+      # The braces make `result = ...` an assignment in this frame instead of
+      # a named argument that `capture.output()` would silently discard.
+      invisible(utils::capture.output({
         result = suppressMessages(styler.mlr::style_file(files, dry = dry))
-      ))
+      }))
     },
     error = function(error) {
       stop(
@@ -160,7 +225,7 @@ assert_no_left_assignment = function(text, context) {
     stop(
       sprintf(
         paste(
-          "%s still contains `<-` on line(s) %s.",
+          "%s still contains `<-` after formatting on line(s) %s.",
           "Use an explicit block when `=` would otherwise be parsed as a named argument."
         ),
         context,
@@ -306,7 +371,15 @@ plain_source_files = source_files[
   endsWith(tolower(source_files), ".r") |
     endsWith(tolower(source_files), ".rprofile")
 ]
-invisible(lapply(plain_source_files, function(file) {
+# In check mode, files the formatter would rewrite are reported as needing
+# formatting below; the assertion then only flags left arrows in files that are
+# already formatted, which need an explicit block.
+assert_files = if (check_only) {
+  setdiff(plain_source_files, changed_source)
+} else {
+  plain_source_files
+}
+invisible(lapply(assert_files, function(file) {
   assert_no_left_assignment(
     readLines(file, warn = FALSE, encoding = "UTF-8"),
     file
