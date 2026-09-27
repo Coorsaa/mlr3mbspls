@@ -58,12 +58,37 @@
 
 <div id="contributing-to-mlr3mbspls" class="section level1">
 
+<div class="section level2">
+<h2 id="getting-help-and-reporting-problems">Getting help and reporting problems<a class="anchor" aria-label="anchor" href="#getting-help-and-reporting-problems"></a></h2>
+<p>Use the <a href="https://github.com/Coorsaa/mlr3mbspls/issues" class="external-link">issue tracker</a> for questions, bug reports and feature requests.</p>
+<ul><li>
+<strong>Questions:</strong> describe what you want to do and include the code you tried.</li>
+<li>
+<strong>Bugs:</strong> include a minimal reproducible example, the full error message, <code>packageVersion("mlr3mbspls")</code> and the output of <code><a href="https://rdrr.io/r/utils/sessionInfo.html" class="external-link">sessionInfo()</a></code>.</li>
+<li>
+<strong>Feature requests:</strong> describe the analysis or use case that the feature would support.</li>
+</ul><p>Report security-relevant problems privately to the maintainer at <a href="mailto:mail@stefancoors.de" class="email">mail@stefancoors.de</a> instead of opening a public issue.</p>
+</div>
+<div class="section level2">
+<h2 id="contributing-changes">Contributing changes<a class="anchor" aria-label="anchor" href="#contributing-changes"></a></h2>
+<ol style="list-style-type: decimal"><li>For larger changes, open an issue first to discuss the approach.</li>
+<li>Fork the repository, create a branch from <code>main</code>, and keep each pull request focused on one change.</li>
+<li>Add or update tests for every change in behaviour, update the roxygen documentation, and add an entry to <code>NEWS.md</code>.</li>
+<li>Format the code and run the tests and <code>R CMD check</code> as described below.</li>
+<li>Open a pull request that explains the change and its motivation.</li>
+</ol></div>
+<div class="section level2">
+<h2 id="support-and-governance">Support and governance<a class="anchor" aria-label="anchor" href="#support-and-governance"></a></h2>
+<p><code>mlr3mbspls</code> is maintained by Stefan Coors (maintainer) and Clara Sophie Vetter. Issues and pull requests are answered on a best-effort basis. Proposed changes are discussed in issues and pull requests; the maintainers merge them into <code>main</code> after review and passing continuous integration. Releases are tagged on GitHub and described in <code>NEWS.md</code>. The package follows the conventions of the <code>mlr3</code> ecosystem.</p>
+</div>
+<div class="section level2">
+<h2 id="code-style">Code style<a class="anchor" aria-label="anchor" href="#code-style"></a></h2>
 <p>Write R code and documentation in English and follow the mlr style guide. In particular, use <code>=</code> for assignment, double-quoted strings, lower snake case for functions and variables, <code>UpperCamelCase</code> for R6 classes, one statement per line, and two-space indentation.</p>
 <p>The repository pins <code>styler</code> 1.10.3 and <code>styler.mlr</code> 0.1.0 at revision <code>e950499afb6b28610400489f3ae6faacc6897358</code>. Install that toolchain with:</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html" class="external-link">install.packages</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"remotes"</span>, <span class="st">"roxygen2"</span>, <span class="st">"knitr"</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="fu">remotes</span><span class="fu">::</span><span class="fu">install_version</span><span class="op">(</span><span class="st">"styler"</span>, version <span class="op">=</span> <span class="st">"1.10.3"</span>, upgrade <span class="op">=</span> <span class="st">"never"</span><span class="op">)</span></span>
-<span><span class="fu">remotes</span><span class="fu">::</span><span class="fu">install_github</span><span class="op">(</span></span>
+<span><span class="fu">remotes</span><span class="fu">::</span><span class="fu"><a href="https://remotes.r-lib.org/reference/install_version.html" class="external-link">install_version</a></span><span class="op">(</span><span class="st">"styler"</span>, version <span class="op">=</span> <span class="st">"1.10.3"</span>, upgrade <span class="op">=</span> <span class="st">"never"</span><span class="op">)</span></span>
+<span><span class="fu">remotes</span><span class="fu">::</span><span class="fu"><a href="https://remotes.r-lib.org/reference/install_github.html" class="external-link">install_github</a></span><span class="op">(</span></span>
 <span>  <span class="st">"mlr-org/styler.mlr@e950499afb6b28610400489f3ae6faacc6897358"</span>,</span>
 <span>  upgrade <span class="op">=</span> <span class="st">"never"</span></span>
 <span><span class="op">)</span></span></code></pre></div>
@@ -74,6 +99,7 @@
 <div class="sourceCode" id="cb3"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="ex">Rscript</span> tools/style.R <span class="at">--check</span></span></code></pre></div>
 <p>The check also rejects residual <code>&lt;-</code> assignments, including assignments that the formatter cannot rewrite safely inside an unbraced control-flow body or a function call. Add an explicit <code>{ ... }</code> block in those cases and use <code>=</code> inside it.</p>
 <p>The same check runs in pre-commit and continuous integration. After formatting, run the package tests and <code>R CMD check</code> before opening a pull request.</p>
+</div>
 <div class="section level2">
 <h2 id="development-dependencies">Development dependencies<a class="anchor" aria-label="anchor" href="#development-dependencies"></a></h2>
 <p><code>neuroCombat</code>, which ComBat site correction needs, is only available from GitHub, and pak cannot resolve the Bioconductor remote declared in its <code>DESCRIPTION</code>. Install the other dependencies with pak and the revision pinned in continuous integration with remotes:</p>
@@ -84,7 +110,7 @@
 <span>  dependencies <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  upgrade <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span>
-<span><span class="fu">remotes</span><span class="fu">::</span><span class="fu">install_github</span><span class="op">(</span></span>
+<span><span class="fu">remotes</span><span class="fu">::</span><span class="fu"><a href="https://remotes.r-lib.org/reference/install_github.html" class="external-link">install_github</a></span><span class="op">(</span></span>
 <span>  <span class="st">"Jfortin1/neuroCombat_Rpackage@fbec46a61bc92bedb450b0e44addae4ce6afa934"</span>,</span>
 <span>  dependencies <span class="op">=</span> <span class="cn">NA</span>,</span>
 <span>  upgrade <span class="op">=</span> <span class="st">"never"</span></span>
