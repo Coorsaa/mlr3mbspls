@@ -17,7 +17,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -54,7 +54,7 @@
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>MB-sPLS Graph: preproc -&gt; MB-sPLS -&gt; bootstrap-select (two selection methods)</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/graph_mbspls.R" class="external-link"><code>R/graph_mbspls.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.4.0/R/graph_mbspls.R" class="external-link"><code>R/graph_mbspls.R</code></a></small>
     <div class="hidden name"><code>mbspls_graph.Rd</code></div>
     </div>
 
@@ -82,7 +82,9 @@
 <span>  val_test_alpha <span class="op">=</span> <span class="fl">0.05</span>,</span>
 <span>  val_test_n <span class="op">=</span> <span class="fl">1000L</span>,</span>
 <span>  val_test_permute_all <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  seed_validation <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  bootstrap <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  store_train_blocks <span class="op">=</span> <span class="va">bootstrap</span>,</span>
 <span>  stability_only <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  B <span class="op">=</span> <span class="fl">500L</span>,</span>
 <span>  alpha <span class="op">=</span> <span class="fl">0.05</span>,</span>
@@ -92,6 +94,7 @@
 <span>  frequency_threshold <span class="op">=</span> <span class="fl">0.6</span>,</span>
 <span>  stable_weight_source <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"training"</span>, <span class="st">"bootstrap_mean"</span><span class="op">)</span>,</span>
 <span>  stratify_by_block <span class="op">=</span> <span class="cn">NULL</span>,</span>
+<span>  bootstrap_groups <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  seed_train <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  seed_bootstrap <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  workers <span class="op">=</span> <span class="fl">1L</span>,</span>
@@ -129,20 +132,40 @@
 
 
 <dt id="arg-permutation-test-n-perm-perm-alpha">permutation_test, n_perm, perm_alpha<a class="anchor" aria-label="anchor" href="#arg-permutation-test-n-perm-perm-alpha"></a></dt>
-<dd><p>Train-time permutation test (MB-sPLS).</p></dd>
+<dd><p>Conditional component-wise
+train-time permutation diagnostic (MB-sPLS), not a full-pipeline test.</p></dd>
 
 
 <dt id="arg-predict-weights">predict_weights<a class="anchor" aria-label="anchor" href="#arg-predict-weights"></a></dt>
 <dd><p>character; one of "auto","raw","stable_ci","stable_frequency".
-Controls which weights PipeOpMBsPLS uses at predict/validation time.</p></dd>
+Weights that <a href="PipeOpMBsPLS.html">PipeOpMBsPLS</a> evaluates in its prediction-side payload and
+<code>val_test</code> diagnostics. The emitted LV features always use the training
+weights; with bootstrap selection active (and <code>stability_only = FALSE</code>),
+<a href="PipeOpMBsPLSBootstrapSelect.html">PipeOpMBsPLSBootstrapSelect</a> replaces them by stable-weight LVs at train
+and predict time. With <code>stability_only = TRUE</code>, <code>"auto"</code> evaluates the raw
+weights and <code>"stable_ci"</code>/<code>"stable_frequency"</code> are rejected, because no
+feature of that graph is derived from the stable weights.</p></dd>
 
 
 <dt id="arg-val-test-val-test-alpha-val-test-n-val-test-permute-all">val_test, val_test_alpha, val_test_n, val_test_permute_all<a class="anchor" aria-label="anchor" href="#arg-val-test-val-test-alpha-val-test-n-val-test-permute-all"></a></dt>
-<dd><p>Prediction-side validation (MB-sPLS).</p></dd>
+<dd><p>Prediction-side
+conditional permutation diagnostic or descriptive bootstrap uncertainty.</p></dd>
+
+
+<dt id="arg-seed-validation">seed_validation<a class="anchor" aria-label="anchor" href="#arg-seed-validation"></a></dt>
+<dd><p>Optional seed for prediction-side diagnostics; one
+deterministic stream is assigned per component.</p></dd>
 
 
 <dt id="arg-bootstrap">bootstrap<a class="anchor" aria-label="anchor" href="#arg-bootstrap"></a></dt>
 <dd><p>Logical; run bootstrap selection (default TRUE).</p></dd>
+
+
+<dt id="arg-store-train-blocks">store_train_blocks<a class="anchor" aria-label="anchor" href="#arg-store-train-blocks"></a></dt>
+<dd><p>Logical; retain the fitted (training-centred)
+block matrices for bootstrap selection, post-fit summaries and plots. The
+default follows <code>bootstrap</code>. It must be <code>TRUE</code> when bootstrap selection is
+enabled.</p></dd>
 
 
 <dt id="arg-stability-only">stability_only<a class="anchor" aria-label="anchor" href="#arg-stability-only"></a></dt>
@@ -158,7 +181,8 @@ Controls which weights PipeOpMBsPLS uses at predict/validation time.</p></dd>
 
 
 <dt id="arg-align">align<a class="anchor" aria-label="anchor" href="#arg-align"></a></dt>
-<dd><p>"block_sign" (default) or "global_correlation".</p></dd>
+<dd><p>Bootstrap sign alignment passed to <a href="PipeOpMBsPLSBootstrapSelect.html">PipeOpMBsPLSBootstrapSelect</a>:
+<code>"block_sign"</code> (default) or <code>"score_correlation"</code>.</p></dd>
 
 
 <dt id="arg-bootstrap-selection">bootstrap_selection<a class="anchor" aria-label="anchor" href="#arg-bootstrap-selection"></a></dt>
@@ -182,16 +206,26 @@ selection inside <a href="PipeOpMBsPLSBootstrapSelect.html">PipeOpMBsPLSBootstra
 <dd><p>Optional dummy block for stratified bootstrap (e.g., "Studygroup").</p></dd>
 
 
+<dt id="arg-bootstrap-groups">bootstrap_groups<a class="anchor" aria-label="anchor" href="#arg-bootstrap-groups"></a></dt>
+<dd><p>Optional exchangeability-group vector for cluster
+bootstrap sampling. Named vectors are aligned to task row IDs.</p></dd>
+
+
 <dt id="arg-seed-train">seed_train<a class="anchor" aria-label="anchor" href="#arg-seed-train"></a></dt>
-<dd><p>Optional seed for MB-sPLS training.</p></dd>
+<dd><p>Optional seed for random draws during MB-sPLS training,
+i.e. the permutations of <code>permutation_test</code>. The fit itself is
+deterministic and does not depend on the seed.</p></dd>
 
 
 <dt id="arg-seed-bootstrap">seed_bootstrap<a class="anchor" aria-label="anchor" href="#arg-seed-bootstrap"></a></dt>
-<dd><p>Optional seed for bootstrap selection.</p></dd>
+<dd><p>Optional seed for the bootstrap replicates of
+<a href="PipeOpMBsPLSBootstrapSelect.html">PipeOpMBsPLSBootstrapSelect</a>; when set, each replicate gets its own
+deterministic RNG stream. The default <code>NULL</code> matches the PipeOp and uses
+the ambient RNG, so results are reproducible with <code><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed()</a></code>.</p></dd>
 
 
 <dt id="arg-workers">workers<a class="anchor" aria-label="anchor" href="#arg-workers"></a></dt>
-<dd><p>Integer; Unix workers (default cores-1).</p></dd>
+<dd><p>Integer; number of cross-platform bootstrap workers.</p></dd>
 
 
 <dt id="arg-id-suffix">id_suffix<a class="anchor" aria-label="anchor" href="#arg-id-suffix"></a></dt>

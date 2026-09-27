@@ -21,7 +21,7 @@ results. It also computes summary statistics across all outer folds."><!-- mathj
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -58,7 +58,7 @@ results. It also computes summary statistics across all outer folds."><!-- mathj
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>Collect and summarize results from MB-sPLS nested CV Batchtools jobs</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/mbspls_nested_cv_batch.R" class="external-link"><code>R/mbspls_nested_cv_batch.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.4.0/R/mbspls_nested_cv_batch.R" class="external-link"><code>R/mbspls_nested_cv_batch.R</code></a></small>
     <div class="hidden name"><code>collect_mbspls_nested_cv.Rd</code></div>
     </div>
 
@@ -71,7 +71,7 @@ results. It also computes summary statistics across all outer folds.</p>
     </div>
 
     <div id="ref-usage">
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">collect_mbspls_nested_cv</span><span class="op">(</span>ids <span class="op">=</span> <span class="cn">NULL</span>, <span class="va">reg</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">collect_mbspls_nested_cv</span><span class="op">(</span>ids <span class="op">=</span> <span class="cn">NULL</span>, <span class="va">reg</span>, allow_partial <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div id="arguments">
@@ -79,28 +79,51 @@ results. It also computes summary statistics across all outer folds.</p>
 
 
 <dl><dt id="arg-ids">ids<a class="anchor" aria-label="anchor" href="#arg-ids"></a></dt>
-<dd><p>A vector of job IDs corresponding to the completed outer fold jobs.</p></dd>
+<dd><p>A vector (or job table) of job IDs of the outer fold jobs to
+collect, or <code>NULL</code> (default) for all jobs of the registry. IDs that are not
+in the registry are an error.</p></dd>
 
 
 <dt id="arg-reg">reg<a class="anchor" aria-label="anchor" href="#arg-reg"></a></dt>
-<dd><p>A <code>batchtools</code> registry object returned by
+<dd><p>A <code>batchtools</code> registry object, or the list returned by
 <code><a href="mbspls_nested_cv_batchtools.html">mbspls_nested_cv_batchtools()</a></code>.</p></dd>
+
+
+<dt id="arg-allow-partial">allow_partial<a class="anchor" aria-label="anchor" href="#arg-allow-partial"></a></dt>
+<dd><p>Logical; if <code>TRUE</code>, summarise the finished jobs and
+report unfinished or failed jobs as rows with missing scores instead of
+stopping (default <code>FALSE</code>).</p></dd>
 
 </dl></div>
     <div id="value">
     <h2>Value</h2>
-    <p>A list containing:</p><ul><li><p><code>results</code>: A data.table with the results from each outer fold, including
-the selected objective (<code>measure_id</code>, <code>measure_key</code>, <code>measure_test</code>,
-<code>measure_test_defined</code>, <code>measure_test_status</code>) plus secondary diagnostics
-such as <code>mac_lv1_test</code> and <code>mac_evwt_test</code>.</p></li>
-<li><p><code>c_mats</code>: A list of the tuned C* matrices from each outer fold.</p></li>
-<li><p><code>inner_scores</code>: A numeric vector of the best inner cross-validation
-scores from each outer fold.</p></li>
+    <p>A list containing:</p><ul><li><p><code>results</code>: A data.table with one row per requested outer split, ordered
+by split, including the selected objective (<code>measure_id</code>, <code>measure_key</code>,
+<code>measure_test</code>, <code>measure_test_defined</code>, <code>measure_test_status</code>), the
+number of components whose latent correlation was undefined and scored as
+zero (<code>measure_test_n_undefined</code>), plus secondary diagnostics such as
+<code>mac_lv1_test</code> and <code>mac_evwt_test</code>.</p></li>
+<li><p><code>c_mats</code>: A list of the tuned C* matrices from each outer split (<code>NULL</code>
+for unfinished splits).</p></li>
+<li><p><code>inner_scores</code>: A numeric vector of the tuner's inner cross-validation
+scores from each outer split (<code>NA</code> for unfinished splits).</p></li>
 <li><p><code>payloads</code>: (optional) A list of the full payloads from each outer fold
 (if <code>store_payload = TRUE</code> was set).</p></li>
 <li><p><code>summary_table</code>: A data.table with summary statistics across all outer folds,
 including <code>n_total</code>, <code>n_defined</code>, and <code>n_failed</code>.</p></li>
 </ul></div>
+    <div id="details">
+    <h2>Details</h2>
+    <p>An outer-performance estimate computed from the folds that happened to
+finish is biased and would be presented as complete, so by default every
+requested job must have finished successfully. If a job errored, expired,
+is still queued or running, or was never submitted, the function stops with
+a report of the affected outer splits. With <code>allow_partial = TRUE</code> it warns
+instead and adds a row with missing scores for each unfinished split, whose
+<code>measure_test_status</code> describes the job status (including the error
+message). These rows count towards <code>n_total</code> and <code>n_failed</code> in the summary
+table.</p>
+    </div>
     <div id="see-also">
     <h2>See also</h2>
     <div class="dont-index"><p><code><a href="mbspls_nested_cv_batchtools.html">mbspls_nested_cv_batchtools()</a></code></p></div>

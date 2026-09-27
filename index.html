@@ -33,7 +33,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -83,637 +83,379 @@
 <div align="center">
 <p><a href="https://github.com/coorsaa/mlr3mbspls/actions/workflows/r-cmd-check.yml" class="external-link"><img src="https://github.com/coorsaa/mlr3mbspls/actions/workflows/r-cmd-check.yml/badge.svg" alt="r-cmd-check"></a> <a href="https://github.com/coorsaa/mlr3mbspls/actions/workflows/pkgdown.yml" class="external-link"><img src="https://github.com/coorsaa/mlr3mbspls/actions/workflows/pkgdown.yml/badge.svg" alt="pkgdown"></a></p>
 </div>
-<p><code>mlr3mbspls</code> integrates <strong>multi-block sparse partial least squares (MB-sPLS)</strong> with the mlr3 ecosystem: pipelines, tuning, resampling, custom measures, rich visualisations, bootstrap stability selection, prediction‑side validation and nested CV utilities. A high‑performance C++/Armadillo backend powers the core algorithms (training + test EV, permutation, bootstrap, sparsity by block/component, deflation).</p>
-<p>Current release: <strong>0.3.4</strong></p>
+<p><code>mlr3mbspls</code> integrates multi-block sparse partial least squares (MB-sPLS) with the <code>mlr3</code> ecosystem. It provides unsupervised and supervised graph pipelines, block-aware tasks, nested resampling, descriptive bootstrap stability, model summaries, visualisations, and a native C++/Armadillo backend.</p>
+<p>Development version: <strong>0.4.0</strong></p>
 <div class="section level2">
-<h2 id="highlights">Highlights<a class="anchor" aria-label="anchor" href="#highlights"></a>
+<h2 id="inference-boundary">Inference boundary<a class="anchor" aria-label="anchor" href="#inference-boundary"></a>
 </h2>
-<div class="section level3">
-<h3 id="multi-block-representation-learning">Multi-Block Representation Learning<a class="anchor" aria-label="anchor" href="#multi-block-representation-learning"></a>
-</h3>
-<ul>
-<li>Sequential orthogonal MB‑sPLS with per‑block L¹ sparsity (vector or full <code>c_matrix</code>)</li>
-<li>Two optimisation targets: mean absolute correlation (MAC) or Frobenius norm</li>
-<li>Training‑time permutation early stopping (per component)</li>
-<li>Prediction‑side validation: permutation or bootstrap inference on latent correlation</li>
-<li>Block‑wise explained variance (EV) + per‑component EV on train &amp; test</li>
-</ul>
-</div>
-<div class="section level3">
-<h3 id="pipeline-components-pipeops">Pipeline Components (PipeOps)<a class="anchor" aria-label="anchor" href="#pipeline-components-pipeops"></a>
-</h3>
+<p>Ordinary bootstrap output describes uncertainty and stability; it is not an automatic null-hypothesis test. The package provides three deliberately scoped permutation interfaces:</p>
 <ul>
 <li>
-<code>PipeOpMBsPLS</code> – main transformer (produces per‑block latent scores <code>LVk_block</code>)</li>
+<code><a href="reference/mb_permutation_test.html">mb_permutation_test()</a></code> reruns a complete user-supplied analysis for every design-valid shuffle.</li>
 <li>
-<code>PipeOpMBsPLSBootstrapSelect</code> – post‑hoc bootstrap feature &amp; component selection (CI or frequency method) with component re‑numbering</li>
+<code><a href="reference/mbspls_permutation_test.html">mbspls_permutation_test()</a></code> refits a fixed, pre-specified MB-sPLS analysis and returns one global block- or target-association p-value.</li>
 <li>
-<code>PipeOpMBsPCA</code> – multi‑block sparse PCA analogue</li>
-<li>
-<code>PipeOpMBsPLSXY</code> – supervised XY variant</li>
-<li>
-<code>PipeOpBlockScaling</code> – unit sum‑of‑squares or feature‑wise scaling / z‑scoring (optionally divide by √p)</li>
-<li>
-<code>PipeOpSiteCorrection</code> – multi‑block site/batch correction (methods defined per site variable)</li>
-<li>
-<code>PipeOpFeatureSuffix</code> – systematic feature renaming</li>
-<li>
-<code>PipeOpTargetLabelFilter</code> – target label filtering convenience op</li>
+<code><a href="reference/mb_lc_confirmation_test.html">mb_lc_confirmation_test()</a></code> tests pre-specified frozen LC score associations in genuinely untouched confirmation observations and applies Holm correction across the supplied LC family. It is a directional replication test only when the expected correlation signs from discovery are supplied as <code>reference_signs</code>; otherwise it tests dependence in either direction.</li>
 </ul>
+<p>None of these functions turns later components into a generic population-rank test. Exchangeability units, strata, nuisance-variable handling, and the scientific null remain study-design responsibilities. Read the <a href="inst/STATISTICAL_VALIDITY.html">statistical-validity requirements</a> before reporting significance.</p>
 </div>
-<div class="section level3">
-<h3 id="learners--imputation-helpers">Learners &amp; Imputation Helpers<a class="anchor" aria-label="anchor" href="#learners--imputation-helpers"></a>
-</h3>
+<div class="section level2">
+<h2 id="main-capabilities">Main capabilities<a class="anchor" aria-label="anchor" href="#main-capabilities"></a>
+</h2>
 <ul>
 <li>
-<code>LearnerClassifKNNGower</code>, <code>LearnerRegrKNNGower</code> – kNN using Gower distance for mixed types</li>
+<code><a href="reference/as_task_multiblock.html">TaskMultiBlock()</a></code> and packaged synthetic classification, regression, and clustering tasks with persistent block metadata.</li>
 <li>
-<code><a href="reference/impute_knn_graph.html">impute_knn_graph()</a></code> – two‑step numeric/factor kNN imputation graph using above learners</li>
+<code>PipeOpMBsPLS</code>, <code>PipeOpMBsPLSXY</code>, and <code>PipeOpMBsPCA</code> for sparse multiblock representation learning.</li>
+<li>Training-fitted block scaling, site/batch correction, feature suffixing, and target-label filtering.</li>
+<li>Sequential component-wise tuning and direct or <code>batchtools</code>-backed nested cross-validation.</li>
+<li>Group-aware bootstrap stability selection, deterministic L’Ecuyer-CMRG streams, sign alignment, and schema-safe frozen scaling helpers.</li>
+<li>Tidy task/model summaries and plots for weights, stability intervals, explained variance, scores, correlations, and networks.</li>
 </ul>
-</div>
-<div class="section level3">
-<h3 id="tuning--orchestration">Tuning &amp; Orchestration<a class="anchor" aria-label="anchor" href="#tuning--orchestration"></a>
-</h3>
-<ul>
-<li>
-<code>TunerSeqMBsPLS</code>, <code>TunerSeqMBsPCA</code> – sequential component‑wise tuning (progressively add components)</li>
-<li>Sparse hyper‑parameters exposed with consistent <code>c_&lt;block&gt;</code> naming or full <code>c_matrix</code>
-</li>
-</ul>
-</div>
-<div class="section level3">
-<h3 id="evaluation--stability-tooling">Evaluation &amp; Stability Tooling<a class="anchor" aria-label="anchor" href="#evaluation--stability-tooling"></a>
-</h3>
-<ul>
-<li>Measures: <code>MeasureMBsPLS_MAC</code>, <code>MeasureMBsPLS_EV</code>, <code>MeasureMBsPLS_BlockEV</code>, <code>MeasureMBsPLS_EVWeightedMAC</code>, <code>MeasureMBSPCAMEV</code>
-</li>
-<li>
-<code><a href="reference/compute_test_ev.html">compute_test_ev()</a></code>, <code><a href="reference/compute_pipeop_test_ev.html">compute_pipeop_test_ev()</a></code> – EV + objective on new data</li>
-<li>
-<code><a href="reference/mbspls_flip_weights.html">mbspls_flip_weights()</a></code> – deterministic reorientation (sign alignment)</li>
-<li>
-<code><a href="reference/mbspls_extract_bootstrap_means.html">mbspls_extract_bootstrap_means()</a></code> – summarise bootstrap runs</li>
-<li>
-<code><a href="reference/mbspls_plot_block_weight_ci.html">mbspls_plot_block_weight_ci()</a></code> – block weight CIs</li>
-<li>Aggregation helpers: <code><a href="reference/aggregate_mbspls_payloads.html">aggregate_mbspls_payloads()</a></code>, <code><a href="reference/collect_mbspls_nested_cv.html">collect_mbspls_nested_cv()</a></code>
-</li>
-</ul>
-</div>
-<div class="section level3">
-<h3 id="task-qc--reporting">Task QC &amp; Reporting<a class="anchor" aria-label="anchor" href="#task-qc--reporting"></a>
-</h3>
-<ul>
-<li>
-<code>task$overview()</code> / <code><a href="reference/mb_task_overview.html">mb_task_overview()</a></code> – block-wise task QC (missingness, constants, complete-case rates, target balance)</li>
-<li>
-<code><a href="reference/mbspls_model_summary.html">mbspls_model_summary()</a></code> – tidy component/block/feature summaries for fitted MB-sPLS, MB-sPLS-XY, and MB-sPCA models</li>
-</ul>
-</div>
-<div class="section level3">
-<h3 id="higher-level-graph-utilities">Higher Level Graph Utilities<a class="anchor" aria-label="anchor" href="#higher-level-graph-utilities"></a>
-</h3>
-<ul>
-<li>
-<code><a href="reference/mbspls_preproc_graph.html">mbspls_preproc_graph()</a></code> – canonical preprocessing (type conversion → encoding → kNN impute → site correction → scaling)</li>
-<li>
-<code><a href="reference/mbspls_graph_learner.html">mbspls_graph_learner()</a></code> – end‑to‑end GraphLearner constructor (preproc → MB‑sPLS → optional bootstrap selection → downstream learner)</li>
-<li>
-<code><a href="reference/mbsplsxy_graph.html">mbsplsxy_graph()</a></code> / <code><a href="reference/mbsplsxy_graph_learner.html">mbsplsxy_graph_learner()</a></code> – supervised MB‑sPLS‑XY graph constructors for classification and regression</li>
-<li>
-<code><a href="reference/mbsplsxy_graph.html">mbsplsxy_graph()</a></code> / <code><a href="reference/mbsplsxy_graph_learner.html">mbsplsxy_graph_learner()</a></code> – supervised MB‑sPLS‑XY graph constructors for classification and regression</li>
-</ul>
-</div>
-<div class="section level3">
-<h3 id="resampling--batch-infrastructure">Resampling &amp; Batch Infrastructure<a class="anchor" aria-label="anchor" href="#resampling--batch-infrastructure"></a>
-</h3>
-<ul>
-<li>
-<code><a href="reference/mbspls_nested_cv.html">mbspls_nested_cv()</a></code> – nested CV (inner tuning budget + outer evaluation)</li>
-<li>
-<code><a href="reference/mbspls_nested_cv_batchtools.html">mbspls_nested_cv_batchtools()</a></code> – batchtools backend variant</li>
-</ul>
-</div>
-<div class="section level3">
-<h3 id="visualisation-s3-autoplot-on-graphlearner">Visualisation (S3 Autoplot on <code>GraphLearner</code>)<a class="anchor" aria-label="anchor" href="#visualisation-s3-autoplot-on-graphlearner"></a>
-</h3>
-<p>Types include: weights (raw / stability‑filtered), variance, scree, correlation heatmap, network, scores, block EV trajectories, bootstrap diagnostics.</p>
-</div>
 </div>
 <div class="section level2">
 <h2 id="installation">Installation<a class="anchor" aria-label="anchor" href="#installation"></a>
 </h2>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Development version</span></span>
-<span><span class="fu">devtools</span><span class="fu">::</span><span class="fu">install_github</span><span class="op">(</span><span class="st">"coorsaa/mlr3mbspls"</span><span class="op">)</span></span>
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html" class="external-link">install.packages</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span></span>
+<span>  <span class="st">"mlr3"</span>,</span>
+<span>  <span class="st">"mlr3pipelines"</span>,</span>
+<span>  <span class="st">"mlr3cluster"</span>,</span>
+<span>  <span class="st">"mlr3tuning"</span>,</span>
+<span>  <span class="st">"data.table"</span>,</span>
+<span>  <span class="st">"ggplot2"</span></span>
+<span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html" class="external-link">install.packages</a></span><span class="op">(</span><span class="st">"remotes"</span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># Core dependencies (install if missing)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html" class="external-link">install.packages</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"mlr3"</span>,<span class="st">"mlr3pipelines"</span>,<span class="st">"mlr3cluster"</span>,<span class="st">"data.table"</span>,<span class="st">"ggplot2"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
-<p>Optional: network plots require <code>igraph</code> + <code>ggraph</code>.</p>
-</div>
-<div class="section level2">
-<h2 id="taskmultiblock-with-breasttcga-and-potato">TaskMultiBlock with breast.TCGA and potato<a class="anchor" aria-label="anchor" href="#taskmultiblock-with-breasttcga-and-potato"></a>
-</h2>
-<p>Use the dataset adapters to obtain ready-to-use multi-block tasks.</p>
+<span><span class="fu">remotes</span><span class="fu">::</span><span class="fu">install_github</span><span class="op">(</span><span class="st">"coorsaa/mlr3mbspls"</span><span class="op">)</span></span></code></pre></div>
+<p>Optional dataset adapters and plots use packages listed in <code>Suggests</code>, including <code>mixOmics</code>, <code>multiblock</code>, <code>igraph</code>, and <code>ggraph</code>.</p>
+<p>ComBat site correction (<code>method = "combat"</code> in <code>PipeOpSiteCorrection</code>) needs the GitHub-only <code>neuroCombat</code> package. Install the revision used in continuous integration with:</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># breast.TCGA adapter</span></span>
-<span><span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/ns-load.html" class="external-link">requireNamespace</a></span><span class="op">(</span><span class="st">"mixOmics"</span>, quietly <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="va">task_tcga</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/as_task_multiblock.html">task_multiblock_breast_tcga</a></span><span class="op">(</span>task_type <span class="op">=</span> <span class="st">"classif"</span><span class="op">)</span></span>
-<span>  <span class="va">task_tcga</span><span class="op">$</span><span class="va">block_names</span></span>
-<span><span class="op">}</span></span>
-<span></span>
-<span><span class="co"># potato adapter</span></span>
-<span><span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/ns-load.html" class="external-link">requireNamespace</a></span><span class="op">(</span><span class="st">"multiblock"</span>, quietly <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="va">task_potato</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/as_task_multiblock.html">task_multiblock_potato</a></span><span class="op">(</span>task_type <span class="op">=</span> <span class="st">"regr"</span>, response <span class="op">=</span> <span class="fl">1L</span><span class="op">)</span></span>
-<span>  <span class="va">task_potato</span><span class="op">$</span><span class="va">block_names</span></span>
-<span><span class="op">}</span></span></code></pre></div>
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html" class="external-link">install.packages</a></span><span class="op">(</span><span class="st">"BiocManager"</span><span class="op">)</span></span>
+<span><span class="fu">BiocManager</span><span class="fu">::</span><span class="fu"><a href="https://bioconductor.github.io/BiocManager/reference/install.html" class="external-link">install</a></span><span class="op">(</span><span class="st">"BiocParallel"</span><span class="op">)</span></span>
+<span><span class="fu">remotes</span><span class="fu">::</span><span class="fu">install_github</span><span class="op">(</span></span>
+<span>  <span class="st">"Jfortin1/neuroCombat_Rpackage@fbec46a61bc92bedb450b0e44addae4ce6afa934"</span>,</span>
+<span>  dependencies <span class="op">=</span> <span class="cn">NA</span>,</span>
+<span>  upgrade <span class="op">=</span> <span class="st">"never"</span></span>
+<span><span class="op">)</span></span></code></pre></div>
+<p>pak cannot resolve the Bioconductor remote declared by <code>neuroCombat</code>; when installing with <code>dependencies = TRUE</code>, add <code>"neuroCombat=?ignore"</code> to the pak call and install <code>neuroCombat</code> as shown above.</p>
 </div>
 <div class="section level2">
-<h2 id="task-qc-and-reporting-helpers">Task QC and Reporting Helpers<a class="anchor" aria-label="anchor" href="#task-qc-and-reporting-helpers"></a>
+<h2 id="executable-quickstart">Executable quickstart<a class="anchor" aria-label="anchor" href="#executable-quickstart"></a>
 </h2>
-<p>Before fitting any model, summarise the task once and inspect block balance, missingness, constant features, and target balance.</p>
+<p>This example loads the packaged clustering task, inspects its block structure, fits a two-component graph, predicts the training rows, and produces two plots. The complete executable analysis, including nested validation and bootstrap stability, is in the quickstart vignette.</p>
 <div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">task_qc</span> <span class="op">&lt;-</span> <span class="fu">tsk</span><span class="op">(</span><span class="st">"mbspls_synthetic_classif"</span><span class="op">)</span><span class="op">$</span><span class="fu">overview</span><span class="op">(</span><span class="op">)</span></span>
-<span><span class="va">task_qc</span><span class="op">$</span><span class="va">overview</span></span>
-<span><span class="va">task_qc</span><span class="op">$</span><span class="va">blocks</span></span>
-<span><span class="va">task_qc</span><span class="op">$</span><span class="va">issues</span></span></code></pre></div>
-<p>After training, produce a compact reporting table for manuscripts, dashboards, or clinical review.</p>
-<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">gl</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/mbsplsxy_graph_learner.html">mbsplsxy_graph_learner</a></span><span class="op">(</span></span>
-<span>  task <span class="op">=</span> <span class="fu">tsk</span><span class="op">(</span><span class="st">"mbspls_synthetic_classif"</span><span class="op">)</span>,</span>
-<span>  learner <span class="op">=</span> <span class="fu">lrn</span><span class="op">(</span><span class="st">"classif.featureless"</span><span class="op">)</span>,</span>
-<span>  ncomp <span class="op">=</span> <span class="fl">2L</span></span>
-<span><span class="op">)</span></span>
-<span><span class="co"># gl$train(tsk("mbspls_synthetic_classif"))</span></span>
-<span><span class="co"># fit_report &lt;- mbspls_model_summary(gl)</span></span>
-<span><span class="co"># fit_report$overview</span></span>
-<span><span class="co"># fit_report$components</span></span>
-<span><span class="co"># fit_report$blocks</span></span>
-<span><span class="co"># head(fit_report$weights)</span></span></code></pre></div>
-<p>These helpers are designed to make the package easier to use outside pure ML benchmarking workflows, for example in multi-omics, neuroimaging, psychiatry, psychology, epidemiology, economics, and precision-medicine settings where structured reporting matters.</p>
-</div>
-<div class="section level2">
-<h2 id="supervised-quick-start-mb-spls-xy">Supervised Quick Start (MB-sPLS-XY)<a class="anchor" aria-label="anchor" href="#supervised-quick-start-mb-spls-xy"></a>
-</h2>
-<p>Packaged classification and regression toy tasks are also available and work with the supervised graph constructors.</p>
-<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># classification</span></span>
-<span><span class="va">task_cls</span> <span class="op">&lt;-</span> <span class="fu">tsk</span><span class="op">(</span><span class="st">"mbspls_synthetic_classif"</span><span class="op">)</span></span>
-<span><span class="va">gl_cls</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/mbsplsxy_graph_learner.html">mbsplsxy_graph_learner</a></span><span class="op">(</span></span>
-<span>  task <span class="op">=</span> <span class="va">task_cls</span>,</span>
-<span>  learner <span class="op">=</span> <span class="fu">lrn</span><span class="op">(</span><span class="st">"classif.featureless"</span><span class="op">)</span>,</span>
-<span>  ncomp <span class="op">=</span> <span class="fl">2L</span></span>
-<span><span class="op">)</span></span>
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/message.html" class="external-link">suppressPackageStartupMessages</a></span><span class="op">(</span><span class="op">{</span></span>
+<span>  <span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3.mlr-org.com" class="external-link">mlr3</a></span><span class="op">)</span></span>
+<span>  <span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3cluster.mlr-org.com" class="external-link">mlr3cluster</a></span><span class="op">)</span></span>
+<span>  <span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3.mlr-org.com" class="external-link">mlr3mbspls</a></span><span class="op">)</span></span>
+<span>  <span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://ggplot2.tidyverse.org" class="external-link">ggplot2</a></span><span class="op">)</span></span>
+<span><span class="op">}</span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># regression</span></span>
-<span><span class="va">task_regr</span> <span class="op">&lt;-</span> <span class="fu">tsk</span><span class="op">(</span><span class="st">"mbspls_synthetic_regr"</span><span class="op">)</span></span>
-<span><span class="va">gl_regr</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/mbsplsxy_graph_learner.html">mbsplsxy_graph_learner</a></span><span class="op">(</span></span>
-<span>  task <span class="op">=</span> <span class="va">task_regr</span>,</span>
-<span>  learner <span class="op">=</span> <span class="fu">lrn</span><span class="op">(</span><span class="st">"regr.featureless"</span><span class="op">)</span>,</span>
-<span>  ncomp <span class="op">=</span> <span class="fl">2L</span></span>
-<span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level2">
-<h2 id="quick-start-unsupervised-multi-block-sparse-partial-least-squares">Quick Start (Unsupervised Multi-Block Sparse Partial Least Squares)<a class="anchor" aria-label="anchor" href="#quick-start-unsupervised-multi-block-sparse-partial-least-squares"></a>
-</h2>
-<p>The example below uses the packaged task <code>mbspls_synthetic_blocks</code> and follows a script-like, inspectable sequence.</p>
-<div class="section level3">
-<h3 id="step-0-setup">Step 0: Setup<a class="anchor" aria-label="anchor" href="#step-0-setup"></a>
-</h3>
-<p>Load packages and define compact runtime settings. These defaults are intentionally small for a quick demonstration. Increase them for full analyses.</p>
-<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3.mlr-org.com" class="external-link">mlr3</a></span><span class="op">)</span></span>
-<span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3pipelines.mlr-org.com" class="external-link">mlr3pipelines</a></span><span class="op">)</span></span>
-<span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3tuning.mlr-org.com" class="external-link">mlr3tuning</a></span><span class="op">)</span></span>
-<span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3cluster.mlr-org.com" class="external-link">mlr3cluster</a></span><span class="op">)</span></span>
-<span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3learners.mlr-org.com" class="external-link">mlr3learners</a></span><span class="op">)</span></span>
-<span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3.mlr-org.com" class="external-link">mlr3mbspls</a></span><span class="op">)</span></span>
-<span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://r-datatable.com" class="external-link">data.table</a></span><span class="op">)</span></span>
+<span><span class="fu">lgr</span><span class="fu">::</span><span class="va"><a href="https://s-fleck.github.io/lgr/reference/lgr-package.html" class="external-link">lgr</a></span><span class="op">$</span><span class="fu">set_threshold</span><span class="op">(</span><span class="st">"warn"</span><span class="op">)</span></span>
+<span><span class="fu">lgr</span><span class="fu">::</span><span class="fu"><a href="https://s-fleck.github.io/lgr/reference/get_logger.html" class="external-link">get_logger</a></span><span class="op">(</span><span class="st">"mlr3"</span><span class="op">)</span><span class="op">$</span><span class="fu">set_threshold</span><span class="op">(</span><span class="st">"warn"</span><span class="op">)</span></span>
 <span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">42</span><span class="op">)</span></span>
+<span><span class="va">task</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">tsk</a></span><span class="op">(</span><span class="st">"mbspls_synthetic_blocks"</span><span class="op">)</span></span>
+<span><span class="va">blocks</span> <span class="op">=</span> <span class="va">task</span><span class="op">$</span><span class="fu">block_features</span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="va">quality</span> <span class="op">=</span> <span class="va">task</span><span class="op">$</span><span class="fu">overview</span><span class="op">(</span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">cfg</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>  ncomp <span class="op">=</span> <span class="fl">3L</span>,</span>
-<span>  centers <span class="op">=</span> <span class="fl">2L</span>,</span>
-<span>  inner_folds <span class="op">=</span> <span class="fl">3L</span>,</span>
-<span>  outer_folds <span class="op">=</span> <span class="fl">3L</span>,</span>
-<span>  tuner_budget <span class="op">=</span> <span class="fl">40L</span>,</span>
-<span>  n_perm <span class="op">=</span> <span class="fl">40L</span>,</span>
-<span>  n_perm_tuning <span class="op">=</span> <span class="fl">40L</span>,</span>
-<span>  val_test_n <span class="op">=</span> <span class="fl">40L</span>,</span>
-<span>  bootstrap_B <span class="op">=</span> <span class="fl">40L</span>,</span>
-<span>  frequency_threshold <span class="op">=</span> <span class="fl">0.5</span>,</span>
-<span>  perf_metric <span class="op">=</span> <span class="st">"mac"</span></span>
-<span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="step-1-load-packaged-task">Step 1: Load Packaged Task<a class="anchor" aria-label="anchor" href="#step-1-load-packaged-task"></a>
-</h3>
-<p>Load the packaged synthetic multi-block task, inspect its backend, and reuse the task-level block metadata directly.</p>
-<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">task_source</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">tsk</a></span><span class="op">(</span><span class="st">"mbspls_synthetic_blocks"</span><span class="op">)</span></span>
-<span><span class="va">dt_demo</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/as.data.table.html" class="external-link">as.data.table</a></span><span class="op">(</span><span class="va">task_source</span><span class="op">$</span><span class="fu">data</span><span class="op">(</span>cols <span class="op">=</span> <span class="va">task_source</span><span class="op">$</span><span class="va">feature_names</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="va">blocks</span> <span class="op">&lt;-</span> <span class="va">task_source</span><span class="op">$</span><span class="fu">block_features</span><span class="op">(</span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="step-2-define-site-correction">Step 2: Define Site Correction<a class="anchor" aria-label="anchor" href="#step-2-define-site-correction"></a>
-</h3>
-<p>The block mapping already lives on the task. Site correction is declared per block so adjustments stay explicit.</p>
-<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">site_correction</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>block_a <span class="op">=</span> <span class="st">"site_batch"</span>, block_b <span class="op">=</span> <span class="st">"site_batch"</span>, block_c <span class="op">=</span> <span class="st">"site_batch"</span><span class="op">)</span></span>
-<span><span class="va">site_correction_methods</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>block_a <span class="op">=</span> <span class="st">"partial_corr"</span>, block_b <span class="op">=</span> <span class="st">"partial_corr"</span>, block_c <span class="op">=</span> <span class="st">"partial_corr"</span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="step-3-clone-the-analysis-task">Step 3: Clone the Analysis Task<a class="anchor" aria-label="anchor" href="#step-3-clone-the-analysis-task"></a>
-</h3>
-<p>The packaged task is already a <code>TaskMultiBlock</code>, so for analysis you can usually just clone it.</p>
-<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">task_train</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/as_task_multiblock.html">TaskMultiBlock</a></span><span class="op">(</span></span>
-<span>  <span class="va">task_source</span>,</span>
-<span>  id <span class="op">=</span> <span class="st">"mbspls_synthetic_blocks_analysis"</span></span>
-<span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="step-4-build-nested-cv-learner">Step 4: Build Nested-CV Learner<a class="anchor" aria-label="anchor" href="#step-4-build-nested-cv-learner"></a>
-</h3>
-<p>For nested CV and tuning, bootstrap selection is disabled intentionally. This keeps evaluation focused on core model generalization.</p>
-<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">gl_nested</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://mlr3pipelines.mlr-org.com/reference/ppl.html" class="external-link">ppl</a></span><span class="op">(</span></span>
-<span>  <span class="st">"mbspls_graph_learner"</span>,</span>
-<span>  learner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"clust.kmeans"</span>, centers <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">centers</span><span class="op">)</span>,</span>
-<span>  task <span class="op">=</span> <span class="va">task_train</span>,</span>
-<span>  site_correction <span class="op">=</span> <span class="va">site_correction</span>,</span>
-<span>  site_correction_methods <span class="op">=</span> <span class="va">site_correction_methods</span>,</span>
-<span>  ncomp <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">ncomp</span>,</span>
-<span>  performance_metric <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">perf_metric</span>,</span>
-<span>  permutation_test <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  n_perm <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">n_perm</span>,</span>
-<span>  bootstrap <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>  bootstrap_selection <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>  B <span class="op">=</span> <span class="fl">1L</span>,</span>
-<span>  val_test <span class="op">=</span> <span class="st">"permutation"</span>,</span>
-<span>  val_test_n <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">val_test_n</span></span>
-<span><span class="op">)</span></span>
+<span><span class="va">quality</span><span class="op">$</span><span class="va">overview</span></span>
+<span><span class="va">quality</span><span class="op">$</span><span class="va">blocks</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/lengths.html" class="external-link">lengths</a></span><span class="op">(</span><span class="va">blocks</span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">rs_outer</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">rsmp</a></span><span class="op">(</span><span class="st">"cv"</span>, folds <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">outer_folds</span><span class="op">)</span></span>
-<span><span class="va">rs_inner</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">rsmp</a></span><span class="op">(</span><span class="st">"cv"</span>, folds <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">inner_folds</span><span class="op">)</span></span>
-<span><span class="va">rs_outer</span><span class="op">$</span><span class="fu">instantiate</span><span class="op">(</span><span class="va">task_train</span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="step-5-run-nested-cv">Step 5: Run Nested CV<a class="anchor" aria-label="anchor" href="#step-5-run-nested-cv"></a>
-</h3>
-<p>This is the primary inferential validation stage.</p>
-<p>Important: <code>performance_metric</code> and <code>measure</code> are not the same thing. <code>performance_metric</code> controls the direct objective used inside the MB-sPLS fitting routine for each component (<code>"mac"</code> or <code>"frobenius"</code>). <code>measure</code> controls the indirect held-out selection criterion used by tuning and nested CV. For example, <code>measure = msr("mbspls.ev")</code> selects among MAC/Frobenius-fitted models using validation EV; it does not make the underlying C++ fitting routine optimize EV directly.</p>
-<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">res_nested</span> <span class="op">&lt;-</span> <span class="fu"><a href="reference/mbspls_nested_cv.html">mbspls_nested_cv</a></span><span class="op">(</span></span>
-<span>  task <span class="op">=</span> <span class="va">task_train</span>,</span>
-<span>  graphlearner <span class="op">=</span> <span class="va">gl_nested</span>,</span>
-<span>  rs_outer <span class="op">=</span> <span class="va">rs_outer</span>,</span>
-<span>  rs_inner <span class="op">=</span> <span class="va">rs_inner</span>,</span>
-<span>  ncomp <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">ncomp</span>,</span>
-<span>  tuner_budget <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">tuner_budget</span>,</span>
-<span>  tuning_early_stop <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  performance_metric <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">perf_metric</span>,</span>
-<span>  val_test <span class="op">=</span> <span class="st">"permutation"</span>,</span>
-<span>  val_test_n <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">val_test_n</span>,</span>
-<span>  n_perm_tuning <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">n_perm_tuning</span>,</span>
-<span>  store_payload <span class="op">=</span> <span class="cn">TRUE</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">res_nested</span><span class="op">$</span><span class="va">summary_table</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="step-6-retune-on-full-training-data">Step 6: Retune on Full Training Data<a class="anchor" aria-label="anchor" href="#step-6-retune-on-full-training-data"></a>
-</h3>
-<p>Retune <code>c_matrix</code> on all rows after nested validation. This final matrix is reused across final mode fits.</p>
-<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">gl_tune</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://mlr3pipelines.mlr-org.com/reference/ppl.html" class="external-link">ppl</a></span><span class="op">(</span></span>
-<span>  <span class="st">"mbspls_graph_learner"</span>,</span>
-<span>  learner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"clust.kmeans"</span>, centers <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">centers</span><span class="op">)</span>,</span>
-<span>  task <span class="op">=</span> <span class="va">task_train</span>,</span>
-<span>  site_correction <span class="op">=</span> <span class="va">site_correction</span>,</span>
-<span>  site_correction_methods <span class="op">=</span> <span class="va">site_correction_methods</span>,</span>
-<span>  ncomp <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">ncomp</span>,</span>
-<span>  performance_metric <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">perf_metric</span>,</span>
-<span>  permutation_test <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  n_perm <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">n_perm</span>,</span>
-<span>  bootstrap <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>  bootstrap_selection <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>  B <span class="op">=</span> <span class="fl">1L</span>,</span>
-<span>  val_test <span class="op">=</span> <span class="st">"none"</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">tuner</span> <span class="op">&lt;-</span> <span class="va"><a href="reference/TunerSeqMBsPLS.html">TunerSeqMBsPLS</a></span><span class="op">$</span><span class="fu">new</span><span class="op">(</span></span>
-<span>  tuner <span class="op">=</span> <span class="st">"random_search"</span>,</span>
-<span>  budget <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">tuner_budget</span>,</span>
-<span>  resampling <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">rsmp</a></span><span class="op">(</span><span class="st">"cv"</span>, folds <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">inner_folds</span><span class="op">)</span>,</span>
-<span>  parallel <span class="op">=</span> <span class="st">"none"</span>,</span>
-<span>  early_stopping <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  n_perm <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">n_perm_tuning</span>,</span>
-<span>  performance_metric <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">perf_metric</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">instance</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://mlr3tuning.mlr-org.com/reference/ti.html" class="external-link">ti</a></span><span class="op">(</span></span>
-<span>  task <span class="op">=</span> <span class="va">task_train</span>,</span>
-<span>  learner <span class="op">=</span> <span class="va">gl_tune</span>,</span>
-<span>  resampling <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">rsmp</a></span><span class="op">(</span><span class="st">"insample"</span><span class="op">)</span>,</span>
-<span>  measure <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">msr</a></span><span class="op">(</span><span class="st">"mbspls.mac_evwt"</span><span class="op">)</span>,</span>
-<span>  terminator <span class="op">=</span> <span class="fu"><a href="https://bbotk.mlr-org.com/reference/trm.html" class="external-link">trm</a></span><span class="op">(</span><span class="st">"evals"</span>, n_evals <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">tuner</span><span class="op">$</span><span class="fu">optimize</span><span class="op">(</span><span class="va">instance</span><span class="op">)</span></span>
-<span><span class="va">c_matrix_final</span> <span class="op">&lt;-</span> <span class="va">instance</span><span class="op">$</span><span class="va">result</span><span class="op">$</span><span class="va">learner_param_vals</span><span class="op">[[</span><span class="fl">1</span><span class="op">]</span><span class="op">]</span><span class="op">$</span><span class="va">c_matrix</span></span>
-<span><span class="va">c_matrix_final</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="step-7-final-fits-by-mode">Step 7: Final Fits by Mode<a class="anchor" aria-label="anchor" href="#step-7-final-fits-by-mode"></a>
-</h3>
-<p>Train three final modes:</p>
-<ul>
-<li>
-<code>raw</code>: no stability filter</li>
-<li>
-<code>stable_ci</code>: CI-filtered stability</li>
-<li>
-<code>stable_frequency</code>: frequency-filtered stability</li>
-</ul>
-<p>Bootstrap selection is enabled only at this stage.</p>
-<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">out_dir</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="st">"analysis_results"</span>, <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/format.html" class="external-link">format</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/Sys.time.html" class="external-link">Sys.time</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"%Y%m%d_%H%M%S"</span><span class="op">)</span>, <span class="st">"_MBSPLS_SYNTHETIC_BLOCKS"</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/files2.html" class="external-link">dir.create</a></span><span class="op">(</span><span class="va">out_dir</span>, recursive <span class="op">=</span> <span class="cn">TRUE</span>, showWarnings <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">modes</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>  raw <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>selection <span class="op">=</span> <span class="st">"none"</span>, predict_weights <span class="op">=</span> <span class="st">"raw"</span><span class="op">)</span>,</span>
-<span>  stable_ci <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>selection <span class="op">=</span> <span class="st">"ci"</span>, predict_weights <span class="op">=</span> <span class="st">"stable_ci"</span><span class="op">)</span>,</span>
-<span>  stable_frequency <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>selection <span class="op">=</span> <span class="st">"frequency"</span>, predict_weights <span class="op">=</span> <span class="st">"stable_frequency"</span><span class="op">)</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="kw">for</span> <span class="op">(</span><span class="va">mode_name</span> <span class="kw">in</span> <span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">modes</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="va">mode_spec</span> <span class="op">&lt;-</span> <span class="va">modes</span><span class="op">[[</span><span class="va">mode_name</span><span class="op">]</span><span class="op">]</span></span>
-<span></span>
-<span>  <span class="va">gl_final</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://mlr3pipelines.mlr-org.com/reference/ppl.html" class="external-link">ppl</a></span><span class="op">(</span></span>
-<span>    <span class="st">"mbspls_graph_learner"</span>,</span>
-<span>    learner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"clust.kmeans"</span>, centers <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">centers</span><span class="op">)</span>,</span>
-<span>    blocks <span class="op">=</span> <span class="va">blocks</span>,</span>
-<span>    site_correction <span class="op">=</span> <span class="va">site_correction</span>,</span>
-<span>    site_correction_methods <span class="op">=</span> <span class="va">site_correction_methods</span>,</span>
-<span>    ncomp <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">ncomp</span>,</span>
-<span>    performance_metric <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">perf_metric</span>,</span>
-<span>    permutation_test <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>    n_perm <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">n_perm</span>,</span>
-<span>    bootstrap <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>    bootstrap_selection <span class="op">=</span> <span class="va">mode_spec</span><span class="op">$</span><span class="va">selection</span> <span class="op">!=</span> <span class="st">"none"</span>,</span>
-<span>    selection_method <span class="op">=</span> <span class="kw">if</span> <span class="op">(</span><span class="va">mode_spec</span><span class="op">$</span><span class="va">selection</span> <span class="op">==</span> <span class="st">"frequency"</span><span class="op">)</span> <span class="st">"frequency"</span> <span class="kw">else</span> <span class="st">"ci"</span>,</span>
-<span>    frequency_threshold <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">frequency_threshold</span>,</span>
-<span>    B <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">bootstrap_B</span>,</span>
-<span>    val_test <span class="op">=</span> <span class="st">"none"</span></span>
-<span>  <span class="op">)</span></span>
-<span></span>
-<span>  <span class="va">gl_final</span><span class="op">$</span><span class="va">param_set</span><span class="op">$</span><span class="va">values</span><span class="op">$</span><span class="va">mbspls.c_matrix</span> <span class="op">&lt;-</span> <span class="va">c_matrix_final</span></span>
-<span>  <span class="kw">if</span> <span class="op">(</span><span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/NULL.html" class="external-link">is.null</a></span><span class="op">(</span><span class="va">gl_final</span><span class="op">$</span><span class="va">graph</span><span class="op">$</span><span class="va">pipeops</span><span class="op">$</span><span class="va">mbspls</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span>
-<span>    <span class="va">gl_final</span><span class="op">$</span><span class="va">graph</span><span class="op">$</span><span class="va">pipeops</span><span class="op">$</span><span class="va">mbspls</span><span class="op">$</span><span class="va">param_set</span><span class="op">$</span><span class="va">values</span><span class="op">$</span><span class="va">c_matrix</span> <span class="op">&lt;-</span> <span class="va">c_matrix_final</span></span>
-<span>    <span class="va">gl_final</span><span class="op">$</span><span class="va">graph</span><span class="op">$</span><span class="va">pipeops</span><span class="op">$</span><span class="va">mbspls</span><span class="op">$</span><span class="va">param_set</span><span class="op">$</span><span class="va">values</span><span class="op">$</span><span class="va">predict_weights</span> <span class="op">&lt;-</span> <span class="va">mode_spec</span><span class="op">$</span><span class="va">predict_weights</span></span>
-<span>    <span class="va">gl_final</span><span class="op">$</span><span class="va">graph</span><span class="op">$</span><span class="va">pipeops</span><span class="op">$</span><span class="va">mbspls</span><span class="op">$</span><span class="va">param_set</span><span class="op">$</span><span class="va">values</span><span class="op">$</span><span class="va">store_train_blocks</span> <span class="op">&lt;-</span> <span class="cn">TRUE</span></span>
-<span>  <span class="op">}</span></span>
-<span></span>
-<span>  <span class="va">gl_final</span><span class="op">$</span><span class="fu">train</span><span class="op">(</span><span class="va">task_train</span><span class="op">)</span></span>
-<span>  <span class="va">pred_train</span> <span class="op">&lt;-</span> <span class="va">gl_final</span><span class="op">$</span><span class="fu">predict</span><span class="op">(</span><span class="va">task_train</span><span class="op">)</span></span>
-<span>  <span class="va">po_state</span> <span class="op">&lt;-</span> <span class="va">gl_final</span><span class="op">$</span><span class="va">model</span><span class="op">$</span><span class="va">mbspls</span></span>
-<span></span>
-<span>  <span class="va">mode_dir</span> <span class="op">&lt;-</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">out_dir</span>, <span class="va">mode_name</span><span class="op">)</span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/files2.html" class="external-link">dir.create</a></span><span class="op">(</span><span class="va">mode_dir</span>, recursive <span class="op">=</span> <span class="cn">TRUE</span>, showWarnings <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
-<span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/fwrite.html" class="external-link">fwrite</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/data.table/man/data.table.html" class="external-link">data.table</a></span><span class="op">(</span>row_id <span class="op">=</span> <span class="va">pred_train</span><span class="op">$</span><span class="va">row_ids</span>, cluster <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="va">pred_train</span><span class="op">$</span><span class="va">partition</span><span class="op">)</span><span class="op">)</span>,</span>
-<span>         <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">mode_dir</span>, <span class="st">"clusters_train.csv"</span><span class="op">)</span><span class="op">)</span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/readRDS.html" class="external-link">saveRDS</a></span><span class="op">(</span><span class="va">gl_final</span>, <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">mode_dir</span>, <span class="st">"graphlearner.rds"</span><span class="op">)</span><span class="op">)</span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/readRDS.html" class="external-link">saveRDS</a></span><span class="op">(</span><span class="va">po_state</span>, <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">mode_dir</span>, <span class="st">"train_state.rds"</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="op">}</span></span></code></pre></div>
-</div>
-<div class="section level3">
-<h3 id="step-8-save-core-outputs">Step 8: Save Core Outputs<a class="anchor" aria-label="anchor" href="#step-8-save-core-outputs"></a>
-</h3>
-<p>Persist nested CV summaries and payloads for reporting and reproducibility.</p>
-<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/pkg/data.table/man/fwrite.html" class="external-link">fwrite</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/data.table/man/as.data.table.html" class="external-link">as.data.table</a></span><span class="op">(</span><span class="va">res_nested</span><span class="op">$</span><span class="va">summary_table</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">out_dir</span>, <span class="st">"nested_cv_summary.csv"</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/readRDS.html" class="external-link">saveRDS</a></span><span class="op">(</span><span class="va">res_nested</span>, <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">out_dir</span>, <span class="st">"nested_cv_object.rds"</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
-</div>
-</div>
-<div class="section level2">
-<h2 id="prediction-side-validation--bootstrap-selection">Prediction-Side Validation &amp; Bootstrap Selection<a class="anchor" aria-label="anchor" href="#prediction-side-validation--bootstrap-selection"></a>
-</h2>
-<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># Optional: parallel bootstrap selection (cross-platform) via future</span></span>
-<span><span class="co"># install.packages(c("future", "future.apply"))</span></span>
-<span><span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/ns-load.html" class="external-link">requireNamespace</a></span><span class="op">(</span><span class="st">"future"</span>, quietly <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="fu">future</span><span class="fu">::</span><span class="fu"><a href="https://future.futureverse.org/reference/plan.html" class="external-link">plan</a></span><span class="op">(</span><span class="fu">future</span><span class="fu">::</span><span class="va"><a href="https://future.futureverse.org/reference/multisession.html" class="external-link">multisession</a></span>, workers <span class="op">=</span> <span class="fl">4</span><span class="op">)</span></span>
-<span>  <span class="co"># future::plan(future::sequential)  # reset when done</span></span>
-<span><span class="op">}</span></span>
-<span></span>
-<span><span class="va">log_env</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/environment.html" class="external-link">new.env</a></span><span class="op">(</span>parent <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/environment.html" class="external-link">emptyenv</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">graph_sel</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3pipelines.mlr-org.com/reference/po.html" class="external-link">po</a></span><span class="op">(</span><span class="st">"blockscale"</span>, param_vals <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>blocks <span class="op">=</span> <span class="va">blocks</span><span class="op">)</span><span class="op">)</span> <span class="op"><a href="https://mlr3pipelines.mlr-org.com/reference/grapes-greater-than-greater-than-grapes.html" class="external-link">%&gt;&gt;%</a></span></span>
-<span>  <span class="fu"><a href="https://mlr3pipelines.mlr-org.com/reference/po.html" class="external-link">po</a></span><span class="op">(</span><span class="st">"mbspls"</span>, blocks <span class="op">=</span> <span class="va">blocks</span>, ncomp <span class="op">=</span> <span class="fl">4L</span>, performance_metric <span class="op">=</span> <span class="st">"mac"</span>,</span>
-<span>     permutation_test <span class="op">=</span> <span class="cn">TRUE</span>, n_perm <span class="op">=</span> <span class="fl">200L</span>, perm_alpha <span class="op">=</span> <span class="fl">0.05</span>,</span>
-<span>     val_test <span class="op">=</span> <span class="st">"permutation"</span>, val_test_n <span class="op">=</span> <span class="fl">500L</span>, val_test_alpha <span class="op">=</span> <span class="fl">0.05</span>,</span>
-<span>     append <span class="op">=</span> <span class="cn">TRUE</span>,               <span class="co"># expose upstream LV columns to selection op</span></span>
-<span>     store_train_blocks <span class="op">=</span> <span class="cn">TRUE</span>,   <span class="co"># pass original blocks for bootstrap</span></span>
-<span>     log_env <span class="op">=</span> <span class="va">log_env</span><span class="op">)</span> <span class="op"><a href="https://mlr3pipelines.mlr-org.com/reference/grapes-greater-than-greater-than-grapes.html" class="external-link">%&gt;&gt;%</a></span></span>
-<span>  <span class="fu"><a href="https://mlr3pipelines.mlr-org.com/reference/po.html" class="external-link">po</a></span><span class="op">(</span><span class="st">"mbspls_bootstrap_select"</span>, log_env <span class="op">=</span> <span class="va">log_env</span>, bootstrap <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>     B <span class="op">=</span> <span class="fl">200L</span>, selection_method <span class="op">=</span> <span class="st">"ci"</span>, align <span class="op">=</span> <span class="st">"block_sign"</span>,</span>
-<span>     workers <span class="op">=</span> <span class="fl">4L</span><span class="op">)</span> <span class="op"><a href="https://mlr3pipelines.mlr-org.com/reference/grapes-greater-than-greater-than-grapes.html" class="external-link">%&gt;&gt;%</a></span></span>
-<span>  <span class="fu"><a href="https://mlr3pipelines.mlr-org.com/reference/po.html" class="external-link">po</a></span><span class="op">(</span><span class="st">"learner"</span>, learner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"clust.kmeans"</span>, centers <span class="op">=</span> <span class="fl">3</span><span class="op">)</span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">gl_sel</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/as_learner.html" class="external-link">as_learner</a></span><span class="op">(</span><span class="va">graph_sel</span><span class="op">)</span></span>
-<span><span class="va">gl_sel</span><span class="op">$</span><span class="fu">train</span><span class="op">(</span><span class="va">task</span><span class="op">)</span></span>
-<span></span>
-<span><span class="co"># Stable (post-selection) latent columns now in the task representation</span></span>
-<span><span class="va">gl_sel</span><span class="op">$</span><span class="va">model</span><span class="op">$</span><span class="va">mbspls_bootstrap_select</span><span class="op">$</span><span class="va">kept_blocks_per_comp</span></span></code></pre></div>
-</div>
-<div class="section level2">
-<h2 id="higher-level-convenience-graph">Higher Level Convenience Graph<a class="anchor" aria-label="anchor" href="#higher-level-convenience-graph"></a>
-</h2>
-<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="co"># --- Site / batch effect correction example ---</span></span>
-<span><span class="co"># PipeOpSiteCorrection supports per-block methods: "partial_corr", "combat", "dir".</span></span>
-<span><span class="co"># For "combat" supply a list with elements site=&lt;char1&gt;, covariates=&lt;char_vec&gt;.</span></span>
-<span><span class="co"># For "partial_corr" supply a character vector of (site + optional covariates) columns.</span></span>
-<span></span>
-<span><span class="co"># Add mock site / batch / covariate columns to the data (if not already present)</span></span>
-<span><span class="va">dt</span><span class="op">[</span>, <span class="va">site</span>  <span class="op">:=</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"S1"</span>,<span class="st">"S2"</span>,<span class="st">"S3"</span><span class="op">)</span>, <span class="va">.N</span>, <span class="cn">TRUE</span><span class="op">)</span><span class="op">]</span></span>
-<span><span class="va">dt</span><span class="op">[</span>, <span class="va">batch</span> <span class="op">:=</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"B1"</span>,<span class="st">"B2"</span><span class="op">)</span>,   <span class="va">.N</span>, <span class="cn">TRUE</span><span class="op">)</span><span class="op">]</span></span>
-<span><span class="va">dt</span><span class="op">[</span>, <span class="va">age</span>   <span class="op">:=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">.N</span>, <span class="fl">50</span>, <span class="fl">8</span><span class="op">)</span><span class="op">]</span></span>
-<span><span class="va">dt</span><span class="op">[</span>, <span class="va">sex</span>   <span class="op">:=</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"F"</span>,<span class="st">"M"</span><span class="op">)</span>, <span class="va">.N</span>, <span class="cn">TRUE</span><span class="op">)</span><span class="op">]</span></span>
-<span></span>
-<span><span class="co"># Update task backend to include new columns</span></span>
-<span><span class="va">task</span> <span class="op">=</span> <span class="va"><a href="https://mlr3cluster.mlr-org.com/reference/TaskClust.html" class="external-link">TaskClust</a></span><span class="op">$</span><span class="fu">new</span><span class="op">(</span><span class="st">"mb"</span>, backend <span class="op">=</span> <span class="va">dt</span><span class="op">)</span></span>
-<span><span class="va">task</span><span class="op">$</span><span class="fu">select</span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/sets.html" class="external-link">setdiff</a></span><span class="op">(</span><span class="va">task</span><span class="op">$</span><span class="va">feature_names</span>, <span class="st">"id"</span><span class="op">)</span><span class="op">)</span></span>
-<span></span>
-<span><span class="co"># Per-block site correction specifications</span></span>
 <span><span class="va">site_correction</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>  clinical <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>site <span class="op">=</span> <span class="st">"site"</span>, covariates <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"age"</span>,<span class="st">"sex"</span><span class="op">)</span><span class="op">)</span>, <span class="co"># ComBat with covariates</span></span>
-<span>  genomics <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"batch"</span><span class="op">)</span>,                                          <span class="co"># partial correlation on batch</span></span>
-<span>  metabol  <span class="op">=</span> <span class="st">"site"</span>                                               <span class="co"># single categorical site (partial_corr)</span></span>
+<span>  block_a <span class="op">=</span> <span class="st">"site_batch"</span>,</span>
+<span>  block_b <span class="op">=</span> <span class="st">"site_batch"</span>,</span>
+<span>  block_c <span class="op">=</span> <span class="st">"site_batch"</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">site_methods</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>  block_a <span class="op">=</span> <span class="st">"partial_corr"</span>,</span>
+<span>  block_b <span class="op">=</span> <span class="st">"partial_corr"</span>,</span>
+<span>  block_c <span class="op">=</span> <span class="st">"partial_corr"</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># Corresponding methods per block</span></span>
-<span><span class="va">site_correction_methods</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>  clinical <span class="op">=</span> <span class="st">"combat"</span>,</span>
-<span>  genomics <span class="op">=</span> <span class="st">"partial_corr"</span>,</span>
-<span>  metabol  <span class="op">=</span> <span class="st">"partial_corr"</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="co"># Optional: use future for parallel bootstrap stability selection</span></span>
-<span><span class="co"># future::plan(future::multisession, workers = 4)</span></span>
-<span></span>
-<span><span class="va">gl_full</span> <span class="op">=</span> <span class="fu"><a href="reference/mbspls_graph_learner.html">mbspls_graph_learner</a></span><span class="op">(</span></span>
-<span>  blocks <span class="op">=</span> <span class="va">blocks</span>,</span>
-<span>  site_correction <span class="op">=</span> <span class="va">site_correction</span>,</span>
-<span>  site_correction_methods <span class="op">=</span> <span class="va">site_correction_methods</span>,</span>
-<span>  keep_site_col <span class="op">=</span> <span class="cn">FALSE</span>,      <span class="co"># drop site / covariate columns after correction</span></span>
-<span>  ncomp <span class="op">=</span> <span class="fl">3L</span>,</span>
-<span>  performance_metric <span class="op">=</span> <span class="st">"mac"</span>,</span>
-<span>  permutation_test <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  n_perm <span class="op">=</span> <span class="fl">200L</span>,</span>
-<span>  bootstrap <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  B <span class="op">=</span> <span class="fl">100L</span>,</span>
-<span>  workers <span class="op">=</span> <span class="fl">4L</span>,</span>
-<span>  selection_method <span class="op">=</span> <span class="st">"frequency"</span>,</span>
-<span>  frequency_threshold <span class="op">=</span> <span class="fl">0.1</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">gl_full</span><span class="op">$</span><span class="fu">train</span><span class="op">(</span><span class="va">task</span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level2">
-<h2 id="visualisation-examples">Visualisation Examples<a class="anchor" aria-label="anchor" href="#visualisation-examples"></a>
-</h2>
-<div class="section level3">
-<h3 id="example-plots">Example Plots<a class="anchor" aria-label="anchor" href="#example-plots"></a>
-</h3>
-<p>The README includes two representative MB-sPLS plots generated from the packaged synthetic task.</p>
-<p><strong>Block weights (bootstrap-stable)</strong></p>
-<div class="float">
-<img src="reference/figures/readme_mbspls_weights.png" alt="MB-sPLS bootstrap-stable block weights"><div class="figcaption">MB-sPLS bootstrap-stable block weights</div>
-</div>
-<p><strong>Latent correlation heatmap (Spearman)</strong></p>
-<div class="float">
-<img src="reference/figures/readme_mbspls_heatmap.png" alt="MB-sPLS latent correlation heatmap"><div class="figcaption">MB-sPLS latent correlation heatmap</div>
-</div>
-<p>Reproduce these plots with:</p>
-<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">task_plot</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">tsk</a></span><span class="op">(</span><span class="st">"mbspls_synthetic_blocks"</span><span class="op">)</span></span>
-<span><span class="va">site_correction</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>block_a <span class="op">=</span> <span class="st">"site_batch"</span>, block_b <span class="op">=</span> <span class="st">"site_batch"</span>, block_c <span class="op">=</span> <span class="st">"site_batch"</span><span class="op">)</span></span>
-<span><span class="va">site_methods</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>block_a <span class="op">=</span> <span class="st">"partial_corr"</span>, block_b <span class="op">=</span> <span class="st">"partial_corr"</span>, block_c <span class="op">=</span> <span class="st">"partial_corr"</span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">gl_plot</span> <span class="op">=</span> <span class="fu"><a href="reference/mbspls_graph_learner.html">mbspls_graph_learner</a></span><span class="op">(</span></span>
-<span>  task <span class="op">=</span> <span class="va">task_plot</span>,</span>
+<span><span class="va">learner</span> <span class="op">=</span> <span class="fu"><a href="reference/mbspls_graph_learner.html">mbspls_graph_learner</a></span><span class="op">(</span></span>
 <span>  learner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"clust.kmeans"</span>, centers <span class="op">=</span> <span class="fl">2L</span><span class="op">)</span>,</span>
+<span>  task <span class="op">=</span> <span class="va">task</span>,</span>
 <span>  site_correction <span class="op">=</span> <span class="va">site_correction</span>,</span>
 <span>  site_correction_methods <span class="op">=</span> <span class="va">site_methods</span>,</span>
 <span>  ncomp <span class="op">=</span> <span class="fl">2L</span>,</span>
-<span>  c_matrix <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/matrix.html" class="external-link">matrix</a></span><span class="op">(</span><span class="fl">3</span>, nrow <span class="op">=</span> <span class="fl">3L</span>, ncol <span class="op">=</span> <span class="fl">2L</span><span class="op">)</span>,</span>
 <span>  performance_metric <span class="op">=</span> <span class="st">"mac"</span>,</span>
 <span>  permutation_test <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>  bootstrap <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  bootstrap_selection <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  selection_method <span class="op">=</span> <span class="st">"ci"</span>,</span>
-<span>  B <span class="op">=</span> <span class="fl">20L</span>,</span>
+<span>  bootstrap <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>  store_train_blocks <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  bootstrap_selection <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  val_test <span class="op">=</span> <span class="st">"none"</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">gl_plot</span><span class="op">$</span><span class="fu">train</span><span class="op">(</span><span class="va">task_plot</span><span class="op">)</span></span>
+<span><span class="va">learner</span><span class="op">$</span><span class="fu">train</span><span class="op">(</span><span class="va">task</span><span class="op">)</span></span>
+<span><span class="va">prediction</span> <span class="op">=</span> <span class="va">learner</span><span class="op">$</span><span class="fu">predict</span><span class="op">(</span><span class="va">task</span><span class="op">)</span></span>
+<span><span class="va">report</span> <span class="op">=</span> <span class="fu"><a href="reference/mbspls_model_summary.html">mbspls_model_summary</a></span><span class="op">(</span><span class="va">learner</span><span class="op">)</span></span>
 <span></span>
-<span><span class="fu">autoplot</span><span class="op">(</span><span class="va">gl_plot</span>, type <span class="op">=</span> <span class="st">"mbspls_weights"</span>, source <span class="op">=</span> <span class="st">"bootstrap"</span>, top_n <span class="op">=</span> <span class="fl">12</span><span class="op">)</span></span>
-<span><span class="fu">autoplot</span><span class="op">(</span><span class="va">gl_plot</span>, type <span class="op">=</span> <span class="st">"mbspls_heatmap"</span>, method <span class="op">=</span> <span class="st">"spearman"</span>, absolute <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span></code></pre></div>
-<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3viz.mlr-org.com" class="external-link">mlr3viz</a></span><span class="op">)</span></span>
-<span><span class="fu">autoplot</span><span class="op">(</span><span class="va">gl_sel</span>, type <span class="op">=</span> <span class="st">"mbspls_weights"</span>, source <span class="op">=</span> <span class="st">"weights"</span>, top_n <span class="op">=</span> <span class="fl">10</span><span class="op">)</span></span>
-<span><span class="fu">autoplot</span><span class="op">(</span><span class="va">gl_sel</span>, type <span class="op">=</span> <span class="st">"mbspls_weights"</span>, source <span class="op">=</span> <span class="st">"bootstrap"</span>, alpha_by_stability <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
-<span><span class="fu">autoplot</span><span class="op">(</span><span class="va">gl_sel</span>, type <span class="op">=</span> <span class="st">"mbspls_variance"</span>, show_total <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
-<span><span class="fu">autoplot</span><span class="op">(</span><span class="va">gl_sel</span>, type <span class="op">=</span> <span class="st">"mbspls_heatmap"</span>, method <span class="op">=</span> <span class="st">"spearman"</span>, absolute <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
-<span><span class="co"># Optional network (needs igraph/ggraph installed)</span></span>
-<span><span class="co"># autoplot(gl_sel, type = "mbspls_network", cutoff = 0.1)</span></span></code></pre></div>
-<p><code><a href="reference/mbspls_plot_block_weight_ci.html">mbspls_plot_block_weight_ci()</a></code> produces per‑block weight confidence intervals after bootstrap selection:</p>
-<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="reference/mbspls_plot_block_weight_ci.html">mbspls_plot_block_weight_ci</a></span><span class="op">(</span><span class="va">gl_sel</span>, source <span class="op">=</span> <span class="st">"bootstrap"</span>, alpha_by_stability <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></code></pre></div>
+<span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">prediction</span><span class="op">$</span><span class="va">partition</span><span class="op">)</span></span>
+<span><span class="va">report</span><span class="op">$</span><span class="va">overview</span></span>
+<span><span class="va">report</span><span class="op">$</span><span class="va">components</span></span>
+<span><span class="va">report</span><span class="op">$</span><span class="va">blocks</span></span>
+<span></span>
+<span><span class="va">weight_plot</span> <span class="op">=</span> <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/autoplot.html" class="external-link">autoplot</a></span><span class="op">(</span></span>
+<span>  <span class="va">learner</span>,</span>
+<span>  type <span class="op">=</span> <span class="st">"mbspls_weights"</span>,</span>
+<span>  source <span class="op">=</span> <span class="st">"weights"</span>,</span>
+<span>  top_n <span class="op">=</span> <span class="fl">8L</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">variance_plot</span> <span class="op">=</span> <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/autoplot.html" class="external-link">autoplot</a></span><span class="op">(</span></span>
+<span>  <span class="va">learner</span>,</span>
+<span>  type <span class="op">=</span> <span class="st">"mbspls_variance"</span>,</span>
+<span>  source <span class="op">=</span> <span class="st">"weights"</span>,</span>
+<span>  show_total <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">weight_plot</span></span>
+<span><span class="va">variance_plot</span></span></code></pre></div>
+<p><code>report$components</code> lists the training objective and explained variance of each component. Its <code>conditional_p_value</code> column holds the optional train-time permutation diagnostic (<code>permutation_test = TRUE</code>), which conditions on the fitted preprocessing and hyperparameters; <code>p_value_scope</code> states that scope. Both are <code>NA</code> here because the diagnostic was not run. Use the permutation interfaces below for reportable inference.</p>
+</div>
+<div class="section level2">
+<h2 id="how-the-pipeline-behaves">How the pipeline behaves<a class="anchor" aria-label="anchor" href="#how-the-pipeline-behaves"></a>
+</h2>
+<ul>
+<li>
+<strong>Deterministic solver.</strong> Each component is fitted by block-coordinate (Gauss-Seidel) sparse PMD updates that start from the leading direction of each block’s centred cross-covariance with the other blocks. Fits therefore do not depend on the random-number generator: <code>seed_train</code> only affects permutation draws, and the analysis seed of a permutation test does not change an MB-sPLS fit.</li>
+<li>
+<strong>Convergence.</strong> A component has converged when no block weight vector changes by <code>tol</code> or more between two sweeps (<code>PipeOpMBsPLS</code> and <code>PipeOpMBsPLSXY</code>: <code>tol = 1e-4</code>, at most 600 sweeps). <code>converged</code> and <code>iterations</code> are stored per component, and non-convergence raises a warning.</li>
+<li>
+<strong>Local optimum.</strong> The criterion is non-convex, so a fit is a local optimum. In simulations the deterministic start matched the best of 20 random starts in most structured scenarios, but less often for pure noise, very strong sparsity, or many more features than rows.</li>
+<li>
+<strong>Centring.</strong> <code>PipeOpMBsPLS</code>, <code>PipeOpMBsPLSXY</code>, and <code>PipeOpMBsPCA</code> centre every retained column with its training mean (<code>$state$center</code>) and subtract the same means at prediction.</li>
+<li>
+<strong>Emitted features.</strong> The <code>LVk_&lt;block&gt;</code> features always come from the training weights, centring, and deflation, at training and at prediction. <code>predict_weights</code> only selects the weights evaluated in the prediction payload (read by the measures and <code><a href="reference/mbspls_eval_new_data.html">mbspls_eval_new_data()</a></code>) and in prediction-side diagnostics. A bootstrap-selection node that is not in stability-only mode replaces the LVs by stable-weight LVs, consistently at training and at prediction.</li>
+<li>
+<strong>Block columns.</strong> A declared factor such as <code>sex</code> claims its encoded dummy columns (for example <code>sex.m</code>). Each column can belong to one block only; overlapping blocks are an error. The PipeOps, the sequential tuners, site correction, and block scaling resolve blocks with the same rule.</li>
+<li>
+<strong>Site correction.</strong> <code>PipeOpSiteCorrection</code> is fitted on the training rows and applied unchanged at prediction. Columns it reads at prediction (the <code>"partial_corr"</code> and <code>"dir"</code> columns and the ComBat site) may not be target columns; ComBat covariates may use the target, which is read at training only. ComBat uses only the site and covariate levels observed in the training rows, and the DIR repair is implemented in the package.</li>
+</ul>
+</div>
+<div class="section level2">
+<h2 id="validation-and-tuning">Validation and tuning<a class="anchor" aria-label="anchor" href="#validation-and-tuning"></a>
+</h2>
+<p>The package measures (<code>mbspls.mac_evwt</code>, <code>mbspls.mac</code>, <code>mbspls.ev</code>, <code>mbspls.block_ev</code>) score the prediction payload of each trained model, looked up by the model’s run id. They therefore need stored models: pass <code>store_models = TRUE</code> to <code><a href="https://mlr3.mlr-org.com/reference/resample.html" class="external-link">resample()</a></code>, <code><a href="https://mlr3.mlr-org.com/reference/benchmark.html" class="external-link">benchmark()</a></code>, <code>tune()</code>, <code>ti()</code>, and <code>auto_tuner()</code> (the same holds for <code>mbspca.mean_ev</code>). A component whose held-out block scores have fewer than two non-degenerate blocks has no defined association and scores 0 in <code>mbspls.mac</code> and <code>mbspls.mac_evwt</code>. The example reuses the quickstart objects and estimates held-out performance of the fixed configuration.</p>
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">1L</span><span class="op">)</span></span>
+<span><span class="va">cv_result</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/resample.html" class="external-link">resample</a></span><span class="op">(</span></span>
+<span>  <span class="va">task</span>,</span>
+<span>  <span class="va">learner</span>,</span>
+<span>  <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">rsmp</a></span><span class="op">(</span><span class="st">"cv"</span>, folds <span class="op">=</span> <span class="fl">3L</span><span class="op">)</span>,</span>
+<span>  store_models <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">cv_result</span><span class="op">$</span><span class="fu">aggregate</span><span class="op">(</span><span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">msrs</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"mbspls.mac_evwt"</span>, <span class="st">"mbspls.mac"</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
+<p><code><a href="reference/mbspls_nested_cv.html">mbspls_nested_cv()</a></code> repeats the sequential sparsity tuning of <code>TunerSeqMBsPLS</code> inside every outer analysis split and scores the assessment rows. Every node with a log environment receives a fresh one per outer fold, so graphs with bootstrap selection are evaluated as configured and the outer estimate covers the complete pipeline. The tuners resolve the same block columns as the final <code>PipeOpMBsPLS</code> and centre each inner training fold with its own means. Inner scores (<code>inner_scores</code>, the tuner’s <code>result_y</code>) were maximised during tuning and are optimistic.</p>
+<p>The tuner’s early stopping (<code>early_stopping = TRUE</code>; <code>tuning_early_stop</code> defaults to <code>TRUE</code> in the nested-CV functions) is a heuristic. It pools fixed-weight permutation p-values from the inner folds that selected <code>c</code>, so it is selection-optimistic, and <code>perm_alpha</code> is a cutoff, not an error rate.</p>
+<p><code><a href="reference/mbspls_nested_cv_batchtools.html">mbspls_nested_cv_batchtools()</a></code> runs one <code>batchtools</code> job per outer fold and returns <code>list(ids, reg)</code>:</p>
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">out</span> <span class="op">=</span> <span class="fu"><a href="reference/mbspls_nested_cv_batchtools.html">mbspls_nested_cv_batchtools</a></span><span class="op">(</span></span>
+<span>  task <span class="op">=</span> <span class="va">task</span>,</span>
+<span>  graphlearner <span class="op">=</span> <span class="va">learner</span>,</span>
+<span>  rs_outer <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">rsmp</a></span><span class="op">(</span><span class="st">"cv"</span>, folds <span class="op">=</span> <span class="fl">5L</span><span class="op">)</span>,</span>
+<span>  rs_inner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">rsmp</a></span><span class="op">(</span><span class="st">"cv"</span>, folds <span class="op">=</span> <span class="fl">3L</span><span class="op">)</span>,</span>
+<span>  ncomp <span class="op">=</span> <span class="fl">2L</span>,</span>
+<span>  tuner_budget <span class="op">=</span> <span class="fl">20L</span>,</span>
+<span>  reg_dir <span class="op">=</span> <span class="st">"registry_mbspls_nestedcv"</span></span>
+<span><span class="op">)</span></span>
+<span><span class="fu">batchtools</span><span class="fu">::</span><span class="fu"><a href="https://batchtools.mlr-org.com/reference/submitJobs.html" class="external-link">submitJobs</a></span><span class="op">(</span>reg <span class="op">=</span> <span class="va">out</span><span class="op">$</span><span class="va">reg</span><span class="op">)</span></span>
+<span><span class="fu">batchtools</span><span class="fu">::</span><span class="fu"><a href="https://batchtools.mlr-org.com/reference/waitForJobs.html" class="external-link">waitForJobs</a></span><span class="op">(</span>reg <span class="op">=</span> <span class="va">out</span><span class="op">$</span><span class="va">reg</span><span class="op">)</span></span>
+<span><span class="va">nested</span> <span class="op">=</span> <span class="fu"><a href="reference/collect_mbspls_nested_cv.html">collect_mbspls_nested_cv</a></span><span class="op">(</span>reg <span class="op">=</span> <span class="va">out</span><span class="op">$</span><span class="va">reg</span><span class="op">)</span></span></code></pre></div>
+<p><code><a href="reference/collect_mbspls_nested_cv.html">collect_mbspls_nested_cv()</a></code> stops when a requested job failed or has not finished: the finished folds alone give an incomplete estimate, which is biased when failures are related to fold difficulty. With <code>allow_partial = TRUE</code> it warns and reports the missing folds as failed rows.</p>
+</div>
+<div class="section level2">
+<h2 id="bootstrap-stability-selection">Bootstrap stability selection<a class="anchor" aria-label="anchor" href="#bootstrap-stability-selection"></a>
+</h2>
+<p>With <code>bootstrap_selection = TRUE</code>, <code><a href="reference/mbspls_graph_learner.html">mbspls_graph_learner()</a></code> adds a <code>PipeOpMBsPLSBootstrapSelect</code> node. It refits MB-sPLS on bootstrap resamples of the training data and keeps features whose percentile interval excludes zero (<code>selection_method = "ci"</code>) or whose selection frequency reaches <code>frequency_threshold</code> (<code>selection_method = "frequency"</code>). The output describes stability; it is not a feature-level test.</p>
+<ul>
+<li>Replicate weights are sign-aligned separately for every block, in both <code>align</code> modes.</li>
+<li>If the task has an mlr3 <code>group</code> role, whole groups are resampled by default. An explicit <code>bootstrap_groups</code> must be equal to or coarser than that role. A single resampleable unit is an error, and fewer than 10 units raise a warning.</li>
+<li>Intervals are percentile intervals at the stored level <code>1 - alpha</code>.</li>
+<li>With the default <code>stable_weight_source = "training"</code>, a stable feature must be selected by the bootstrap and non-zero in the training fit. Selected features with zero training weight are listed in <code>$state$selected_not_in_training</code>.</li>
+<li>If no component keeps any feature, training stops with guidance; with <code>stability_only = TRUE</code> it warns instead.</li>
+<li>
+<code>seed_bootstrap = NULL</code> (the default) uses the ambient RNG, so <code><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed()</a></code> makes the replicates reproducible. An explicit seed gives every replicate its own stream, independent of <code>workers</code>.</li>
+</ul>
+</div>
+<div class="section level2">
+<h2 id="proper-omnibus-permutation-inference">Proper omnibus permutation inference<a class="anchor" aria-label="anchor" href="#proper-omnibus-permutation-inference"></a>
+</h2>
+<p>For a fixed analysis, <code><a href="reference/mbspls_permutation_test.html">mbspls_permutation_test()</a></code> standardises and refits the MB-sPLS model on every permuted dataset: the <code>*_sum</code> statistics refit all components, the <code>*_lc1</code> statistics refit LC1 only. Sampled p-values use inclusive ties and <code>(b + 1) / (B + 1)</code>, so they cannot be zero.</p>
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/message.html" class="external-link">suppressPackageStartupMessages</a></span><span class="op">(</span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3.mlr-org.com" class="external-link">mlr3mbspls</a></span><span class="op">)</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">20260831L</span><span class="op">)</span></span>
+<span><span class="va">n</span> <span class="op">=</span> <span class="fl">48L</span></span>
+<span><span class="va">latent</span> <span class="op">=</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span><span class="op">)</span></span>
+<span><span class="va">raw_numeric_blocks</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>  clinical <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/cbind.html" class="external-link">cbind</a></span><span class="op">(</span></span>
+<span>    marker <span class="op">=</span> <span class="va">latent</span> <span class="op">+</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span>, sd <span class="op">=</span> <span class="fl">0.25</span><span class="op">)</span>,</span>
+<span>    noise <span class="op">=</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span><span class="op">)</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  imaging <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/cbind.html" class="external-link">cbind</a></span><span class="op">(</span></span>
+<span>    region <span class="op">=</span> <span class="va">latent</span> <span class="op">+</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span>, sd <span class="op">=</span> <span class="fl">0.25</span><span class="op">)</span>,</span>
+<span>    noise <span class="op">=</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n</span><span class="op">)</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">global_test</span> <span class="op">=</span> <span class="fu"><a href="reference/mbspls_permutation_test.html">mbspls_permutation_test</a></span><span class="op">(</span></span>
+<span>  blocks <span class="op">=</span> <span class="va">raw_numeric_blocks</span>,</span>
+<span>  statistic <span class="op">=</span> <span class="st">"global_lc1"</span>,</span>
+<span>  n_perm <span class="op">=</span> <span class="fl">99L</span>,</span>
+<span>  seed <span class="op">=</span> <span class="fl">20260831L</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">global_test</span></span>
+<span><span class="va">global_test</span><span class="op">$</span><span class="va">p_value</span></span></code></pre></div>
+<pre class="text"><code>Fixed-specification MB-sPLS omnibus Monte Carlo permutation test
+Null: Block 'imaging' is independent of the joint fixed block(s) 'clinical' within the supplied exchangeability design.
+Statistic = 0.942834; p = 0.01 (0/99 sampled statistics at least as extreme)
+Monte Carlo 95% CI for the exceedance probability: [0, 0.03658]
+Exchangeability: row; units = 48; strata = 1
+Permutation group size: exp(140.7) distinct maps
+Seeds: permutation = 20260831; analysis = 1
+Statistic: global_lc1; ncomp = 1 (refitted per permutation: 1); standardize = TRUE
+Scope: One omnibus p-value for the stated block-independence null. Component statistics after LC1 are descriptive and are not rank-null p-values. Valid only if the statistic, ncomp, c_matrix, standardisation, and solver settings were fixed independently of the tested alignment; otherwise repeat the selection inside mb_permutation_test().
+[1] 0.01</code></pre>
+<p>The result is labelled fixed-specification because its p-value is valid only if the statistic, <code>ncomp</code>, <code>c_matrix</code>, standardisation, and solver settings were chosen without looking at the tested alignment.</p>
+<p>As Monte Carlo precision, report the printed interval: the exact Clopper-Pearson interval for the exceedance probability <code>b / B</code>. With no exceedance in 99 permutations its upper bound is still about 0.037. The Wald standard error in <code>monte_carlo_standard_error</code> is <code>NA</code> when <code>b = 0</code> or <code>b = B</code>.</p>
+<p>The MB-sPLS fit is deterministic, so <code>analysis_seed</code> does not change this statistic; report it together with the permutation seed. In an <code><a href="reference/mb_permutation_test.html">mb_permutation_test()</a></code> callback with stochastic steps, the analysis seed is part of the statistic: fix it in advance and never choose among seeds after seeing results. It selects the L’Ecuyer-CMRG generator, so callbacks that use forked parallelism remain reproducible.</p>
+<p>If imputation, filtering, tuning, sparsity, or component count was selected from the tested alignment, put the complete procedure inside an <code><a href="reference/mb_permutation_test.html">mb_permutation_test()</a></code> callback so every selection step is repeated. Use <code>exchangeability_unit</code>, <code>within_unit</code>, and <code>strata</code> whenever row-wise shuffling is not justified, for example <code>strata = site</code> to permute within sites when a shared site effect would otherwise create cross-block dependence. With few exchangeable units or small strata, the size of the permutation group, not <code>n_perm</code>, limits the attainable p-value; results report that size and warn when it is small.</p>
+</div>
+<div class="section level2">
+<h2 id="lc-specific-confirmation-inference">LC-specific confirmation inference<a class="anchor" aria-label="anchor" href="#lc-specific-confirmation-inference"></a>
+</h2>
+<p>LC-specific p-values require a truly independent confirmation cohort. The complete score transformation and the LC family must have been frozen before those observations were examined. Frozen weights fix the sign of every block score, so supply the expected sign of each pairwise score correlation from discovery (for example the sign of the discovery-sample correlation) as <code>reference_signs</code>; each LC is then tested one-sided in the discovery direction. The data below are generated independently of the preceding example, with a positive expected sign by construction.</p>
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/message.html" class="external-link">suppressPackageStartupMessages</a></span><span class="op">(</span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3.mlr-org.com" class="external-link">mlr3mbspls</a></span><span class="op">)</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">20260901L</span><span class="op">)</span></span>
+<span><span class="va">n_confirmation</span> <span class="op">=</span> <span class="fl">80L</span></span>
+<span><span class="va">confirmation_signal</span> <span class="op">=</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n_confirmation</span><span class="op">)</span></span>
+<span><span class="va">confirmation_scores</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>  predictor <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/cbind.html" class="external-link">cbind</a></span><span class="op">(</span></span>
+<span>    LC1 <span class="op">=</span> <span class="va">confirmation_signal</span> <span class="op">+</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n_confirmation</span>, sd <span class="op">=</span> <span class="fl">0.08</span><span class="op">)</span>,</span>
+<span>    LC2 <span class="op">=</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n_confirmation</span><span class="op">)</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  outcome <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/cbind.html" class="external-link">cbind</a></span><span class="op">(</span></span>
+<span>    LC1 <span class="op">=</span> <span class="va">confirmation_signal</span> <span class="op">+</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n_confirmation</span>, sd <span class="op">=</span> <span class="fl">0.08</span><span class="op">)</span>,</span>
+<span>    LC2 <span class="op">=</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">n_confirmation</span><span class="op">)</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">confirmed</span> <span class="op">=</span> <span class="fu"><a href="reference/mb_lc_confirmation_test.html">mb_lc_confirmation_test</a></span><span class="op">(</span></span>
+<span>  scores <span class="op">=</span> <span class="va">confirmation_scores</span>,</span>
+<span>  independent_confirmation <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  permute_blocks <span class="op">=</span> <span class="st">"outcome"</span>,</span>
+<span>  reference_signs <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"predictor:outcome"</span> <span class="op">=</span> <span class="fl">1</span><span class="op">)</span>,</span>
+<span>  n_perm <span class="op">=</span> <span class="fl">99L</span>,</span>
+<span>  seed <span class="op">=</span> <span class="fl">20260831L</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">confirmed</span></span></code></pre></div>
+<pre class="text"><code>Independent-confirmation directional permutation tests for frozen MB-sPLS LC score associations
+Direction: one-sided in the discovery direction (reference signs)
+ component statistic exceedances p_value_raw p_value_holm monte_carlo_conf_low
+       LC1  0.994699           0        0.01         0.02            0.0000000
+       LC2 -0.121364          86        0.87         0.87            0.7859224
+ monte_carlo_conf_high significant_holm direction_agrees replicated
+            0.03657574             TRUE             TRUE       TRUE
+            0.92818907            FALSE            FALSE      FALSE
+Observed signed score correlations:
+ component   block_1 block_2 correlation reference_sign oriented_correlation
+       LC1 predictor outcome    0.994699              1             0.994699
+       LC2 predictor outcome   -0.121364              1            -0.121364
+ agrees
+   TRUE
+  FALSE
+Monte Carlo precision: exact 95% Clopper-Pearson interval for the exceedance probability b/B.
+Scope: Directional confirmation of fixed learned score associations: one-sided tests of the mean sign-oriented correlation in the discovery direction. An LC replicates only if it is significant and its observed statistic is positive (`replicated`). Not a population-rank test and not valid after reusing confirmation data for fitting or selection.</code></pre>
+<p>With <code>reference_signs</code>, the Holm-adjusted results are directional tests of fixed score associations. An LC counts as replicated (<code>replicated</code>) only if it is significant and its observed sign-oriented statistic is positive (<code>direction_agrees</code>): with strata or whole-unit designs the permutation null keeps between-stratum structure fixed, so a significant upper tail can occur for a pooled correlation of the opposite sign, which shows dependence relative to the design but not replication. Without them, the statistic is unsigned and an association in either direction, including one opposite to discovery, can be significant; the result then establishes dependence, not replication. The observed signed correlations are always returned in <code>pairwise_correlations</code>. Neither version establishes that the population cross-block rank is at least two.</p>
+</div>
+<div class="section level2">
+<h2 id="descriptive-bootstrap-uncertainty">Descriptive bootstrap uncertainty<a class="anchor" aria-label="anchor" href="#descriptive-bootstrap-uncertainty"></a>
+</h2>
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/message.html" class="external-link">suppressPackageStartupMessages</a></span><span class="op">(</span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3.mlr-org.com" class="external-link">mlr3mbspls</a></span><span class="op">)</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">20260831L</span><span class="op">)</span></span>
+<span><span class="va">x</span> <span class="op">=</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="fl">80L</span><span class="op">)</span></span>
+<span><span class="va">y</span> <span class="op">=</span> <span class="fl">0.6</span> <span class="op">*</span> <span class="va">x</span> <span class="op">+</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="fl">80L</span>, sd <span class="op">=</span> <span class="fl">0.7</span><span class="op">)</span></span>
+<span><span class="va">observed</span> <span class="op">=</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/cor.html" class="external-link">cor</a></span><span class="op">(</span><span class="va">x</span>, <span class="va">y</span><span class="op">)</span></span>
+<span><span class="va">replicates</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">replicate</a></span><span class="op">(</span><span class="fl">199L</span>, <span class="op">{</span></span>
+<span>  <span class="va">rows</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample.int</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">x</span><span class="op">)</span>, replace <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
+<span>  <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/cor.html" class="external-link">cor</a></span><span class="op">(</span><span class="va">x</span><span class="op">[</span><span class="va">rows</span><span class="op">]</span>, <span class="va">y</span><span class="op">[</span><span class="va">rows</span><span class="op">]</span><span class="op">)</span></span>
+<span><span class="op">}</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">uncertainty</span> <span class="op">=</span> <span class="fu"><a href="reference/mb_bootstrap_summary.html">mb_bootstrap_summary</a></span><span class="op">(</span></span>
+<span>  replicates <span class="op">=</span> <span class="va">replicates</span>,</span>
+<span>  observed <span class="op">=</span> <span class="va">observed</span>,</span>
+<span>  conf <span class="op">=</span> <span class="fl">0.95</span>,</span>
+<span>  type <span class="op">=</span> <span class="st">"percentile"</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">uncertainty</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="supervised-mb-spls-xy">Supervised MB-sPLS-XY<a class="anchor" aria-label="anchor" href="#supervised-mb-spls-xy"></a>
+</h2>
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/message.html" class="external-link">suppressPackageStartupMessages</a></span><span class="op">(</span><span class="op">{</span></span>
+<span>  <span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3.mlr-org.com" class="external-link">mlr3</a></span><span class="op">)</span></span>
+<span>  <span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3.mlr-org.com" class="external-link">mlr3mbspls</a></span><span class="op">)</span></span>
+<span><span class="op">}</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">classification_task</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">tsk</a></span><span class="op">(</span><span class="st">"mbspls_synthetic_classif"</span><span class="op">)</span></span>
+<span><span class="va">classification_learner</span> <span class="op">=</span> <span class="fu"><a href="reference/mbsplsxy_graph_learner.html">mbsplsxy_graph_learner</a></span><span class="op">(</span></span>
+<span>  task <span class="op">=</span> <span class="va">classification_task</span>,</span>
+<span>  learner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"classif.featureless"</span><span class="op">)</span>,</span>
+<span>  ncomp <span class="op">=</span> <span class="fl">1L</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">classification_learner</span><span class="op">$</span><span class="fu">train</span><span class="op">(</span><span class="va">classification_task</span><span class="op">)</span></span>
+<span><span class="va">classification_prediction</span> <span class="op">=</span> <span class="va">classification_learner</span><span class="op">$</span><span class="fu">predict</span><span class="op">(</span></span>
+<span>  <span class="va">classification_task</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">regression_task</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">tsk</a></span><span class="op">(</span><span class="st">"mbspls_synthetic_regr"</span><span class="op">)</span></span>
+<span><span class="va">regression_learner</span> <span class="op">=</span> <span class="fu"><a href="reference/mbsplsxy_graph_learner.html">mbsplsxy_graph_learner</a></span><span class="op">(</span></span>
+<span>  task <span class="op">=</span> <span class="va">regression_task</span>,</span>
+<span>  learner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"regr.featureless"</span><span class="op">)</span>,</span>
+<span>  ncomp <span class="op">=</span> <span class="fl">1L</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">regression_learner</span><span class="op">$</span><span class="fu">train</span><span class="op">(</span><span class="va">regression_task</span><span class="op">)</span></span>
+<span><span class="va">regression_prediction</span> <span class="op">=</span> <span class="va">regression_learner</span><span class="op">$</span><span class="fu">predict</span><span class="op">(</span><span class="va">regression_task</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">classification_prediction</span></span>
+<span><span class="va">regression_prediction</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="documentation-and-complete-workflow">Documentation and complete workflow<a class="anchor" aria-label="anchor" href="#documentation-and-complete-workflow"></a>
+</h2>
+<ul>
+<li>
+<a href="vignettes/quickstart.Rmd">Quickstart vignette</a>: every supported inference route, nested CV, final models, displayed output, and plots.</li>
+<li>
+<a href="inst/STATISTICAL_VALIDITY.html">Statistical-validity requirements</a>: leakage, exchangeability, nested tuning, metrics, and interpretation.</li>
+<li>
+<a href="inst/REPRODUCIBILITY.html">Reproducibility protocol</a>: seeds, RNG streams, software versions, and reporting requirements.</li>
+<li>
+<a href="inst/MODEL_CARD.html">Clinical model card</a>: study-specific psychiatry and precision-medicine obligations.</li>
+</ul>
+<p>To install and open the rendered vignette, also install <code>knitr</code> and <code>rmarkdown</code> and build vignettes during installation (a Pandoc installation is required):</p>
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/install.packages.html" class="external-link">install.packages</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"knitr"</span>, <span class="st">"rmarkdown"</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="fu">remotes</span><span class="fu">::</span><span class="fu">install_github</span><span class="op">(</span><span class="st">"coorsaa/mlr3mbspls"</span>, build_vignettes <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/vignette.html" class="external-link">vignette</a></span><span class="op">(</span><span class="st">"quickstart"</span>, package <span class="op">=</span> <span class="st">"mlr3mbspls"</span><span class="op">)</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="selected-api">Selected API<a class="anchor" aria-label="anchor" href="#selected-api"></a>
+</h2>
 <table class="table">
 <colgroup>
-<col width="65%">
-<col width="35%">
-</colgroup>
-<thead><tr>
-<th>Measure Class</th>
-<th>Purpose</th>
-</tr></thead>
-<tbody>
-<tr>
-<td><code>MeasureMBsPLS_MAC</code></td>
-<td>Mean absolute correlation of block scores</td>
-</tr>
-<tr>
-<td><code>MeasureMBsPLS_EV</code></td>
-<td>Mean prediction-side explained variance across components</td>
-</tr>
-<tr>
-<td><code>MeasureMBsPLS_BlockEV</code></td>
-<td>Mean prediction-side block EV across components and blocks</td>
-</tr>
-<tr>
-<td><code>MeasureMBsPLS_EVWeightedMAC</code></td>
-<td>MAC weighted by EV contribution</td>
-</tr>
-<tr>
-<td><code>MeasureMBSPCAMEV</code></td>
-<td>EV (multi‑block sparse PCA)</td>
-</tr>
-</tbody>
-</table>
-<p>Use like any mlr3 measure:</p>
-<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">ms</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">msr</a></span><span class="op">(</span><span class="st">"mbspls.mac"</span><span class="op">)</span>, <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">msr</a></span><span class="op">(</span><span class="st">"mbspls.ev"</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="va">rr</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/resample.html" class="external-link">resample</a></span><span class="op">(</span><span class="va">task</span>, <span class="va">gl</span>, <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">rsmp</a></span><span class="op">(</span><span class="st">"cv"</span>, folds <span class="op">=</span> <span class="fl">3</span><span class="op">)</span>, store_models <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
-<span><span class="va">rr</span><span class="op">$</span><span class="fu">score</span><span class="op">(</span><span class="va">ms</span><span class="op">)</span></span>
-<span><span class="va">rr</span><span class="op">$</span><span class="fu">aggregate</span><span class="op">(</span><span class="va">ms</span><span class="op">)</span></span></code></pre></div>
-</div>
-</div>
-<div class="section level2">
-<h2 id="nested-cross-validation">Nested Cross-Validation<a class="anchor" aria-label="anchor" href="#nested-cross-validation"></a>
-</h2>
-<p><code>performance_metric</code> defines the direct component-fitting objective inside the MB-sPLS algorithm. <code>measure</code> defines the outer model-selection criterion on held-out data. They can be chosen separately. For most analyses, <code>performance_metric = "mac"</code> with the default <code>measure = msr("mbspls.mac_evwt")</code> is the most natural choice.</p>
-<div class="sourceCode" id="cb21"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3tuning.mlr-org.com" class="external-link">mlr3tuning</a></span><span class="op">)</span></span>
-<span><span class="va">res_nested</span> <span class="op">=</span> <span class="fu"><a href="reference/mbspls_nested_cv.html">mbspls_nested_cv</a></span><span class="op">(</span></span>
-<span>  task <span class="op">=</span> <span class="va">task</span>,</span>
-<span>  graphlearner <span class="op">=</span> <span class="va">gl_full</span>,</span>
-<span>  rs_outer <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">rsmp</a></span><span class="op">(</span><span class="st">"cv"</span>, folds <span class="op">=</span> <span class="fl">3</span><span class="op">)</span>,</span>
-<span>  rs_inner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">rsmp</a></span><span class="op">(</span><span class="st">"cv"</span>, folds <span class="op">=</span> <span class="fl">2</span><span class="op">)</span>,</span>
-<span>  ncomp <span class="op">=</span> <span class="fl">4L</span>,</span>
-<span>  tuner_budget <span class="op">=</span> <span class="fl">10L</span>,</span>
-<span>  performance_metric <span class="op">=</span> <span class="st">"mac"</span></span>
-<span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/utils/str.html" class="external-link">str</a></span><span class="op">(</span><span class="va">res_nested</span><span class="op">)</span></span></code></pre></div>
-<p>Batchtools version (for HPC) is available via <code><a href="reference/mbspls_nested_cv_batchtools.html">mbspls_nested_cv_batchtools()</a></code>.</p>
-</div>
-<div class="section level2">
-<h2 id="sequential-component-tuning">Sequential Component Tuning<a class="anchor" aria-label="anchor" href="#sequential-component-tuning"></a>
-</h2>
-<div class="sourceCode" id="cb22"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">tuner</span> <span class="op">=</span> <span class="va"><a href="reference/TunerSeqMBsPLS.html">TunerSeqMBsPLS</a></span><span class="op">$</span><span class="fu">new</span><span class="op">(</span><span class="op">)</span></span>
-<span><span class="va">instance</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3tuning.mlr-org.com/reference/ti.html" class="external-link">ti</a></span><span class="op">(</span></span>
-<span>  task <span class="op">=</span> <span class="va">task</span>,</span>
-<span>  learner <span class="op">=</span> <span class="va">gl_full</span>,</span>
-<span>  resampling <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">rsmp</a></span><span class="op">(</span><span class="st">"cv"</span>, folds <span class="op">=</span> <span class="fl">2</span><span class="op">)</span>,</span>
-<span>  measure <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">msr</a></span><span class="op">(</span><span class="st">"mbspls.mac"</span><span class="op">)</span>,</span>
-<span>  terminator <span class="op">=</span> <span class="fu"><a href="https://bbotk.mlr-org.com/reference/trm.html" class="external-link">trm</a></span><span class="op">(</span><span class="st">"evals"</span>, n_evals <span class="op">=</span> <span class="fl">20</span><span class="op">)</span></span>
-<span><span class="op">)</span></span>
-<span><span class="co"># tuner$optimize(instance)</span></span>
-<span><span class="co"># instance$result$learner_param_vals[[1]]$c_matrix</span></span></code></pre></div>
-</div>
-<div class="section level2">
-<h2 id="useful-low-level-helpers">Useful Low-Level Helpers<a class="anchor" aria-label="anchor" href="#useful-low-level-helpers"></a>
-</h2>
-<table class="table">
-<colgroup>
-<col width="66%">
-<col width="33%">
+<col width="50%">
+<col width="50%">
 </colgroup>
 <thead><tr>
 <th>Function</th>
@@ -721,77 +463,70 @@
 </tr></thead>
 <tbody>
 <tr>
-<td><code><a href="reference/compute_test_ev.html">compute_test_ev()</a></code></td>
-<td>Compute EV + objective on new matrices (standalone)</td>
+<td><code><a href="reference/as_task_multiblock.html">TaskMultiBlock()</a></code></td>
+<td>Create a task with persistent block membership</td>
 </tr>
 <tr>
-<td><code><a href="reference/compute_pipeop_test_ev.html">compute_pipeop_test_ev()</a></code></td>
-<td>Same for a PipeOp state representation</td>
+<td><code><a href="reference/mb_task_overview.html">mb_task_overview()</a></code></td>
+<td>Audit block size, missingness, constants, and target balance</td>
+</tr>
+<tr>
+<td><code><a href="reference/mbspls_graph_learner.html">mbspls_graph_learner()</a></code></td>
+<td>Build an unsupervised MB-sPLS graph learner</td>
+</tr>
+<tr>
+<td><code><a href="reference/mbsplsxy_graph_learner.html">mbsplsxy_graph_learner()</a></code></td>
+<td>Build a supervised MB-sPLS-XY graph learner</td>
+</tr>
+<tr>
+<td><code><a href="reference/mbspls_nested_cv.html">mbspls_nested_cv()</a></code></td>
+<td>Run sequential tuning inside outer validation</td>
+</tr>
+<tr>
+<td><code><a href="reference/mbspls_model_summary.html">mbspls_model_summary()</a></code></td>
+<td>Extract tidy fitted-model summaries</td>
 </tr>
 <tr>
 <td><code><a href="reference/mbspls_eval_new_data.html">mbspls_eval_new_data()</a></code></td>
-<td>Score new data given training state (matrix interface)</td>
+<td>Evaluate a fitted graph’s weights on new data</td>
 </tr>
 <tr>
-<td><code><a href="reference/mbspls_flip_weights.html">mbspls_flip_weights()</a></code></td>
-<td>Sign alignment (GraphLearner, PipeOp, list)</td>
+<td><code><a href="reference/mb_permutation_test.html">mb_permutation_test()</a></code></td>
+<td>Rerun one complete analysis under valid shuffles</td>
 </tr>
 <tr>
-<td><code><a href="reference/mbspls_extract_bootstrap_means.html">mbspls_extract_bootstrap_means()</a></code></td>
-<td>Summarise bootstrap weight means</td>
+<td><code><a href="reference/mbspls_permutation_test.html">mbspls_permutation_test()</a></code></td>
+<td>Run a fixed-specification omnibus MB-sPLS test</td>
 </tr>
 <tr>
-<td><code><a href="reference/aggregate_mbspls_payloads.html">aggregate_mbspls_payloads()</a></code></td>
-<td>Merge logged payloads (e.g. across resamples)</td>
+<td><code><a href="reference/mb_lc_confirmation_test.html">mb_lc_confirmation_test()</a></code></td>
+<td>Test frozen LCs in independent confirmation data</td>
 </tr>
 <tr>
-<td><code><a href="reference/collect_mbspls_nested_cv.html">collect_mbspls_nested_cv()</a></code></td>
-<td>Collect nested CV payload archives</td>
+<td><code><a href="reference/mb_bootstrap_summary.html">mb_bootstrap_summary()</a></code></td>
+<td>Summarise descriptive bootstrap uncertainty</td>
+</tr>
+<tr>
+<td><code><a href="reference/mbspls_plot_block_weight_ci.html">mbspls_plot_block_weight_ci()</a></code></td>
+<td>Plot sign-aligned bootstrap stability intervals</td>
 </tr>
 </tbody>
 </table>
 </div>
 <div class="section level2">
-<h2 id="custom-learners-gower-knn">Custom Learners (Gower kNN)<a class="anchor" aria-label="anchor" href="#custom-learners-gower-knn"></a>
-</h2>
-<div class="sourceCode" id="cb23"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">knn_cls</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"classif.knngower"</span>, k <span class="op">=</span> <span class="fl">5</span><span class="op">)</span></span>
-<span><span class="va">knn_reg</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"regr.knngower"</span>, k <span class="op">=</span> <span class="fl">5</span><span class="op">)</span></span></code></pre></div>
-<p>These are used implicitly inside <code><a href="reference/impute_knn_graph.html">impute_knn_graph()</a></code> and can be part of supervised pipelines downstream of MB‑sPLS/MB‑sPCA representations.</p>
-</div>
-<div class="section level2">
-<h2 id="reproducible-sparsity-specification">Reproducible Sparsity Specification<a class="anchor" aria-label="anchor" href="#reproducible-sparsity-specification"></a>
-</h2>
-<p>Two options:</p>
-<ol style="list-style-type: decimal">
-<li>Per‑block constraints automatically created: parameters named <code>c_&lt;block&gt;</code> with default upper bound √p.</li>
-<li>Provide a <code>c_matrix</code> (rows = blocks, cols = components) – overrides <code>ncomp</code> and per‑block <code>c_</code> values.</li>
-</ol>
-<div class="sourceCode" id="cb24"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">graph_cmat</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3pipelines.mlr-org.com/reference/po.html" class="external-link">po</a></span><span class="op">(</span><span class="st">"mbspls"</span>, blocks <span class="op">=</span> <span class="va">blocks</span>, c_matrix <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/matrix.html" class="external-link">matrix</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="fl">2</span>,<span class="fl">2</span>,<span class="fl">3</span>,<span class="fl">3</span>,<span class="fl">1</span>,<span class="fl">1</span><span class="op">)</span>, nrow <span class="op">=</span> <span class="fl">3</span>, byrow <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level2">
-<h2 id="vignette">Vignette<a class="anchor" aria-label="anchor" href="#vignette"></a>
-</h2>
-<p>See the Quickstart vignette for an end‑to‑end multi‑omics example:</p>
-<div class="sourceCode" id="cb25"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/utils/vignette.html" class="external-link">vignette</a></span><span class="op">(</span><span class="st">"quickstart"</span>, package <span class="op">=</span> <span class="st">"mlr3mbspls"</span><span class="op">)</span></span></code></pre></div>
-</div>
-<div class="section level2">
 <h2 id="citation">Citation<a class="anchor" aria-label="anchor" href="#citation"></a>
 </h2>
-<p>If you use <code>mlr3mbspls</code> in academic work please cite:</p>
-<pre><code>@Manual{mlr3mbspls,
-  title = {mlr3mbspls: Multi-Block Sparse PLS for mlr3},
-  author = {Stefan Coors and Clara Sophie Vetter},
-  year = {2026},
-  url = {https://github.com/coorsaa/mlr3mbspls}
-}</code></pre>
+<p>If you use <code>mlr3mbspls</code> in academic work, cite:</p>
+<pre class="text"><code>Coors S, Vetter CS (2026). mlr3mbspls: Multi-Block Sparse Partial Least
+Squares for mlr3. R package version 0.4.0.
+https://github.com/coorsaa/mlr3mbspls</code></pre>
 </div>
 <div class="section level2">
 <h2 id="contributing">Contributing<a class="anchor" aria-label="anchor" href="#contributing"></a>
 </h2>
-<p>Issues &amp; PRs welcome. Please open an issue for substantial interface changes before implementing. Run <code>pre-commit</code> hooks + <code>R CMD check</code> locally.</p>
+<p>All R code, examples, vignettes, and R fences in Markdown follow the pinned <code>styler.mlr</code> guide. See <a href="CONTRIBUTING.html">CONTRIBUTING.md</a> and run:</p>
+<div class="sourceCode" id="cb14"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" tabindex="-1"></a><span class="ex">Rscript</span> tools/style.R</span>
+<span id="cb14-2"><a href="#cb14-2" tabindex="-1"></a><span class="ex">Rscript</span> tools/style.R <span class="at">--check</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="license">License<a class="anchor" aria-label="anchor" href="#license"></a>
@@ -813,12 +548,16 @@
 <div class="license">
 <h2 data-toc-skip>License</h2>
 <ul class="list-unstyled">
-<li>
-<a href="https://www.r-project.org/Licenses/LGPL-3" class="external-link">LGPL-3</a> + file <a href="LICENSE-text.html">LICENSE</a>
-</li>
+<li><a href="https://www.r-project.org/Licenses/LGPL-3" class="external-link">LGPL-3</a></li>
 </ul>
 </div>
 
+<div class="community">
+<h2 data-toc-skip>Community</h2>
+<ul class="list-unstyled">
+<li><a href="CONTRIBUTING.html">Contributing guide</a></li>
+</ul>
+</div>
 
 <div class="citation">
 <h2 data-toc-skip>Citation</h2>

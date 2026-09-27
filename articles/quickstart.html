@@ -32,7 +32,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -81,9 +81,9 @@
                         <h4 data-toc-skip class="author">Stefan Coors,
 Clara Vetter</h4>
             
-            <h4 data-toc-skip class="date">2026-09-26</h4>
+            <h4 data-toc-skip class="date">2026-09-27</h4>
       
-      <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/vignettes/quickstart.Rmd" class="external-link"><code>vignettes/quickstart.Rmd</code></a></small>
+      <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.4.0/vignettes/quickstart.Rmd" class="external-link"><code>vignettes/quickstart.Rmd</code></a></small>
       <div class="hidden name"><code>quickstart.Rmd</code></div>
 
     </div>
@@ -101,56 +101,48 @@ workflow:</p>
 <li>Notes the matching supervised toy tasks
 <code>mbspls_synthetic_classif</code> and
 <code>mbspls_synthetic_regr</code>.</li>
-<li>Generic naming only.</li>
-<li>No helper function definitions.</li>
 <li>Sequential objects that are easy to inspect in an interactive R
 session.</li>
+<li>Executes every supported permutation-inference route and shows its
+output.</li>
 </ul>
 <p>The sequence mirrors a typical analysis run:</p>
 <ol style="list-style-type: decimal">
 <li>Load the packaged synthetic multi-block task.</li>
-<li>Reuse its block mapping and define site correction.</li>
+<li>Run and plot the supported permutation tests.</li>
+<li>Show descriptive bootstrap uncertainty.</li>
+<li>Inspect task quality.</li>
+<li>Define site correction.</li>
 <li>Clone the analysis task.</li>
-<li>Run nested CV.</li>
+<li>Define raw and stability-selection pipelines and validate each with
+nested
+<ol start="105" style="list-style-type: upper-roman"><li>
+</li></ol>
+</li>
 <li>Retune <code>c_matrix</code> on all rows.</li>
-<li>Fit final raw/stability modes.</li>
-<li>Save outputs.</li>
+<li>Fit the final pipelines and compare what the selection modes
+change.</li>
+<li>Plot validation and stability results.</li>
+<li>Inspect the results in memory.</li>
 </ol>
 </div>
 <div class="section level2">
 <h2 id="setup">Setup<a class="anchor" aria-label="anchor" href="#setup"></a>
 </h2>
-</div>
-<div class="section level2">
-<h2 id="goal-1">Goal<a class="anchor" aria-label="anchor" href="#goal-1"></a>
-</h2>
-<p>This vignette shows a straightforward, script-style MB-sPLS
-workflow:</p>
-<ul>
-<li>Uses the packaged synthetic <code>TaskMultiBlock</code>
-<code>mbspls_synthetic_blocks</code>.</li>
-<li>Notes the matching supervised toy tasks
-<code>mbspls_synthetic_classif</code> and
-<code>mbspls_synthetic_regr</code>.</li>
-<li>Generic naming only.</li>
-<li>No helper function definitions.</li>
-<li>Sequential objects that are easy to inspect in an interactive R
-session.</li>
-</ul>
-<p>The sequence mirrors a typical analysis run:</p>
-<ol style="list-style-type: decimal">
-<li>Load the packaged synthetic multi-block task.</li>
-<li>Reuse its block mapping and define site correction.</li>
-<li>Clone the analysis task.</li>
-<li>Run nested CV.</li>
-<li>Retune <code>c_matrix</code> on all rows.</li>
-<li>Fit final raw/stability modes.</li>
-<li>Save outputs.</li>
-</ol>
-</div>
-<div class="section level2">
-<h2 id="setup-1">Setup<a class="anchor" aria-label="anchor" href="#setup-1"></a>
-</h2>
+<p>Bootstrap summaries in this workflow are descriptive uncertainty and
+stability outputs, not null-hypothesis tests. The built-in permutation
+options are conditional diagnostics. A confirmatory permutation analysis
+must rerun the complete preprocessing, selection, tuning, and fitting
+pipeline using the study’s valid exchangeability units.
+<code><a href="../reference/mb_permutation_test.html">mb_permutation_test()</a></code> provides that complete-analysis
+engine; <code><a href="../reference/mbspls_permutation_test.html">mbspls_permutation_test()</a></code> provides a fixed,
+pre-specified omnibus MB-sPLS test. Frozen LC score associations may be
+tested with <code><a href="../reference/mb_lc_confirmation_test.html">mb_lc_confirmation_test()</a></code> only on genuinely
+untouched confirmation observations; with <code>reference_signs</code>
+from discovery its Holm-adjusted p-values concern directional
+replication, not generic LC2+ population rank. See
+<code>STATISTICAL_VALIDITY.md</code> and <code>MODEL_CARD.md</code> in
+the installed package.</p>
 <div class="sourceCode" id="cb1"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3.mlr-org.com" class="external-link">mlr3</a></span><span class="op">)</span></span>
 <span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3pipelines.mlr-org.com" class="external-link">mlr3pipelines</a></span><span class="op">)</span></span>
@@ -161,155 +153,802 @@ session.</li>
 <span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://r-datatable.com" class="external-link">data.table</a></span><span class="op">)</span></span>
 <span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://ggplot2.tidyverse.org" class="external-link">ggplot2</a></span><span class="op">)</span></span>
 <span></span>
+<span><span class="fu">lgr</span><span class="fu">::</span><span class="va"><a href="https://s-fleck.github.io/lgr/reference/lgr-package.html" class="external-link">lgr</a></span><span class="op">$</span><span class="fu">set_threshold</span><span class="op">(</span><span class="st">"warn"</span><span class="op">)</span></span>
+<span><span class="fu">lgr</span><span class="fu">::</span><span class="fu"><a href="https://s-fleck.github.io/lgr/reference/get_logger.html" class="external-link">get_logger</a></span><span class="op">(</span><span class="st">"mlr3"</span><span class="op">)</span><span class="op">$</span><span class="fu">set_threshold</span><span class="op">(</span><span class="st">"warn"</span><span class="op">)</span></span>
+<span><span class="fu">lgr</span><span class="fu">::</span><span class="fu"><a href="https://s-fleck.github.io/lgr/reference/get_logger.html" class="external-link">get_logger</a></span><span class="op">(</span><span class="st">"bbotk"</span><span class="op">)</span><span class="op">$</span><span class="fu">set_threshold</span><span class="op">(</span><span class="st">"warn"</span><span class="op">)</span></span>
+<span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">42</span><span class="op">)</span></span>
 <span></span>
-<span><span class="co"># Runtime-focused defaults for a quick, reliable walkthrough.</span></span>
-<span><span class="co"># Increase these values for deeper inferential analyses.</span></span>
+<span><span class="co"># Runtime-focused defaults for an executable package vignette.</span></span>
+<span><span class="co"># Increase them for an analysis and choose the permutation count from the required</span></span>
+<span><span class="co"># Monte Carlo precision; valid inference also requires the design rules above.</span></span>
 <span><span class="va">cfg</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>  ncomp <span class="op">=</span> <span class="fl">3L</span>,</span>
+<span>  ncomp <span class="op">=</span> <span class="fl">2L</span>,</span>
 <span>  centers <span class="op">=</span> <span class="fl">2L</span>,</span>
-<span>  inner_folds <span class="op">=</span> <span class="fl">3L</span>,</span>
-<span>  outer_folds <span class="op">=</span> <span class="fl">3L</span>,</span>
-<span>  tuner_budget <span class="op">=</span> <span class="fl">40L</span>,</span>
-<span>  n_perm <span class="op">=</span> <span class="fl">40L</span>,</span>
-<span>  n_perm_tuning <span class="op">=</span> <span class="fl">40L</span>,</span>
-<span>  val_test_n <span class="op">=</span> <span class="fl">40L</span>,</span>
-<span>  bootstrap_B <span class="op">=</span> <span class="fl">40L</span>,</span>
+<span>  inner_folds <span class="op">=</span> <span class="fl">2L</span>,</span>
+<span>  outer_folds <span class="op">=</span> <span class="fl">2L</span>,</span>
+<span>  tuner_budget <span class="op">=</span> <span class="fl">2L</span>,</span>
+<span>  n_perm <span class="op">=</span> <span class="fl">99L</span>,</span>
+<span>  bootstrap_B <span class="op">=</span> <span class="fl">20L</span>,</span>
+<span>  bootstrap_summary_B <span class="op">=</span> <span class="fl">199L</span>,</span>
+<span>  confirmation_n <span class="op">=</span> <span class="fl">80L</span>,</span>
 <span>  frequency_threshold <span class="op">=</span> <span class="fl">0.5</span>,</span>
-<span>  perf_metric <span class="op">=</span> <span class="st">"mac"</span></span>
+<span>  perf_metric <span class="op">=</span> <span class="st">"mac"</span>,</span>
+<span>  seed_bootstrap <span class="op">=</span> <span class="fl">12L</span>,</span>
+<span>  seed_tuning <span class="op">=</span> <span class="fl">7L</span>,</span>
+<span>  seed_final <span class="op">=</span> <span class="fl">8L</span></span>
 <span><span class="op">)</span></span></code></pre></div>
 </div>
 <div class="section level2">
 <h2 id="load-packaged-synthetic-task">1) Load Packaged Synthetic Task<a class="anchor" aria-label="anchor" href="#load-packaged-synthetic-task"></a>
 </h2>
 <p>This task is included in the package and is designed specifically for
-reproducible MB-sPLS workflows. Start by checking dimensions and the
-stored block mapping.</p>
+reproducible MB-sPLS workflows. Start by checking dimensions, the stored
+block mapping, and the site variable.</p>
 <div class="sourceCode" id="cb2"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">task_source</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">tsk</a></span><span class="op">(</span><span class="st">"mbspls_synthetic_blocks"</span><span class="op">)</span></span>
 <span><span class="va">dt_demo</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/as.data.table.html" class="external-link">as.data.table</a></span><span class="op">(</span><span class="va">task_source</span><span class="op">$</span><span class="fu">data</span><span class="op">(</span>cols <span class="op">=</span> <span class="va">task_source</span><span class="op">$</span><span class="va">feature_names</span><span class="op">)</span><span class="op">)</span></span>
 <span><span class="va">blocks</span> <span class="op">=</span> <span class="va">task_source</span><span class="op">$</span><span class="fu">block_features</span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="va">site</span> <span class="op">=</span> <span class="va">task_source</span><span class="op">$</span><span class="fu">data</span><span class="op">(</span>cols <span class="op">=</span> <span class="st">"site_batch"</span><span class="op">)</span><span class="op">[[</span><span class="fl">1L</span><span class="op">]</span><span class="op">]</span></span>
 <span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/base/dim.html" class="external-link">dim</a></span><span class="op">(</span><span class="va">dt_demo</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] 90 19</span></span>
 <span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="va">dt_demo</span><span class="op">)</span></span>
-<span><span class="va">blocks</span></span></code></pre></div>
+<span><span class="co">#&gt;     block_a_1   block_a_2  block_a_3   block_a_4  block_a_5   block_a_6</span></span>
+<span><span class="co">#&gt;         &lt;num&gt;       &lt;num&gt;      &lt;num&gt;       &lt;num&gt;      &lt;num&gt;       &lt;num&gt;</span></span>
+<span><span class="co">#&gt; 1: -0.4820232 -0.09067248  0.4905738 -0.08187802 -0.4493976 -0.37002006</span></span>
+<span><span class="co">#&gt; 2: -3.0583736 -2.27576110 -1.5162402 -0.98743107 -0.9103466 -0.44872722</span></span>
+<span><span class="co">#&gt; 3: -1.9106327 -1.25079895 -1.9307043 -0.89515926 -0.7893292  0.17721510</span></span>
+<span><span class="co">#&gt; 4:  1.5282791  1.02492304  1.0092871  0.07443127  1.0679812  0.66541033</span></span>
+<span><span class="co">#&gt; 5: -0.2447348 -0.99403666 -0.4471582 -0.04333986 -0.6149011  0.02257522</span></span>
+<span><span class="co">#&gt; 6: -1.1773081 -0.77546312 -0.5008516 -0.64068142 -0.5325153 -0.84826660</span></span>
+<span><span class="co">#&gt;     block_b_1  block_b_2  block_b_3  block_b_4   block_b_5  block_b_6</span></span>
+<span><span class="co">#&gt;         &lt;num&gt;      &lt;num&gt;      &lt;num&gt;      &lt;num&gt;       &lt;num&gt;      &lt;num&gt;</span></span>
+<span><span class="co">#&gt; 1: -0.2184255 -0.8023652 -0.9670868 -0.6242741  0.08659278 -0.4515829</span></span>
+<span><span class="co">#&gt; 2: -2.3613720 -3.2965459 -2.3124091 -0.7773260 -1.27059932 -1.1874169</span></span>
+<span><span class="co">#&gt; 3: -1.1631726 -0.6895387 -0.5107304 -0.6035573 -0.46519879 -0.6995139</span></span>
+<span><span class="co">#&gt; 4:  0.2251808  0.6224264  0.8998943  1.1619115  0.59467944  0.9269420</span></span>
+<span><span class="co">#&gt; 5: -0.2365005 -0.2844035 -0.7047470 -0.3596206 -1.05932491 -0.9500932</span></span>
+<span><span class="co">#&gt; 6:  0.6765249  0.7694754 -0.0556681  0.0822715  0.48538938  0.4374541</span></span>
+<span><span class="co">#&gt;     block_c_1  block_c_2  block_c_3  block_c_4  block_c_5  block_c_6 site_batch</span></span>
+<span><span class="co">#&gt;         &lt;num&gt;      &lt;num&gt;      &lt;num&gt;      &lt;num&gt;      &lt;num&gt;      &lt;num&gt;     &lt;fctr&gt;</span></span>
+<span><span class="co">#&gt; 1: -0.1046558 -0.6050797 -0.8661123 -1.1550235 -0.2035004 -0.5674931          A</span></span>
+<span><span class="co">#&gt; 2: -1.0096021 -0.8108786 -0.4282927 -0.9259443 -0.6096397 -0.4733179          C</span></span>
+<span><span class="co">#&gt; 3: -1.6272624 -1.7779873 -1.8852266 -0.8504129 -0.4324814 -1.2007400          A</span></span>
+<span><span class="co">#&gt; 4:  1.7422976  2.0404947  2.0364196  1.6188748  1.4990246  1.1296079          B</span></span>
+<span><span class="co">#&gt; 5: -2.6151669 -2.0411047 -1.4446422 -1.2049019 -1.5835937 -0.5702597          A</span></span>
+<span><span class="co">#&gt; 6:  0.9809694  0.6344009  0.2090276  0.4460596  0.4948128  0.3011942          C</span></span>
+<span><span class="va">blocks</span></span>
+<span><span class="co">#&gt; $block_a</span></span>
+<span><span class="co">#&gt; [1] "block_a_1" "block_a_2" "block_a_3" "block_a_4" "block_a_5" "block_a_6"</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $block_b</span></span>
+<span><span class="co">#&gt; [1] "block_b_1" "block_b_2" "block_b_3" "block_b_4" "block_b_5" "block_b_6"</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $block_c</span></span>
+<span><span class="co">#&gt; [1] "block_c_1" "block_c_2" "block_c_3" "block_c_4" "block_c_5" "block_c_6"</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span><span class="va">site</span><span class="op">)</span></span>
+<span><span class="co">#&gt; site</span></span>
+<span><span class="co">#&gt;  A  B  C </span></span>
+<span><span class="co">#&gt; 32 32 26</span></span></code></pre></div>
 </div>
 <div class="section level2">
-<h2 id="inspect-task-quality">2) Inspect Task Quality<a class="anchor" aria-label="anchor" href="#inspect-task-quality"></a>
+<h2 id="supported-permutation-inference">2) Supported Permutation Inference<a class="anchor" aria-label="anchor" href="#supported-permutation-inference"></a>
+</h2>
+<p>The following sections execute every statistically supported test
+route. They do not enable the graph’s component-wise training
+permutation or prediction-side permutation flags: those keep fitted
+choices fixed and are conditional diagnostics, not complete-pipeline
+significance tests in this workflow.</p>
+<p>The 99 permutations used here keep the rendered example brief and
+give a minimum attainable p-value of 0.01. Use at least 999 for a
+routine 0.05 analysis and more when the required Monte Carlo precision
+or multiplicity-adjusted decision threshold demands it. With few
+exchangeable units or small strata, the number of distinct permutations,
+not <code>n_perm</code>, limits the attainable p-value to about one over
+that number. Every result stores this permutation group size
+(<code>log_permutation_group_size</code>), and a warning is raised when
+<code>n_perm</code> reaches it.</p>
+<div class="section level3">
+<h3 id="site-as-a-nuisance-variable">Site as a nuisance variable<a class="anchor" aria-label="anchor" href="#site-as-a-nuisance-variable"></a>
+</h3>
+<p>The synthetic generator adds the same site shift to every feature of
+every block, so <code>site_batch</code> alone creates dependence between
+the blocks, and later sections correct all blocks for it. An
+unrestricted shuffle tests marginal block independence, which a shared
+site or scanner shift can reject on its own. The tests below therefore
+permute rows within sites (<code>strata = site</code>). They test
+independence of the blocks conditional on site and assume that rows are
+exchangeable within each site. Residualising the blocks on site and then
+shuffling freely is not automatically valid; see the permutation-test
+section of <code>STATISTICAL_VALIDITY.md</code> and the details of
+<code><a href="../reference/mb_permutation_test.html">mb_permutation_test()</a></code>.</p>
+</div>
+<div class="section level3">
+<h3 id="fixed-mb-spls-omnibus-and-target-block-tests">Fixed MB-sPLS omnibus and target-block tests<a class="anchor" aria-label="anchor" href="#fixed-mb-spls-omnibus-and-target-block-tests"></a>
+</h3>
+<p><code><a href="../reference/mbspls_permutation_test.html">mbspls_permutation_test()</a></code> implements four pre-specified
+statistics. The two <code>global_*</code> tests address block
+independence. The two <code>target_*</code> tests address independence
+of the pre-specified target <code>block_c</code> from the remaining
+blocks. Standardisation is refitted inside every observed and permuted
+fit. The <code>*_sum</code> statistics refit every component on every
+shuffle; the <code>*_lc1</code> statistics refit LC1 only, because
+sequential extraction fits LC1 before any deflation, and report later
+components from one fit to the observed data.</p>
+<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">raw_blocks</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="va">blocks</span>, <span class="kw">function</span><span class="op">(</span><span class="va">cols</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/matrix.html" class="external-link">as.matrix</a></span><span class="op">(</span><span class="va">dt_demo</span><span class="op">[</span>, <span class="va">..cols</span><span class="op">]</span><span class="op">)</span></span>
+<span><span class="op">}</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">mb_test_specs</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>  global_lc1 <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>statistic <span class="op">=</span> <span class="st">"global_lc1"</span>, target_block <span class="op">=</span> <span class="cn">NULL</span>, seed <span class="op">=</span> <span class="fl">101L</span><span class="op">)</span>,</span>
+<span>  global_sum <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>statistic <span class="op">=</span> <span class="st">"global_sum"</span>, target_block <span class="op">=</span> <span class="cn">NULL</span>, seed <span class="op">=</span> <span class="fl">102L</span><span class="op">)</span>,</span>
+<span>  target_lc1 <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>statistic <span class="op">=</span> <span class="st">"target_lc1"</span>, target_block <span class="op">=</span> <span class="st">"block_c"</span>, seed <span class="op">=</span> <span class="fl">103L</span><span class="op">)</span>,</span>
+<span>  target_sum <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>statistic <span class="op">=</span> <span class="st">"target_sum"</span>, target_block <span class="op">=</span> <span class="st">"block_c"</span>, seed <span class="op">=</span> <span class="fl">104L</span><span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">mb_tests</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">mb_test_specs</span><span class="op">)</span>, <span class="kw">function</span><span class="op">(</span><span class="va">test_name</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">specification</span> <span class="op">=</span> <span class="va">mb_test_specs</span><span class="op">[[</span><span class="va">test_name</span><span class="op">]</span><span class="op">]</span></span>
+<span>  <span class="va">arguments</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    blocks <span class="op">=</span> <span class="va">raw_blocks</span>,</span>
+<span>    ncomp <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">ncomp</span>,</span>
+<span>    statistic <span class="op">=</span> <span class="va">specification</span><span class="op">$</span><span class="va">statistic</span>,</span>
+<span>    n_perm <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">n_perm</span>,</span>
+<span>    strata <span class="op">=</span> <span class="va">site</span>,</span>
+<span>    seed <span class="op">=</span> <span class="va">specification</span><span class="op">$</span><span class="va">seed</span></span>
+<span>  <span class="op">)</span></span>
+<span>  <span class="kw">if</span> <span class="op">(</span><span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/NULL.html" class="external-link">is.null</a></span><span class="op">(</span><span class="va">specification</span><span class="op">$</span><span class="va">target_block</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span>
+<span>    <span class="va">arguments</span><span class="op">$</span><span class="va">target_block</span> <span class="op">=</span> <span class="va">specification</span><span class="op">$</span><span class="va">target_block</span></span>
+<span>  <span class="op">}</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/do.call.html" class="external-link">do.call</a></span><span class="op">(</span><span class="va">mbspls_permutation_test</span>, <span class="va">arguments</span><span class="op">)</span></span>
+<span><span class="op">}</span><span class="op">)</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">mb_tests</span><span class="op">)</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">mb_test_specs</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/invisible.html" class="external-link">invisible</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="va">mb_tests</span>, <span class="va">print</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="co">#&gt; Fixed-specification MB-sPLS omnibus Monte Carlo permutation test</span></span>
+<span><span class="co">#&gt; Null: Permuted blocks 'block_b', 'block_c' are mutually independent and independent of the joint fixed block(s) 'block_a' within the supplied exchangeability design.</span></span>
+<span><span class="co">#&gt; Statistic = 0.506626; p = 0.01 (0/99 sampled statistics at least as extreme)</span></span>
+<span><span class="co">#&gt; Monte Carlo 95% CI for the exceedance probability: [0, 0.03658]</span></span>
+<span><span class="co">#&gt; Exchangeability: row; units = 90; strata = 3</span></span>
+<span><span class="co">#&gt; Permutation group size: exp(448.8) distinct maps</span></span>
+<span><span class="co">#&gt; Seeds: permutation = 101; analysis = 1</span></span>
+<span><span class="co">#&gt; Statistic: global_lc1; ncomp = 2 (refitted per permutation: 1); standardize = TRUE</span></span>
+<span><span class="co">#&gt; Scope: One omnibus p-value for the stated block-independence null. Component statistics after LC1 are descriptive and are not rank-null p-values. Valid only if the statistic, ncomp, c_matrix, standardisation, and solver settings were fixed independently of the tested alignment; otherwise repeat the selection inside mb_permutation_test().</span></span>
+<span><span class="co">#&gt; Fixed-specification MB-sPLS omnibus Monte Carlo permutation test</span></span>
+<span><span class="co">#&gt; Null: Permuted blocks 'block_b', 'block_c' are mutually independent and independent of the joint fixed block(s) 'block_a' within the supplied exchangeability design.</span></span>
+<span><span class="co">#&gt; Statistic = 0.781258; p = 0.01 (0/99 sampled statistics at least as extreme)</span></span>
+<span><span class="co">#&gt; Monte Carlo 95% CI for the exceedance probability: [0, 0.03658]</span></span>
+<span><span class="co">#&gt; Exchangeability: row; units = 90; strata = 3</span></span>
+<span><span class="co">#&gt; Permutation group size: exp(448.8) distinct maps</span></span>
+<span><span class="co">#&gt; Seeds: permutation = 102; analysis = 1</span></span>
+<span><span class="co">#&gt; Statistic: global_sum; ncomp = 2 (refitted per permutation: 2); standardize = TRUE</span></span>
+<span><span class="co">#&gt; Scope: One omnibus p-value for the stated block-independence null. Component statistics after LC1 are descriptive and are not rank-null p-values. Valid only if the statistic, ncomp, c_matrix, standardisation, and solver settings were fixed independently of the tested alignment; otherwise repeat the selection inside mb_permutation_test().</span></span>
+<span><span class="co">#&gt; Fixed-specification MB-sPLS omnibus Monte Carlo permutation test</span></span>
+<span><span class="co">#&gt; Null: Target block 'block_c' is independent of the joint predictor blocks 'block_a', 'block_b' within the supplied exchangeability design.</span></span>
+<span><span class="co">#&gt; Statistic = 0.514289; p = 0.01 (0/99 sampled statistics at least as extreme)</span></span>
+<span><span class="co">#&gt; Monte Carlo 95% CI for the exceedance probability: [0, 0.03658]</span></span>
+<span><span class="co">#&gt; Exchangeability: row; units = 90; strata = 3</span></span>
+<span><span class="co">#&gt; Permutation group size: exp(224.4) distinct maps</span></span>
+<span><span class="co">#&gt; Seeds: permutation = 103; analysis = 1</span></span>
+<span><span class="co">#&gt; Statistic: target_lc1; ncomp = 2 (refitted per permutation: 1); standardize = TRUE; target block = block_c</span></span>
+<span><span class="co">#&gt; Scope: One omnibus p-value for the stated block-independence null. Component statistics after LC1 are descriptive and are not rank-null p-values. Valid only if the statistic, ncomp, c_matrix, standardisation, and solver settings were fixed independently of the tested alignment; otherwise repeat the selection inside mb_permutation_test().</span></span>
+<span><span class="co">#&gt; Fixed-specification MB-sPLS omnibus Monte Carlo permutation test</span></span>
+<span><span class="co">#&gt; Null: Target block 'block_c' is independent of the joint predictor blocks 'block_a', 'block_b' within the supplied exchangeability design.</span></span>
+<span><span class="co">#&gt; Statistic = 0.793188; p = 0.01 (0/99 sampled statistics at least as extreme)</span></span>
+<span><span class="co">#&gt; Monte Carlo 95% CI for the exceedance probability: [0, 0.03658]</span></span>
+<span><span class="co">#&gt; Exchangeability: row; units = 90; strata = 3</span></span>
+<span><span class="co">#&gt; Permutation group size: exp(224.4) distinct maps</span></span>
+<span><span class="co">#&gt; Seeds: permutation = 104; analysis = 1</span></span>
+<span><span class="co">#&gt; Statistic: target_sum; ncomp = 2 (refitted per permutation: 2); standardize = TRUE; target block = block_c</span></span>
+<span><span class="co">#&gt; Scope: One omnibus p-value for the stated block-independence null. Component statistics after LC1 are descriptive and are not rank-null p-values. Valid only if the statistic, ncomp, c_matrix, standardisation, and solver settings were fixed independently of the tested alignment; otherwise repeat the selection inside mb_permutation_test().</span></span>
+<span></span>
+<span><span class="va">mb_test_results</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/rbindlist.html" class="external-link">rbindlist</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">mb_tests</span><span class="op">)</span>, <span class="kw">function</span><span class="op">(</span><span class="va">test_name</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">test</span> <span class="op">=</span> <span class="va">mb_tests</span><span class="op">[[</span><span class="va">test_name</span><span class="op">]</span><span class="op">]</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/data.table.html" class="external-link">data.table</a></span><span class="op">(</span></span>
+<span>    test <span class="op">=</span> <span class="va">test_name</span>,</span>
+<span>    observed <span class="op">=</span> <span class="va">test</span><span class="op">$</span><span class="va">statistic</span>,</span>
+<span>    p_value <span class="op">=</span> <span class="va">test</span><span class="op">$</span><span class="va">p_value</span>,</span>
+<span>    exceedances <span class="op">=</span> <span class="va">test</span><span class="op">$</span><span class="va">exceedances</span>,</span>
+<span>    n_perm <span class="op">=</span> <span class="va">test</span><span class="op">$</span><span class="va">n_perm</span>,</span>
+<span>    mc_conf_high <span class="op">=</span> <span class="va">test</span><span class="op">$</span><span class="va">monte_carlo_conf_high</span>,</span>
+<span>    n_strata <span class="op">=</span> <span class="va">test</span><span class="op">$</span><span class="va">n_strata</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">}</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">mb_test_results</span></span>
+<span><span class="co">#&gt;          test  observed p_value exceedances n_perm mc_conf_high n_strata</span></span>
+<span><span class="co">#&gt;        &lt;char&gt;     &lt;num&gt;   &lt;num&gt;       &lt;int&gt;  &lt;int&gt;        &lt;num&gt;    &lt;int&gt;</span></span>
+<span><span class="co">#&gt; 1: global_lc1 0.5066260    0.01           0     99   0.03657574        3</span></span>
+<span><span class="co">#&gt; 2: global_sum 0.7812577    0.01           0     99   0.03657574        3</span></span>
+<span><span class="co">#&gt; 3: target_lc1 0.5142886    0.01           0     99   0.03657574        3</span></span>
+<span><span class="co">#&gt; 4: target_sum 0.7931885    0.01           0     99   0.03657574        3</span></span></code></pre></div>
+<p>The printed header labels these results as fixed-specification tests:
+their p-values are valid because the statistic, <code>ncomp</code>, the
+default dense sparsity budgets, standardisation, and solver settings
+were fixed without looking at the tested alignment. Sparsity or
+component counts tuned on the same data require the complete-analysis
+route below.</p>
+<p>The MB-sPLS solver starts from a deterministic cross-covariance
+initialisation, so <code>analysis_seed</code> does not change these
+statistics. The calls keep its default, and the printed seeds record
+both the permutation seed and the analysis seed for the report. When an
+analysis callback contains stochastic steps, the analysis seed is part
+of the definition of the statistic: fix it before looking at the data
+and never choose among seeds after seeing results. The analysis seed
+selects the L’Ecuyer-CMRG generator, so callbacks that use forked
+parallelism remain reproducible.</p>
+<p>The Monte Carlo line gives the exact 95% Clopper-Pearson interval for
+the exceedance probability <code>b / B</code>. Report this interval as
+the Monte Carlo precision: with no exceedance in 99 permutations its
+upper bound is still about 0.037.</p>
+<p>These four calls expose the complete API in one vignette. A real
+analysis must pre-specify the statistic that matches its scientific
+null. Running several alternatives and reporting the smallest p-value
+requires an appropriate multiplicity strategy.</p>
+</div>
+<div class="section level3">
+<h3 id="complete-analysis-test-with-data-dependent-selection">Complete-analysis test with data-dependent selection<a class="anchor" aria-label="anchor" href="#complete-analysis-test-with-data-dependent-selection"></a>
+</h3>
+<p>When preprocessing, filtering, tuning, or feature selection depends
+on the tested block alignment, it belongs inside
+<code><a href="../reference/mb_permutation_test.html">mb_permutation_test()</a></code>. This compact callback refits scaling
+and reselects the largest absolute cross-block feature correlation for
+the observed data and every permutation. It draws no random numbers, so
+the analysis seed is irrelevant here.</p>
+<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">complete_analysis</span> <span class="op">=</span> <span class="kw">function</span><span class="op">(</span><span class="va">current_blocks</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">scaled_blocks</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="va">current_blocks</span>, <span class="va">scale</span><span class="op">)</span></span>
+<span>  <span class="va">block_pairs</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/utils/combn.html" class="external-link">combn</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">scaled_blocks</span><span class="op">)</span>, <span class="fl">2L</span>, simplify <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
+<span></span>
+<span>  <span class="va">associations</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/rbindlist.html" class="external-link">rbindlist</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="va">block_pairs</span>, <span class="kw">function</span><span class="op">(</span><span class="va">block_pair</span><span class="op">)</span> <span class="op">{</span></span>
+<span>    <span class="va">left</span> <span class="op">=</span> <span class="va">scaled_blocks</span><span class="op">[[</span><span class="va">block_pair</span><span class="op">[[</span><span class="fl">1L</span><span class="op">]</span><span class="op">]</span><span class="op">]</span><span class="op">]</span></span>
+<span>    <span class="va">right</span> <span class="op">=</span> <span class="va">scaled_blocks</span><span class="op">[[</span><span class="va">block_pair</span><span class="op">[[</span><span class="fl">2L</span><span class="op">]</span><span class="op">]</span><span class="op">]</span><span class="op">]</span></span>
+<span>    <span class="va">feature_pairs</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/expand.grid.html" class="external-link">expand.grid</a></span><span class="op">(</span></span>
+<span>      left <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/colnames.html" class="external-link">colnames</a></span><span class="op">(</span><span class="va">left</span><span class="op">)</span>,</span>
+<span>      right <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/colnames.html" class="external-link">colnames</a></span><span class="op">(</span><span class="va">right</span><span class="op">)</span>,</span>
+<span>      stringsAsFactors <span class="op">=</span> <span class="cn">FALSE</span></span>
+<span>    <span class="op">)</span></span>
+<span>    <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/data.table.html" class="external-link">data.table</a></span><span class="op">(</span></span>
+<span>      block_pair <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste</a></span><span class="op">(</span><span class="va">block_pair</span>, collapse <span class="op">=</span> <span class="st">" - "</span><span class="op">)</span>,</span>
+<span>      feature_pair <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste</a></span><span class="op">(</span><span class="va">feature_pairs</span><span class="op">$</span><span class="va">left</span>, <span class="va">feature_pairs</span><span class="op">$</span><span class="va">right</span>, sep <span class="op">=</span> <span class="st">" - "</span><span class="op">)</span>,</span>
+<span>      association <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/vector.html" class="external-link">as.vector</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/MathFun.html" class="external-link">abs</a></span><span class="op">(</span><span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/cor.html" class="external-link">cor</a></span><span class="op">(</span><span class="va">left</span>, <span class="va">right</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span>
+<span>    <span class="op">)</span></span>
+<span>  <span class="op">}</span><span class="op">)</span><span class="op">)</span></span>
+<span></span>
+<span>  <span class="va">selected</span> <span class="op">=</span> <span class="va">associations</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/which.min.html" class="external-link">which.max</a></span><span class="op">(</span><span class="va">association</span><span class="op">)</span><span class="op">]</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    statistic <span class="op">=</span> <span class="va">selected</span><span class="op">$</span><span class="va">association</span>,</span>
+<span>    selected_pair <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste</a></span><span class="op">(</span><span class="va">selected</span><span class="op">$</span><span class="va">block_pair</span>, <span class="va">selected</span><span class="op">$</span><span class="va">feature_pair</span>, sep <span class="op">=</span> <span class="st">": "</span><span class="op">)</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">}</span></span>
+<span></span>
+<span><span class="va">complete_test</span> <span class="op">=</span> <span class="fu"><a href="../reference/mb_permutation_test.html">mb_permutation_test</a></span><span class="op">(</span></span>
+<span>  blocks <span class="op">=</span> <span class="va">raw_blocks</span>,</span>
+<span>  analysis <span class="op">=</span> <span class="va">complete_analysis</span>,</span>
+<span>  permute_blocks <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">raw_blocks</span><span class="op">)</span><span class="op">[</span><span class="op">-</span><span class="fl">1L</span><span class="op">]</span>,</span>
+<span>  n_perm <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">n_perm</span>,</span>
+<span>  strata <span class="op">=</span> <span class="va">site</span>,</span>
+<span>  seed <span class="op">=</span> <span class="fl">105L</span>,</span>
+<span>  null_hypothesis <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste</a></span><span class="op">(</span></span>
+<span>    <span class="st">"No cross-block feature association is present under row"</span>,</span>
+<span>    <span class="st">"exchangeability within site."</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">complete_test</span></span>
+<span><span class="co">#&gt; Complete-analysis Monte Carlo permutation test</span></span>
+<span><span class="co">#&gt; Null: No cross-block feature association is present under row exchangeability within site.</span></span>
+<span><span class="co">#&gt; Statistic = 0.679035; p = 0.01 (0/99 sampled statistics at least as extreme)</span></span>
+<span><span class="co">#&gt; Monte Carlo 95% CI for the exceedance probability: [0, 0.03658]</span></span>
+<span><span class="co">#&gt; Exchangeability: row; units = 90; strata = 3</span></span>
+<span><span class="co">#&gt; Permutation group size: exp(448.8) distinct maps</span></span>
+<span><span class="co">#&gt; Seeds: permutation = 105; analysis = 1</span></span>
+<span><span class="va">complete_test</span><span class="op">$</span><span class="va">observed_result</span><span class="op">$</span><span class="va">selected_pair</span></span>
+<span><span class="co">#&gt; [1] "block_a - block_c: block_a_5 - block_c_3"</span></span></code></pre></div>
+</div>
+<div class="section level3">
+<h3 id="permutation-null-distribution-plots">Permutation null-distribution plots<a class="anchor" aria-label="anchor" href="#permutation-null-distribution-plots"></a>
+</h3>
+<p>Each vertical line is the observed statistic; each histogram is the
+sampled null distribution generated by refitting the corresponding
+analysis on every within-site shuffle.</p>
+<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">all_permutation_tests</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="va">mb_tests</span>, <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>adaptive_max <span class="op">=</span> <span class="va">complete_test</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">permutation_null</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/rbindlist.html" class="external-link">rbindlist</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">all_permutation_tests</span><span class="op">)</span>, <span class="kw">function</span><span class="op">(</span><span class="va">test_name</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/data.table.html" class="external-link">data.table</a></span><span class="op">(</span></span>
+<span>    test <span class="op">=</span> <span class="va">test_name</span>,</span>
+<span>    null_statistic <span class="op">=</span> <span class="va">all_permutation_tests</span><span class="op">[[</span><span class="va">test_name</span><span class="op">]</span><span class="op">]</span><span class="op">$</span><span class="va">null_distribution</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">}</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">permutation_observed</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/rbindlist.html" class="external-link">rbindlist</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">all_permutation_tests</span><span class="op">)</span>, <span class="kw">function</span><span class="op">(</span><span class="va">test_name</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/data.table.html" class="external-link">data.table</a></span><span class="op">(</span></span>
+<span>    test <span class="op">=</span> <span class="va">test_name</span>,</span>
+<span>    observed <span class="op">=</span> <span class="va">all_permutation_tests</span><span class="op">[[</span><span class="va">test_name</span><span class="op">]</span><span class="op">]</span><span class="op">$</span><span class="va">statistic</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">}</span><span class="op">)</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">permutation_plot</span> <span class="op">=</span> <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggplot.html" class="external-link">ggplot</a></span><span class="op">(</span></span>
+<span>  <span class="va">permutation_null</span>,</span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/aes.html" class="external-link">aes</a></span><span class="op">(</span>x <span class="op">=</span> <span class="va">null_statistic</span><span class="op">)</span></span>
+<span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_histogram.html" class="external-link">geom_histogram</a></span><span class="op">(</span>bins <span class="op">=</span> <span class="fl">18L</span>, fill <span class="op">=</span> <span class="st">"#4472C4"</span>, colour <span class="op">=</span> <span class="st">"white"</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_abline.html" class="external-link">geom_vline</a></span><span class="op">(</span></span>
+<span>    data <span class="op">=</span> <span class="va">permutation_observed</span>,</span>
+<span>    <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/aes.html" class="external-link">aes</a></span><span class="op">(</span>xintercept <span class="op">=</span> <span class="va">observed</span><span class="op">)</span>,</span>
+<span>    colour <span class="op">=</span> <span class="st">"#B22222"</span>,</span>
+<span>    linewidth <span class="op">=</span> <span class="fl">0.8</span></span>
+<span>  <span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/facet_wrap.html" class="external-link">facet_wrap</a></span><span class="op">(</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/vars.html" class="external-link">vars</a></span><span class="op">(</span><span class="va">test</span><span class="op">)</span>, scales <span class="op">=</span> <span class="st">"free"</span>, ncol <span class="op">=</span> <span class="fl">2L</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">labs</a></span><span class="op">(</span></span>
+<span>    x <span class="op">=</span> <span class="st">"Statistic under the null"</span>,</span>
+<span>    y <span class="op">=</span> <span class="st">"Permutation count"</span>,</span>
+<span>    title <span class="op">=</span> <span class="st">"Within-site permutation distributions"</span>,</span>
+<span>    subtitle <span class="op">=</span> <span class="st">"Red line: observed statistic"</span></span>
+<span>  <span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggtheme.html" class="external-link">theme_minimal</a></span><span class="op">(</span>base_size <span class="op">=</span> <span class="fl">11</span><span class="op">)</span></span>
+<span><span class="va">permutation_plot</span></span></code></pre></div>
+<p><img src="quickstart_files/figure-html/permutation-null-plots-1.png" class="r-plt" alt="" width="768" style="display: block; margin: auto;"></p>
+</div>
+<div class="section level3">
+<h3 id="lc-tests-in-independent-confirmation-data">LC tests in independent confirmation data<a class="anchor" aria-label="anchor" href="#lc-tests-in-independent-confirmation-data"></a>
+</h3>
+<p>Individual frozen LC score associations can be tested only in
+genuinely untouched confirmation observations. The following simulated
+confirmation scores are independent of the earlier fitting by
+construction: LC1 shares a signal across blocks, while LC2 is null. They
+contain no site effect, so rows are permuted without strata;
+confirmation scores from a multisite cohort would need the same design
+restrictions as above. In a real study, every score definition must
+instead come from a completely frozen discovery transformation.</p>
+<p>Frozen weights fix the sign of every block score, so a confirmation
+correlation of the opposite sign contradicts discovery rather than
+replicating it. <code>reference_signs</code> gives the expected sign of
+each pairwise score correlation, recycled across LCs here. In a real
+study, take the signs from the discovery data, for example from the
+pairwise correlations of the training block scores of each frozen LC.
+Each LC is then tested one-sided in the discovery direction, and it
+counts as replicated (<code>replicated</code>) only if it is significant
+and its observed sign-oriented statistic is positive: under stratified
+or whole-unit permutations a pooled correlation of the opposite sign can
+still be significant relative to the design. Without
+<code>reference_signs</code>, the statistic is unsigned and the test
+establishes dependence in either direction, not replication.</p>
+<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">20260831L</span><span class="op">)</span></span>
+<span><span class="va">confirmation_lc1</span> <span class="op">=</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">cfg</span><span class="op">$</span><span class="va">confirmation_n</span><span class="op">)</span></span>
+<span><span class="va">confirmation_scores</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>  block_a <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/cbind.html" class="external-link">cbind</a></span><span class="op">(</span></span>
+<span>    LC_01 <span class="op">=</span> <span class="va">confirmation_lc1</span> <span class="op">+</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">cfg</span><span class="op">$</span><span class="va">confirmation_n</span>, sd <span class="op">=</span> <span class="fl">0.08</span><span class="op">)</span>,</span>
+<span>    LC_02 <span class="op">=</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">cfg</span><span class="op">$</span><span class="va">confirmation_n</span><span class="op">)</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  block_b <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/cbind.html" class="external-link">cbind</a></span><span class="op">(</span></span>
+<span>    LC_01 <span class="op">=</span> <span class="va">confirmation_lc1</span> <span class="op">+</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">cfg</span><span class="op">$</span><span class="va">confirmation_n</span>, sd <span class="op">=</span> <span class="fl">0.08</span><span class="op">)</span>,</span>
+<span>    LC_02 <span class="op">=</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">cfg</span><span class="op">$</span><span class="va">confirmation_n</span><span class="op">)</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  block_c <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/cbind.html" class="external-link">cbind</a></span><span class="op">(</span></span>
+<span>    LC_01 <span class="op">=</span> <span class="va">confirmation_lc1</span> <span class="op">+</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">cfg</span><span class="op">$</span><span class="va">confirmation_n</span>, sd <span class="op">=</span> <span class="fl">0.08</span><span class="op">)</span>,</span>
+<span>    LC_02 <span class="op">=</span> <span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">cfg</span><span class="op">$</span><span class="va">confirmation_n</span><span class="op">)</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">lc_confirmation</span> <span class="op">=</span> <span class="fu"><a href="../reference/mb_lc_confirmation_test.html">mb_lc_confirmation_test</a></span><span class="op">(</span></span>
+<span>  scores <span class="op">=</span> <span class="va">confirmation_scores</span>,</span>
+<span>  independent_confirmation <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>  permute_blocks <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"block_b"</span>, <span class="st">"block_c"</span><span class="op">)</span>,</span>
+<span>  reference_signs <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span></span>
+<span>    <span class="st">"block_a:block_b"</span> <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>    <span class="st">"block_a:block_c"</span> <span class="op">=</span> <span class="fl">1</span>,</span>
+<span>    <span class="st">"block_b:block_c"</span> <span class="op">=</span> <span class="fl">1</span></span>
+<span>  <span class="op">)</span>,</span>
+<span>  n_perm <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">n_perm</span>,</span>
+<span>  seed <span class="op">=</span> <span class="fl">106L</span>,</span>
+<span>  keep_null <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">lc_confirmation</span></span>
+<span><span class="co">#&gt; Independent-confirmation directional permutation tests for frozen MB-sPLS LC score associations</span></span>
+<span><span class="co">#&gt; Direction: one-sided in the discovery direction (reference signs)</span></span>
+<span><span class="co">#&gt;  component   statistic exceedances p_value_raw p_value_holm</span></span>
+<span><span class="co">#&gt;      LC_01  0.99454484           0        0.01         0.02</span></span>
+<span><span class="co">#&gt;      LC_02 -0.04442103          78        0.79         0.79</span></span>
+<span><span class="co">#&gt;  monte_carlo_conf_low monte_carlo_conf_high significant_holm direction_agrees</span></span>
+<span><span class="co">#&gt;              0.000000            0.03657574             TRUE             TRUE</span></span>
+<span><span class="co">#&gt;              0.694213            0.86363806            FALSE            FALSE</span></span>
+<span><span class="co">#&gt;  replicated</span></span>
+<span><span class="co">#&gt;        TRUE</span></span>
+<span><span class="co">#&gt;       FALSE</span></span>
+<span><span class="co">#&gt; Observed signed score correlations:</span></span>
+<span><span class="co">#&gt;  component block_1 block_2 correlation reference_sign oriented_correlation</span></span>
+<span><span class="co">#&gt;      LC_01 block_a block_b  0.99574021              1           0.99574021</span></span>
+<span><span class="co">#&gt;      LC_01 block_a block_c  0.99369857              1           0.99369857</span></span>
+<span><span class="co">#&gt;      LC_01 block_b block_c  0.99419575              1           0.99419575</span></span>
+<span><span class="co">#&gt;      LC_02 block_a block_b -0.07443818              1          -0.07443818</span></span>
+<span><span class="co">#&gt;      LC_02 block_a block_c -0.13943545              1          -0.13943545</span></span>
+<span><span class="co">#&gt;      LC_02 block_b block_c  0.08061055              1           0.08061055</span></span>
+<span><span class="co">#&gt;  agrees</span></span>
+<span><span class="co">#&gt;    TRUE</span></span>
+<span><span class="co">#&gt;    TRUE</span></span>
+<span><span class="co">#&gt;    TRUE</span></span>
+<span><span class="co">#&gt;   FALSE</span></span>
+<span><span class="co">#&gt;   FALSE</span></span>
+<span><span class="co">#&gt;    TRUE</span></span>
+<span><span class="co">#&gt; Monte Carlo precision: exact 95% Clopper-Pearson interval for the exceedance probability b/B.</span></span>
+<span><span class="co">#&gt; Scope: Directional confirmation of fixed learned score associations: one-sided tests of the mean sign-oriented correlation in the discovery direction. An LC replicates only if it is significant and its observed statistic is positive (`replicated`). Not a population-rank test and not valid after reusing confirmation data for fitting or selection.</span></span></code></pre></div>
+<p>Raw p-values use <code>(b + 1) / (B + 1)</code> and the displayed
+decisions use Holm adjustment across the complete two-LC family. The
+statistic is the mean sign-oriented correlation; LC2, which is null by
+construction, gets a large p-value here. These are directional
+confirmation claims for fixed scores, not evidence that the population
+cross-block rank is at least two. The <code>monte_carlo_conf_low</code>
+and <code>monte_carlo_conf_high</code> columns give the exact 95%
+Clopper-Pearson interval for each exceedance probability, the Monte
+Carlo precision to report.</p>
+<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">lc_null</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/rbindlist.html" class="external-link">rbindlist</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq_along</a></span><span class="op">(</span><span class="va">lc_confirmation</span><span class="op">$</span><span class="va">tests</span><span class="op">)</span>, <span class="kw">function</span><span class="op">(</span><span class="va">component</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/data.table.html" class="external-link">data.table</a></span><span class="op">(</span></span>
+<span>    component <span class="op">=</span> <span class="va">lc_confirmation</span><span class="op">$</span><span class="va">results</span><span class="op">$</span><span class="va">component</span><span class="op">[[</span><span class="va">component</span><span class="op">]</span><span class="op">]</span>,</span>
+<span>    null_statistic <span class="op">=</span> <span class="va">lc_confirmation</span><span class="op">$</span><span class="va">tests</span><span class="op">[[</span><span class="va">component</span><span class="op">]</span><span class="op">]</span><span class="op">$</span><span class="va">null_distribution</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">}</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">lc_observed</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/as.data.table.html" class="external-link">as.data.table</a></span><span class="op">(</span><span class="va">lc_confirmation</span><span class="op">$</span><span class="va">results</span><span class="op">)</span><span class="op">[</span></span>
+<span>  , <span class="fu">.</span><span class="op">(</span><span class="va">component</span>, observed <span class="op">=</span> <span class="va">statistic</span><span class="op">)</span></span>
+<span><span class="op">]</span></span>
+<span></span>
+<span><span class="va">lc_confirmation_plot</span> <span class="op">=</span> <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggplot.html" class="external-link">ggplot</a></span><span class="op">(</span><span class="va">lc_null</span>, <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/aes.html" class="external-link">aes</a></span><span class="op">(</span>x <span class="op">=</span> <span class="va">null_statistic</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_histogram.html" class="external-link">geom_histogram</a></span><span class="op">(</span>bins <span class="op">=</span> <span class="fl">18L</span>, fill <span class="op">=</span> <span class="st">"#70AD47"</span>, colour <span class="op">=</span> <span class="st">"white"</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_abline.html" class="external-link">geom_vline</a></span><span class="op">(</span></span>
+<span>    data <span class="op">=</span> <span class="va">lc_observed</span>,</span>
+<span>    <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/aes.html" class="external-link">aes</a></span><span class="op">(</span>xintercept <span class="op">=</span> <span class="va">observed</span><span class="op">)</span>,</span>
+<span>    colour <span class="op">=</span> <span class="st">"#B22222"</span>,</span>
+<span>    linewidth <span class="op">=</span> <span class="fl">0.8</span></span>
+<span>  <span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/facet_wrap.html" class="external-link">facet_wrap</a></span><span class="op">(</span><span class="fu"><a href="https://ggplot2.tidyverse.org/reference/vars.html" class="external-link">vars</a></span><span class="op">(</span><span class="va">component</span><span class="op">)</span>, scales <span class="op">=</span> <span class="st">"free"</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">labs</a></span><span class="op">(</span></span>
+<span>    x <span class="op">=</span> <span class="st">"Mean sign-oriented correlation under the null"</span>,</span>
+<span>    y <span class="op">=</span> <span class="st">"Permutation count"</span>,</span>
+<span>    title <span class="op">=</span> <span class="st">"Frozen LC confirmation tests"</span>,</span>
+<span>    subtitle <span class="op">=</span> <span class="st">"Red line: observed fixed-score association"</span></span>
+<span>  <span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggtheme.html" class="external-link">theme_minimal</a></span><span class="op">(</span>base_size <span class="op">=</span> <span class="fl">11</span><span class="op">)</span></span>
+<span><span class="va">lc_confirmation_plot</span></span></code></pre></div>
+<p><img src="quickstart_files/figure-html/lc-confirmation-plot-1.png" class="r-plt" alt="" width="672" style="display: block; margin: auto;"></p>
+</div>
+</div>
+<div class="section level2">
+<h2 id="bootstrap-uncertainty-is-descriptive">3) Bootstrap Uncertainty Is Descriptive<a class="anchor" aria-label="anchor" href="#bootstrap-uncertainty-is-descriptive"></a>
+</h2>
+<p>An ordinary paired bootstrap estimates sampling uncertainty around
+the observed association. It does not generate a null distribution. The
+shared summary therefore reports its estimate, bias, standard error, and
+interval while keeping the hypothesis-test p-value explicitly
+unavailable.</p>
+<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">bootstrap_observed</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/MathFun.html" class="external-link">abs</a></span><span class="op">(</span><span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/cor.html" class="external-link">cor</a></span><span class="op">(</span></span>
+<span>  <span class="va">confirmation_scores</span><span class="op">$</span><span class="va">block_a</span><span class="op">[</span>, <span class="st">"LC_01"</span><span class="op">]</span>,</span>
+<span>  <span class="va">confirmation_scores</span><span class="op">$</span><span class="va">block_b</span><span class="op">[</span>, <span class="st">"LC_01"</span><span class="op">]</span></span>
+<span><span class="op">)</span><span class="op">)</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="fl">20260831L</span><span class="op">)</span></span>
+<span><span class="va">bootstrap_replicates</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">replicate</a></span><span class="op">(</span><span class="va">cfg</span><span class="op">$</span><span class="va">bootstrap_summary_B</span>, <span class="op">{</span></span>
+<span>  <span class="va">rows</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample.int</a></span><span class="op">(</span><span class="va">cfg</span><span class="op">$</span><span class="va">confirmation_n</span>, replace <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/MathFun.html" class="external-link">abs</a></span><span class="op">(</span><span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/cor.html" class="external-link">cor</a></span><span class="op">(</span></span>
+<span>    <span class="va">confirmation_scores</span><span class="op">$</span><span class="va">block_a</span><span class="op">[</span><span class="va">rows</span>, <span class="st">"LC_01"</span><span class="op">]</span>,</span>
+<span>    <span class="va">confirmation_scores</span><span class="op">$</span><span class="va">block_b</span><span class="op">[</span><span class="va">rows</span>, <span class="st">"LC_01"</span><span class="op">]</span></span>
+<span>  <span class="op">)</span><span class="op">)</span></span>
+<span><span class="op">}</span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">bootstrap_summary</span> <span class="op">=</span> <span class="fu"><a href="../reference/mb_bootstrap_summary.html">mb_bootstrap_summary</a></span><span class="op">(</span></span>
+<span>  replicates <span class="op">=</span> <span class="va">bootstrap_replicates</span>,</span>
+<span>  observed <span class="op">=</span> <span class="va">bootstrap_observed</span>,</span>
+<span>  conf <span class="op">=</span> <span class="fl">0.95</span>,</span>
+<span>  type <span class="op">=</span> <span class="st">"percentile"</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">bootstrap_summary</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span></span>
+<span>  <span class="st">"estimate"</span>, <span class="st">"bias"</span>, <span class="st">"standard_error"</span>, <span class="st">"conf_low"</span>, <span class="st">"conf_high"</span>,</span>
+<span>  <span class="st">"interval_type"</span>, <span class="st">"p_value"</span>, <span class="st">"p_value_note"</span></span>
+<span><span class="op">)</span><span class="op">]</span></span>
+<span><span class="co">#&gt; $estimate</span></span>
+<span><span class="co">#&gt; [1] 0.9957402</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $bias</span></span>
+<span><span class="co">#&gt; [1] -8.886787e-05</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $standard_error</span></span>
+<span><span class="co">#&gt; [1] 0.00098697</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $conf_low</span></span>
+<span><span class="co">#&gt; [1] 0.9936117</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $conf_high</span></span>
+<span><span class="co">#&gt; [1] 0.9974521</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $interval_type</span></span>
+<span><span class="co">#&gt; [1] "percentile"</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $p_value</span></span>
+<span><span class="co">#&gt; [1] NA</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $p_value_note</span></span>
+<span><span class="co">#&gt; [1] "Not computed: an ordinary bootstrap distribution estimates uncertainty and is not a null distribution for hypothesis testing."</span></span></code></pre></div>
+<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">bootstrap_plot_data</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/data.table.html" class="external-link">data.table</a></span><span class="op">(</span>estimate <span class="op">=</span> <span class="va">bootstrap_replicates</span><span class="op">)</span></span>
+<span><span class="va">bootstrap_plot</span> <span class="op">=</span> <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggplot.html" class="external-link">ggplot</a></span><span class="op">(</span><span class="va">bootstrap_plot_data</span>, <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/aes.html" class="external-link">aes</a></span><span class="op">(</span>x <span class="op">=</span> <span class="va">estimate</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_histogram.html" class="external-link">geom_histogram</a></span><span class="op">(</span>bins <span class="op">=</span> <span class="fl">24L</span>, fill <span class="op">=</span> <span class="st">"#8064A2"</span>, colour <span class="op">=</span> <span class="st">"white"</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_abline.html" class="external-link">geom_vline</a></span><span class="op">(</span></span>
+<span>    xintercept <span class="op">=</span> <span class="va">bootstrap_summary</span><span class="op">$</span><span class="va">estimate</span>,</span>
+<span>    colour <span class="op">=</span> <span class="st">"#B22222"</span>,</span>
+<span>    linewidth <span class="op">=</span> <span class="fl">0.8</span></span>
+<span>  <span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_abline.html" class="external-link">geom_vline</a></span><span class="op">(</span></span>
+<span>    xintercept <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="va">bootstrap_summary</span><span class="op">$</span><span class="va">conf_low</span>, <span class="va">bootstrap_summary</span><span class="op">$</span><span class="va">conf_high</span><span class="op">)</span>,</span>
+<span>    linetype <span class="op">=</span> <span class="st">"dashed"</span>,</span>
+<span>    linewidth <span class="op">=</span> <span class="fl">0.6</span></span>
+<span>  <span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">labs</a></span><span class="op">(</span></span>
+<span>    x <span class="op">=</span> <span class="st">"Bootstrap LC1 association"</span>,</span>
+<span>    y <span class="op">=</span> <span class="st">"Bootstrap count"</span>,</span>
+<span>    title <span class="op">=</span> <span class="st">"Descriptive bootstrap uncertainty"</span>,</span>
+<span>    subtitle <span class="op">=</span> <span class="st">"Red: observed estimate; dashed: percentile interval"</span></span>
+<span>  <span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggtheme.html" class="external-link">theme_minimal</a></span><span class="op">(</span>base_size <span class="op">=</span> <span class="fl">11</span><span class="op">)</span></span>
+<span><span class="va">bootstrap_plot</span></span></code></pre></div>
+<p><img src="quickstart_files/figure-html/bootstrap-plot-1.png" class="r-plt" alt="" width="672" style="display: block; margin: auto;"></p>
+</div>
+<div class="section level2">
+<h2 id="inspect-task-quality">4) Inspect Task Quality<a class="anchor" aria-label="anchor" href="#inspect-task-quality"></a>
 </h2>
 <p>Before fitting any model, run a quick QC summary once. This is
 especially helpful in multi-omics, clinical, neuroimaging, and
 socioeconomic workflows where block imbalance or missingness may drive
 downstream results.</p>
-<div class="sourceCode" id="cb3"><pre class="downlit sourceCode r">
+<div class="sourceCode" id="cb10"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">qc</span> <span class="op">=</span> <span class="va">task_source</span><span class="op">$</span><span class="fu">overview</span><span class="op">(</span><span class="op">)</span></span>
 <span><span class="va">qc</span><span class="op">$</span><span class="va">overview</span></span>
+<span><span class="co">#&gt;                    task_id task_type n_rows n_blocks n_features n_complete_rows</span></span>
+<span><span class="co">#&gt;                     &lt;char&gt;    &lt;char&gt;  &lt;int&gt;    &lt;int&gt;      &lt;int&gt;           &lt;int&gt;</span></span>
+<span><span class="co">#&gt; 1: mbspls_synthetic_blocks     clust     90        3         18              90</span></span>
+<span><span class="co">#&gt;    complete_row_rate target</span></span>
+<span><span class="co">#&gt;                &lt;num&gt; &lt;char&gt;</span></span>
+<span><span class="co">#&gt; 1:                 1   &lt;NA&gt;</span></span>
 <span><span class="va">qc</span><span class="op">$</span><span class="va">blocks</span></span>
-<span><span class="va">qc</span><span class="op">$</span><span class="va">issues</span></span></code></pre></div>
+<span><span class="co">#&gt;      block n_features n_numeric n_factor n_character n_logical</span></span>
+<span><span class="co">#&gt;     &lt;char&gt;      &lt;int&gt;     &lt;int&gt;    &lt;int&gt;       &lt;int&gt;     &lt;int&gt;</span></span>
+<span><span class="co">#&gt; 1: block_a          6         6        0           0         0</span></span>
+<span><span class="co">#&gt; 2: block_b          6         6        0           0         0</span></span>
+<span><span class="co">#&gt; 3: block_c          6         6        0           0         0</span></span>
+<span><span class="co">#&gt;    n_constant_numeric n_missing_cells pct_missing_cells n_complete_rows</span></span>
+<span><span class="co">#&gt;                 &lt;int&gt;           &lt;int&gt;             &lt;num&gt;           &lt;int&gt;</span></span>
+<span><span class="co">#&gt; 1:                  0               0                 0              90</span></span>
+<span><span class="co">#&gt; 2:                  0               0                 0              90</span></span>
+<span><span class="co">#&gt; 3:                  0               0                 0              90</span></span>
+<span><span class="co">#&gt;    complete_row_rate</span></span>
+<span><span class="co">#&gt;                &lt;num&gt;</span></span>
+<span><span class="co">#&gt; 1:                 1</span></span>
+<span><span class="co">#&gt; 2:                 1</span></span>
+<span><span class="co">#&gt; 3:                 1</span></span>
+<span><span class="va">qc</span><span class="op">$</span><span class="va">issues</span></span>
+<span><span class="co">#&gt; Empty data.table (0 rows and 5 cols): scope,item,severity,issue,message</span></span></code></pre></div>
 </div>
 <div class="section level2">
-<h2 id="define-site-correction">3) Define Site Correction<a class="anchor" aria-label="anchor" href="#define-site-correction"></a>
+<h2 id="define-site-correction">5) Define Site Correction<a class="anchor" aria-label="anchor" href="#define-site-correction"></a>
 </h2>
 <p>The block assignment already lives on the task, so only the
-site-correction policy needs to be declared here.</p>
-<div class="sourceCode" id="cb4"><pre class="downlit sourceCode r">
+site-correction policy needs to be declared here. Declared block names
+are resolved against the columns the MB-sPLS node receives: a factor
+declared in a block would claim its encoded dummy columns, and a column
+may belong to one block only.</p>
+<div class="sourceCode" id="cb11"><pre class="downlit sourceCode r">
 <code class="sourceCode R"><span><span class="va">site_correction</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>block_a <span class="op">=</span> <span class="st">"site_batch"</span>, block_b <span class="op">=</span> <span class="st">"site_batch"</span>, block_c <span class="op">=</span> <span class="st">"site_batch"</span><span class="op">)</span></span>
 <span><span class="va">site_correction_methods</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>block_a <span class="op">=</span> <span class="st">"partial_corr"</span>, block_b <span class="op">=</span> <span class="st">"partial_corr"</span>, block_c <span class="op">=</span> <span class="st">"partial_corr"</span><span class="op">)</span></span>
 <span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/lengths.html" class="external-link">lengths</a></span><span class="op">(</span><span class="va">blocks</span><span class="op">)</span></span></code></pre></div>
+<span><span class="fu"><a href="https://rdrr.io/r/base/lengths.html" class="external-link">lengths</a></span><span class="op">(</span><span class="va">blocks</span><span class="op">)</span></span>
+<span><span class="co">#&gt; block_a block_b block_c </span></span>
+<span><span class="co">#&gt;       6       6       6</span></span></code></pre></div>
 </div>
 <div class="section level2">
-<h2 id="clone-the-clustering-task">4) Clone the Clustering Task<a class="anchor" aria-label="anchor" href="#clone-the-clustering-task"></a>
+<h2 id="clone-the-clustering-task">6) Clone the Clustering Task<a class="anchor" aria-label="anchor" href="#clone-the-clustering-task"></a>
 </h2>
 <p>The packaged synthetic object is already a
 <code>TaskMultiBlock</code>, so for analysis you can usually just clone
 it.</p>
-<div class="sourceCode" id="cb5"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">task_train</span> <span class="op">=</span> <span class="fu"><a href="../reference/as_task_multiblock.html">TaskMultiBlock</a></span><span class="op">(</span></span>
-<span>  <span class="va">task_source</span>,</span>
-<span>  id <span class="op">=</span> <span class="st">"mbspls_synthetic_blocks_analysis"</span></span>
-<span><span class="op">)</span></span>
+<div class="sourceCode" id="cb12"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">task_train</span> <span class="op">=</span> <span class="va">task_source</span><span class="op">$</span><span class="fu">clone</span><span class="op">(</span>deep <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">task_train</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">task_train</span><span class="op">$</span><span class="va">feature_names</span><span class="op">)</span></span></code></pre></div>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; <span style="color: #00BBBB;">──</span> <span style="color: #0000BB; font-weight: bold;">&lt;TaskClustMultiBlock&gt;</span><span style="font-weight: bold;"> (90x19): Synthetic 3-block MB-sPLS clustering task</span> <span style="color: #00BBBB;">────</span></span></span>
+<span><span class="co">#&gt; • Target:</span></span>
+<span><span class="co">#&gt; • Properties: -</span></span>
+<span><span class="co">#&gt; • Features (19):</span></span>
+<span><span class="co">#&gt;   • dbl (18): block_a_1, block_a_2, block_a_3, block_a_4, block_a_5, block_a_6,</span></span>
+<span><span class="co">#&gt;   block_b_1, block_b_2, block_b_3, block_b_4, block_b_5, block_b_6, block_c_1,</span></span>
+<span><span class="co">#&gt;   block_c_2, block_c_3, block_c_4, block_c_5, block_c_6</span></span>
+<span><span class="co">#&gt;   • fct (1): site_batch</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/length.html" class="external-link">length</a></span><span class="op">(</span><span class="va">task_train</span><span class="op">$</span><span class="va">feature_names</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] 19</span></span></code></pre></div>
 </div>
 <div class="section level2">
-<h2 id="nested-cv-primary-validation">5) Nested CV (Primary Validation)<a class="anchor" aria-label="anchor" href="#nested-cv-primary-validation"></a>
+<h2 id="pipelines-and-nested-cv-primary-validation">7) Pipelines and Nested CV (Primary Validation)<a class="anchor" aria-label="anchor" href="#pipelines-and-nested-cv-primary-validation"></a>
 </h2>
-<p>This stage performs the primary inferential validation. Bootstrap
-selection is intentionally disabled here to evaluate core model
-generalization under nested resampling.</p>
-<div class="sourceCode" id="cb6"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">gl_nested</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3pipelines.mlr-org.com/reference/ppl.html" class="external-link">ppl</a></span><span class="op">(</span></span>
-<span>  <span class="st">"mbspls_graph_learner"</span>,</span>
-<span>  learner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"clust.kmeans"</span>, centers <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">centers</span><span class="op">)</span>,</span>
-<span>  task <span class="op">=</span> <span class="va">task_train</span>,</span>
-<span>  site_correction <span class="op">=</span> <span class="va">site_correction</span>,</span>
-<span>  site_correction_methods <span class="op">=</span> <span class="va">site_correction_methods</span>,</span>
-<span>  ncomp <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">ncomp</span>,</span>
-<span>  performance_metric <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">perf_metric</span>,</span>
-<span>  permutation_test <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  n_perm <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">n_perm</span>,</span>
-<span>  bootstrap <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>  bootstrap_selection <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>  B <span class="op">=</span> <span class="fl">1L</span>,</span>
-<span>  val_test <span class="op">=</span> <span class="st">"permutation"</span>,</span>
-<span>  val_test_n <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">val_test_n</span></span>
+<p>The analysis compares three pipelines. All share preprocessing, site
+correction, and the MB-sPLS fit; they differ only in what reaches the
+k-means learner:</p>
+<ul>
+<li>
+<code>raw</code>: the MB-sPLS latent variables (LVs) of the training
+weights;</li>
+<li>
+<code>stable_ci</code>: LVs recomputed from the features whose
+bootstrap percentile interval excludes zero;</li>
+<li>
+<code>stable_frequency</code>: LVs recomputed from the features
+selected in at least <code>frequency_threshold</code> of the bootstrap
+replicates.</li>
+</ul>
+<p>The MB-sPLS node always emits the LVs of its training weights.
+<code>predict_weights</code> only selects the weights evaluated in its
+prediction payload, which the measures and
+<code><a href="../reference/mbspls_eval_new_data.html">mbspls_eval_new_data()</a></code> read; each pipeline evaluates the
+weights its own LVs use. In the stable pipelines,
+<code>PipeOpMBsPLSBootstrapSelect</code> replaces the raw LVs by the
+stable LVs at training and at prediction. It aligns replicate signs
+separately for every block and, if the task had an mlr3
+<code>group</code> role (for example repeated visits of one
+participant), would resample whole groups. The explicit
+<code>seed_bootstrap</code> gives every replicate its own RNG stream;
+the default <code>NULL</code> uses the session RNG, which
+<code><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed()</a></code> makes reproducible.</p>
+<div class="sourceCode" id="cb13"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">modes</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>  raw <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>selection <span class="op">=</span> <span class="cn">FALSE</span>, selection_method <span class="op">=</span> <span class="st">"ci"</span>, predict_weights <span class="op">=</span> <span class="st">"raw"</span><span class="op">)</span>,</span>
+<span>  stable_ci <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>selection <span class="op">=</span> <span class="cn">TRUE</span>, selection_method <span class="op">=</span> <span class="st">"ci"</span>, predict_weights <span class="op">=</span> <span class="st">"stable_ci"</span><span class="op">)</span>,</span>
+<span>  stable_frequency <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
+<span>    selection <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>    selection_method <span class="op">=</span> <span class="st">"frequency"</span>,</span>
+<span>    predict_weights <span class="op">=</span> <span class="st">"stable_frequency"</span></span>
+<span>  <span class="op">)</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">rs_outer</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">rsmp</a></span><span class="op">(</span><span class="st">"cv"</span>, folds <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">outer_folds</span><span class="op">)</span></span>
+<span><span class="va">make_mode_learner</span> <span class="op">=</span> <span class="kw">function</span><span class="op">(</span><span class="va">mode</span>, <span class="va">c_matrix</span> <span class="op">=</span> <span class="cn">NULL</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">mode_spec</span> <span class="op">=</span> <span class="va">modes</span><span class="op">[[</span><span class="va">mode</span><span class="op">]</span><span class="op">]</span></span>
+<span>  <span class="fu"><a href="https://mlr3pipelines.mlr-org.com/reference/ppl.html" class="external-link">ppl</a></span><span class="op">(</span></span>
+<span>    <span class="st">"mbspls_graph_learner"</span>,</span>
+<span>    learner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"clust.kmeans"</span>, centers <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">centers</span><span class="op">)</span>,</span>
+<span>    task <span class="op">=</span> <span class="va">task_train</span>,</span>
+<span>    site_correction <span class="op">=</span> <span class="va">site_correction</span>,</span>
+<span>    site_correction_methods <span class="op">=</span> <span class="va">site_correction_methods</span>,</span>
+<span>    ncomp <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">ncomp</span>,</span>
+<span>    c_matrix <span class="op">=</span> <span class="va">c_matrix</span>,</span>
+<span>    performance_metric <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">perf_metric</span>,</span>
+<span>    permutation_test <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>    predict_weights <span class="op">=</span> <span class="va">mode_spec</span><span class="op">$</span><span class="va">predict_weights</span>,</span>
+<span>    val_test <span class="op">=</span> <span class="st">"none"</span>,</span>
+<span>    bootstrap <span class="op">=</span> <span class="va">mode_spec</span><span class="op">$</span><span class="va">selection</span>,</span>
+<span>    store_train_blocks <span class="op">=</span> <span class="cn">TRUE</span>,</span>
+<span>    bootstrap_selection <span class="op">=</span> <span class="va">mode_spec</span><span class="op">$</span><span class="va">selection</span>,</span>
+<span>    selection_method <span class="op">=</span> <span class="va">mode_spec</span><span class="op">$</span><span class="va">selection_method</span>,</span>
+<span>    frequency_threshold <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">frequency_threshold</span>,</span>
+<span>    B <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">bootstrap_B</span>,</span>
+<span>    seed_bootstrap <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">seed_bootstrap</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">}</span></span></code></pre></div>
+<p>Nested CV estimates held-out performance; it does not by itself
+perform a null-hypothesis test. Each outer fold tunes
+<code>c_matrix</code> on its analysis rows and trains the complete
+pipeline there, including bootstrap selection for the stable pipelines,
+before scoring the assessment rows. Every node with a log environment
+gets a fresh one per fold, so the outer estimate covers the complete
+configured pipeline. The random search draws its candidates from the
+session RNG, so each nested CV starts from the same seed; with the
+deterministic MB-sPLS fit and the fixed <code>seed_bootstrap</code>, all
+pipelines then tune the same <code>c_matrix</code> in each fold and
+differ only in the selection step.</p>
+<div class="sourceCode" id="cb14"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">rs_outer</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">rsmp</a></span><span class="op">(</span><span class="st">"cv"</span>, folds <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">outer_folds</span><span class="op">)</span></span>
 <span><span class="va">rs_inner</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">rsmp</a></span><span class="op">(</span><span class="st">"cv"</span>, folds <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">inner_folds</span><span class="op">)</span></span>
 <span><span class="va">rs_outer</span><span class="op">$</span><span class="fu">instantiate</span><span class="op">(</span><span class="va">task_train</span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">nested_cv</span> <span class="op">=</span> <span class="fu"><a href="../reference/mbspls_nested_cv.html">mbspls_nested_cv</a></span><span class="op">(</span></span>
-<span>  task <span class="op">=</span> <span class="va">task_train</span>,</span>
-<span>  graphlearner <span class="op">=</span> <span class="va">gl_nested</span>,</span>
-<span>  rs_outer <span class="op">=</span> <span class="va">rs_outer</span>,</span>
-<span>  rs_inner <span class="op">=</span> <span class="va">rs_inner</span>,</span>
-<span>  ncomp <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">ncomp</span>,</span>
-<span>  tuner_budget <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">tuner_budget</span>,</span>
-<span>  tuning_early_stop <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  performance_metric <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">perf_metric</span>,</span>
-<span>  val_test <span class="op">=</span> <span class="st">"permutation"</span>,</span>
-<span>  val_test_n <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">val_test_n</span>,</span>
-<span>  n_perm_tuning <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">n_perm_tuning</span>,</span>
-<span>  store_payload <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span><span class="va">nested_cv</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="kw">for</span> <span class="op">(</span><span class="va">mode</span> <span class="kw">in</span> <span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">modes</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="va">cfg</span><span class="op">$</span><span class="va">seed_tuning</span><span class="op">)</span></span>
+<span>  <span class="va">nested_cv</span><span class="op">[[</span><span class="va">mode</span><span class="op">]</span><span class="op">]</span> <span class="op">=</span> <span class="fu"><a href="../reference/mbspls_nested_cv.html">mbspls_nested_cv</a></span><span class="op">(</span></span>
+<span>    task <span class="op">=</span> <span class="va">task_train</span>,</span>
+<span>    graphlearner <span class="op">=</span> <span class="fu">make_mode_learner</span><span class="op">(</span><span class="va">mode</span><span class="op">)</span>,</span>
+<span>    rs_outer <span class="op">=</span> <span class="va">rs_outer</span>,</span>
+<span>    rs_inner <span class="op">=</span> <span class="va">rs_inner</span>,</span>
+<span>    ncomp <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">ncomp</span>,</span>
+<span>    tuner_budget <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">tuner_budget</span>,</span>
+<span>    tuning_early_stop <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>    performance_metric <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">perf_metric</span>,</span>
+<span>    val_test <span class="op">=</span> <span class="st">"none"</span>,</span>
+<span>    store_payload <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">}</span></span>
+<span></span>
+<span><span class="co"># Same seed, deterministic fit: every pipeline tuned the same c_matrix per fold.</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/stopifnot.html" class="external-link">stopifnot</a></span><span class="op">(</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/identical.html" class="external-link">identical</a></span><span class="op">(</span><span class="va">nested_cv</span><span class="op">$</span><span class="va">raw</span><span class="op">$</span><span class="va">c_mats</span>, <span class="va">nested_cv</span><span class="op">$</span><span class="va">stable_ci</span><span class="op">$</span><span class="va">c_mats</span><span class="op">)</span>,</span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/identical.html" class="external-link">identical</a></span><span class="op">(</span><span class="va">nested_cv</span><span class="op">$</span><span class="va">raw</span><span class="op">$</span><span class="va">c_mats</span>, <span class="va">nested_cv</span><span class="op">$</span><span class="va">stable_frequency</span><span class="op">$</span><span class="va">c_mats</span><span class="op">)</span></span>
 <span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">nested_cv</span><span class="op">$</span><span class="va">summary_table</span></span></code></pre></div>
-<p>The nested summary is the key validation output and should be
-inspected before any final-model interpretation.</p>
+<span><span class="va">nested_results</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/rbindlist.html" class="external-link">rbindlist</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">nested_cv</span><span class="op">)</span>, <span class="kw">function</span><span class="op">(</span><span class="va">mode</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">result</span> <span class="op">=</span> <span class="va">nested_cv</span><span class="op">[[</span><span class="va">mode</span><span class="op">]</span><span class="op">]</span></span>
+<span>  <span class="va">result</span><span class="op">$</span><span class="va">results</span><span class="op">[</span>, <span class="fu">.</span><span class="op">(</span></span>
+<span>    mode <span class="op">=</span> <span class="va">mode</span>,</span>
+<span>    <span class="va">split</span>,</span>
+<span>    weights_evaluated <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">vapply</a></span><span class="op">(</span><span class="va">result</span><span class="op">$</span><span class="va">payloads</span>, <span class="va">`[[`</span>, <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">character</a></span><span class="op">(</span><span class="fl">1L</span><span class="op">)</span>, <span class="st">"weights_source"</span><span class="op">)</span>,</span>
+<span>    <span class="va">measure_test</span>,</span>
+<span>    <span class="va">mac_lv1_test</span>,</span>
+<span>    <span class="va">measure_test_n_undefined</span></span>
+<span>  <span class="op">)</span><span class="op">]</span></span>
+<span><span class="op">}</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">nested_results</span></span>
+<span><span class="co">#&gt;                mode split weights_evaluated measure_test mac_lv1_test</span></span>
+<span><span class="co">#&gt;              &lt;char&gt; &lt;int&gt;            &lt;char&gt;        &lt;num&gt;        &lt;num&gt;</span></span>
+<span><span class="co">#&gt; 1:              raw     1               raw    0.5027353    0.5287664</span></span>
+<span><span class="co">#&gt; 2:              raw     2               raw    0.4677784    0.5005544</span></span>
+<span><span class="co">#&gt; 3:        stable_ci     1         stable_ci    0.4985376    0.5315112</span></span>
+<span><span class="co">#&gt; 4:        stable_ci     2         stable_ci    0.4740122    0.5012990</span></span>
+<span><span class="co">#&gt; 5: stable_frequency     1  stable_frequency    0.5027353    0.5287664</span></span>
+<span><span class="co">#&gt; 6: stable_frequency     2  stable_frequency    0.4677784    0.5005544</span></span>
+<span><span class="co">#&gt;    measure_test_n_undefined</span></span>
+<span><span class="co">#&gt;                       &lt;int&gt;</span></span>
+<span><span class="co">#&gt; 1:                        0</span></span>
+<span><span class="co">#&gt; 2:                        0</span></span>
+<span><span class="co">#&gt; 3:                        0</span></span>
+<span><span class="co">#&gt; 4:                        0</span></span>
+<span><span class="co">#&gt; 5:                        0</span></span>
+<span><span class="co">#&gt; 6:                        0</span></span>
+<span></span>
+<span><span class="va">nested_summary</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/rbindlist.html" class="external-link">rbindlist</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">nested_cv</span><span class="op">)</span>, <span class="kw">function</span><span class="op">(</span><span class="va">mode</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">nested_cv</span><span class="op">[[</span><span class="va">mode</span><span class="op">]</span><span class="op">]</span><span class="op">$</span><span class="va">summary_table</span><span class="op">[</span>, <span class="fu">.</span><span class="op">(</span>mode <span class="op">=</span> <span class="va">mode</span>, <span class="va">metric</span>, <span class="va">mean</span>, <span class="va">sd</span>, <span class="va">n_defined</span><span class="op">)</span><span class="op">]</span></span>
+<span><span class="op">}</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="va">nested_summary</span></span>
+<span><span class="co">#&gt;                mode                    metric      mean         sd n_defined</span></span>
+<span><span class="co">#&gt;              &lt;char&gt;                    &lt;char&gt;     &lt;num&gt;      &lt;num&gt;     &lt;int&gt;</span></span>
+<span><span class="co">#&gt; 1:              raw EV-weighted MAC (all LCs) 0.4852569 0.02471825         2</span></span>
+<span><span class="co">#&gt; 2:              raw                 MAC (LV1) 0.5146604 0.01994888         2</span></span>
+<span><span class="co">#&gt; 3:              raw     # components retained 2.0000000 0.00000000         2</span></span>
+<span><span class="co">#&gt; 4:        stable_ci EV-weighted MAC (all LCs) 0.4862749 0.01734209         2</span></span>
+<span><span class="co">#&gt; 5:        stable_ci                 MAC (LV1) 0.5164051 0.02136327         2</span></span>
+<span><span class="co">#&gt; 6:        stable_ci     # components retained 2.0000000 0.00000000         2</span></span>
+<span><span class="co">#&gt; 7: stable_frequency EV-weighted MAC (all LCs) 0.4852569 0.02471825         2</span></span>
+<span><span class="co">#&gt; 8: stable_frequency                 MAC (LV1) 0.5146604 0.01994888         2</span></span>
+<span><span class="co">#&gt; 9: stable_frequency     # components retained 2.0000000 0.00000000         2</span></span></code></pre></div>
+<p><code>measure_test</code> is the held-out EV-weighted MAC
+(<code>mbspls.mac_evwt</code>) of the weights each pipeline evaluates.
+<code>measure_test_n_undefined</code> counts components whose held-out
+association is undefined, for example because stability selection left
+fewer than two blocks; such components score zero. With two outer folds
+on 90 rows these estimates are very noisy, and choosing the best
+pipeline from them would be a further selection step that this nested CV
+does not cover. Use more outer folds or repeats, and pre-specify the
+pipeline, in a real analysis.</p>
 </div>
 <div class="section level2">
-<h2 id="retune-c_matrix-on-all-rows">6) Retune c_matrix on All Rows<a class="anchor" aria-label="anchor" href="#retune-c_matrix-on-all-rows"></a>
+<h2 id="retune-c_matrix-on-all-rows">8) Retune c_matrix on All Rows<a class="anchor" aria-label="anchor" href="#retune-c_matrix-on-all-rows"></a>
 </h2>
 <p>After nested validation, retune on the full training task to obtain a
 single final sparsity pattern (<code>c_matrix_final</code>). This matrix
-is then reused across all final modes for comparability.</p>
-<div class="sourceCode" id="cb7"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">gl_tune</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3pipelines.mlr-org.com/reference/ppl.html" class="external-link">ppl</a></span><span class="op">(</span></span>
-<span>  <span class="st">"mbspls_graph_learner"</span>,</span>
-<span>  learner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"clust.kmeans"</span>, centers <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">centers</span><span class="op">)</span>,</span>
-<span>  task <span class="op">=</span> <span class="va">task_train</span>,</span>
-<span>  site_correction <span class="op">=</span> <span class="va">site_correction</span>,</span>
-<span>  site_correction_methods <span class="op">=</span> <span class="va">site_correction_methods</span>,</span>
-<span>  ncomp <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">ncomp</span>,</span>
-<span>  performance_metric <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">perf_metric</span>,</span>
-<span>  permutation_test <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  n_perm <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">n_perm</span>,</span>
-<span>  bootstrap <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>  bootstrap_selection <span class="op">=</span> <span class="cn">FALSE</span>,</span>
-<span>  B <span class="op">=</span> <span class="fl">1L</span>,</span>
-<span>  val_test <span class="op">=</span> <span class="st">"none"</span></span>
-<span><span class="op">)</span></span>
+is then reused across all final pipelines for comparability.</p>
+<p><code>TunerSeqMBsPLS</code> resolves the same block columns as the
+final <code>PipeOpMBsPLS</code>, centres every inner training fold with
+its own means, and scores the fold payloads itself, so this
+<code><a href="https://mlr3tuning.mlr-org.com/reference/ti.html" class="external-link">ti()</a></code> instance does not need stored models. When the package
+measures are scored through <code><a href="https://mlr3.mlr-org.com/reference/resample.html" class="external-link">resample()</a></code>,
+<code><a href="https://mlr3.mlr-org.com/reference/benchmark.html" class="external-link">benchmark()</a></code>, or <code><a href="https://mlr3tuning.mlr-org.com/reference/tune.html" class="external-link">tune()</a></code>, set
+<code>store_models = TRUE</code>. <code>early_stopping = TRUE</code>
+would add a permutation-based stopping heuristic; it reuses the inner
+folds that selected <code>c</code>, so it is optimistic, and its
+<code>perm_alpha</code> is a cutoff, not an error rate.</p>
+<div class="sourceCode" id="cb15"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">gl_tune</span> <span class="op">=</span> <span class="fu">make_mode_learner</span><span class="op">(</span><span class="st">"raw"</span><span class="op">)</span></span>
 <span></span>
 <span><span class="va">tuner</span> <span class="op">=</span> <span class="va"><a href="../reference/TunerSeqMBsPLS.html">TunerSeqMBsPLS</a></span><span class="op">$</span><span class="fu">new</span><span class="op">(</span></span>
 <span>  tuner <span class="op">=</span> <span class="st">"random_search"</span>,</span>
 <span>  budget <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">tuner_budget</span>,</span>
 <span>  resampling <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">rsmp</a></span><span class="op">(</span><span class="st">"cv"</span>, folds <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">inner_folds</span><span class="op">)</span>,</span>
 <span>  parallel <span class="op">=</span> <span class="st">"none"</span>,</span>
-<span>  early_stopping <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>  n_perm <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">n_perm_tuning</span>,</span>
+<span>  early_stopping <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  performance_metric <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">perf_metric</span></span>
 <span><span class="op">)</span></span>
 <span></span>
@@ -321,145 +960,248 @@ is then reused across all final modes for comparability.</p>
 <span>  terminator <span class="op">=</span> <span class="fu"><a href="https://bbotk.mlr-org.com/reference/trm.html" class="external-link">trm</a></span><span class="op">(</span><span class="st">"evals"</span>, n_evals <span class="op">=</span> <span class="fl">1</span><span class="op">)</span></span>
 <span><span class="op">)</span></span>
 <span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="va">cfg</span><span class="op">$</span><span class="va">seed_tuning</span><span class="op">)</span></span>
 <span><span class="va">tuner</span><span class="op">$</span><span class="fu">optimize</span><span class="op">(</span><span class="va">instance</span><span class="op">)</span></span>
 <span><span class="va">c_matrix_final</span> <span class="op">=</span> <span class="va">instance</span><span class="op">$</span><span class="va">result</span><span class="op">$</span><span class="va">learner_param_vals</span><span class="op">[[</span><span class="fl">1</span><span class="op">]</span><span class="op">]</span><span class="op">$</span><span class="va">c_matrix</span></span>
-<span><span class="va">c_matrix_final</span></span></code></pre></div>
+<span><span class="va">c_matrix_final</span></span>
+<span><span class="co">#&gt;              LC1      LC2</span></span>
+<span><span class="co">#&gt; block_a 1.000000 2.236068</span></span>
+<span><span class="co">#&gt; block_b 2.449490 2.236068</span></span>
+<span><span class="co">#&gt; block_c 2.236068 2.236068</span></span>
+<span><span class="va">instance</span><span class="op">$</span><span class="va">result_y</span></span>
+<span><span class="co">#&gt; mbspls.mac_evwt </span></span>
+<span><span class="co">#&gt;       0.4829176</span></span></code></pre></div>
 <p>At this point, <code>c_matrix_final</code> is the most important
 object to inspect. It controls feature sparsity per block and per
-component in the final fits.</p>
-<p>For supervised analyses, the package also provides
-<code><a href="../reference/mbspls_model_summary.html">mbspls_model_summary()</a></code> to extract compact reporting tables
-from fitted MB-sPLS, MB-sPLS-XY, or MB-sPCA models.</p>
+component in the final fits. <code>instance$result_y</code> is the
+inner-resampling score of the selected candidate. It was maximised on
+the same folds and is therefore optimistic; the nested CV above is the
+performance estimate.</p>
 </div>
 <div class="section level2">
-<h2 id="final-fits-raw-stable_ci-stable_frequency">7) Final Fits (raw / stable_ci / stable_frequency)<a class="anchor" aria-label="anchor" href="#final-fits-raw-stable_ci-stable_frequency"></a>
+<h2 id="final-fits-and-what-the-selection-modes-change">9) Final Fits and What the Selection Modes Change<a class="anchor" aria-label="anchor" href="#final-fits-and-what-the-selection-modes-change"></a>
 </h2>
-<p>Final fitting creates three representations:</p>
-<ul>
-<li>
-<code>raw</code>: direct MB-sPLS weights</li>
-<li>
-<code>stable_ci</code>: CI-filtered bootstrap-stable weights</li>
-<li>
-<code>stable_frequency</code>: frequency-filtered bootstrap-stable
-weights</li>
-</ul>
-<p>Bootstrap selection is only activated here, where stability-oriented
-reporting is expected.</p>
-<div class="sourceCode" id="cb8"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">output_dir</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span></span>
-<span>  <span class="st">"analysis_results"</span>,</span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste0</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/format.html" class="external-link">format</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/Sys.time.html" class="external-link">Sys.time</a></span><span class="op">(</span><span class="op">)</span>, <span class="st">"%Y%m%d_%H%M%S"</span><span class="op">)</span>, <span class="st">"_MBSPLS_SYNTHETIC_BLOCKS"</span><span class="op">)</span></span>
-<span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/files2.html" class="external-link">dir.create</a></span><span class="op">(</span><span class="va">output_dir</span>, recursive <span class="op">=</span> <span class="cn">TRUE</span>, showWarnings <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
+<p>The three final pipelines use <code>c_matrix_final</code>, the same
+bootstrap seed, and the same k-means seed. The raw pipeline passes the
+training LVs to k-means; the two stable pipelines pass the stable LVs of
+their selection mode.</p>
+<div class="sourceCode" id="cb16"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">final_models</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="va">final_summary</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span></span>
+<span><span class="va">final_clusters</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span></span>
 <span></span>
-<span><span class="va">modes</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span>
-<span>  raw <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>selection <span class="op">=</span> <span class="st">"none"</span>, predict_weights <span class="op">=</span> <span class="st">"raw"</span>, threshold <span class="op">=</span> <span class="cn">NA_real_</span><span class="op">)</span>,</span>
-<span>  stable_ci <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>selection <span class="op">=</span> <span class="st">"ci"</span>, predict_weights <span class="op">=</span> <span class="st">"stable_ci"</span>, threshold <span class="op">=</span> <span class="cn">NA_real_</span><span class="op">)</span>,</span>
-<span>  stable_frequency <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>selection <span class="op">=</span> <span class="st">"frequency"</span>, predict_weights <span class="op">=</span> <span class="st">"stable_frequency"</span>, threshold <span class="op">=</span> <span class="fl">0.5</span><span class="op">)</span></span>
-<span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">final_models</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span></span>
-<span><span class="va">final_train_summary</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span><span class="op">)</span></span>
-<span></span>
-<span><span class="kw">for</span> <span class="op">(</span><span class="va">mode_name</span> <span class="kw">in</span> <span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">modes</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="va">mode_spec</span> <span class="op">=</span> <span class="va">modes</span><span class="op">[[</span><span class="va">mode_name</span><span class="op">]</span><span class="op">]</span></span>
-<span>  <span class="va">mode_dir</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">output_dir</span>, <span class="va">mode_name</span><span class="op">)</span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/files2.html" class="external-link">dir.create</a></span><span class="op">(</span><span class="va">mode_dir</span>, recursive <span class="op">=</span> <span class="cn">TRUE</span>, showWarnings <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
-<span></span>
-<span>  <span class="va">gl_final</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3pipelines.mlr-org.com/reference/ppl.html" class="external-link">ppl</a></span><span class="op">(</span></span>
-<span>    <span class="st">"mbspls_graph_learner"</span>,</span>
-<span>    learner <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">lrn</a></span><span class="op">(</span><span class="st">"clust.kmeans"</span>, centers <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">centers</span><span class="op">)</span>,</span>
-<span>    blocks <span class="op">=</span> <span class="va">blocks</span>,</span>
-<span>    site_correction <span class="op">=</span> <span class="va">site_correction</span>,</span>
-<span>    site_correction_methods <span class="op">=</span> <span class="va">site_correction_methods</span>,</span>
-<span>    ncomp <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">ncomp</span>,</span>
-<span>    performance_metric <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">perf_metric</span>,</span>
-<span>    permutation_test <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>    n_perm <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">n_perm</span>,</span>
-<span>    bootstrap <span class="op">=</span> <span class="cn">TRUE</span>,</span>
-<span>    bootstrap_selection <span class="op">=</span> <span class="va">mode_spec</span><span class="op">$</span><span class="va">selection</span> <span class="op">!=</span> <span class="st">"none"</span>,</span>
-<span>    B <span class="op">=</span> <span class="va">cfg</span><span class="op">$</span><span class="va">bootstrap_B</span>,</span>
-<span>    val_test <span class="op">=</span> <span class="st">"none"</span>,</span>
-<span>    selection_method <span class="op">=</span> <span class="kw">if</span> <span class="op">(</span><span class="va">mode_spec</span><span class="op">$</span><span class="va">selection</span> <span class="op">==</span> <span class="st">"frequency"</span><span class="op">)</span> <span class="st">"frequency"</span> <span class="kw">else</span> <span class="st">"ci"</span>,</span>
-<span>    frequency_threshold <span class="op">=</span> <span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/NA.html" class="external-link">is.na</a></span><span class="op">(</span><span class="va">mode_spec</span><span class="op">$</span><span class="va">threshold</span><span class="op">)</span><span class="op">)</span> <span class="va">cfg</span><span class="op">$</span><span class="va">frequency_threshold</span> <span class="kw">else</span> <span class="va">mode_spec</span><span class="op">$</span><span class="va">threshold</span></span>
-<span>  <span class="op">)</span></span>
-<span></span>
-<span>  <span class="va">gl_final</span><span class="op">$</span><span class="va">param_set</span><span class="op">$</span><span class="va">values</span><span class="op">$</span><span class="va">mbspls.c_matrix</span> <span class="op">=</span> <span class="va">c_matrix_final</span></span>
-<span>  <span class="kw">if</span> <span class="op">(</span><span class="op">!</span><span class="fu"><a href="https://rdrr.io/r/base/NULL.html" class="external-link">is.null</a></span><span class="op">(</span><span class="va">gl_final</span><span class="op">$</span><span class="va">graph</span><span class="op">$</span><span class="va">pipeops</span><span class="op">$</span><span class="va">mbspls</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span>
-<span>    <span class="va">gl_final</span><span class="op">$</span><span class="va">graph</span><span class="op">$</span><span class="va">pipeops</span><span class="op">$</span><span class="va">mbspls</span><span class="op">$</span><span class="va">param_set</span><span class="op">$</span><span class="va">values</span><span class="op">$</span><span class="va">c_matrix</span> <span class="op">=</span> <span class="va">c_matrix_final</span></span>
-<span>    <span class="va">gl_final</span><span class="op">$</span><span class="va">graph</span><span class="op">$</span><span class="va">pipeops</span><span class="op">$</span><span class="va">mbspls</span><span class="op">$</span><span class="va">param_set</span><span class="op">$</span><span class="va">values</span><span class="op">$</span><span class="va">predict_weights</span> <span class="op">=</span> <span class="va">mode_spec</span><span class="op">$</span><span class="va">predict_weights</span></span>
-<span>    <span class="va">gl_final</span><span class="op">$</span><span class="va">graph</span><span class="op">$</span><span class="va">pipeops</span><span class="op">$</span><span class="va">mbspls</span><span class="op">$</span><span class="va">param_set</span><span class="op">$</span><span class="va">values</span><span class="op">$</span><span class="va">store_train_blocks</span> <span class="op">=</span> <span class="cn">TRUE</span></span>
-<span>  <span class="op">}</span></span>
-<span></span>
+<span><span class="kw">for</span> <span class="op">(</span><span class="va">mode</span> <span class="kw">in</span> <span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">modes</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span>
+<span>  <span class="va">gl_final</span> <span class="op">=</span> <span class="fu">make_mode_learner</span><span class="op">(</span><span class="va">mode</span>, c_matrix <span class="op">=</span> <span class="va">c_matrix_final</span><span class="op">)</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/Random.html" class="external-link">set.seed</a></span><span class="op">(</span><span class="va">cfg</span><span class="op">$</span><span class="va">seed_final</span><span class="op">)</span></span>
 <span>  <span class="va">gl_final</span><span class="op">$</span><span class="fu">train</span><span class="op">(</span><span class="va">task_train</span><span class="op">)</span></span>
-<span>  <span class="va">pred_train</span> <span class="op">=</span> <span class="va">gl_final</span><span class="op">$</span><span class="fu">predict</span><span class="op">(</span><span class="va">task_train</span><span class="op">)</span></span>
+<span>  <span class="va">prediction</span> <span class="op">=</span> <span class="va">gl_final</span><span class="op">$</span><span class="fu">predict</span><span class="op">(</span><span class="va">task_train</span><span class="op">)</span></span>
 <span></span>
-<span>  <span class="va">state</span> <span class="op">=</span> <span class="va">gl_final</span><span class="op">$</span><span class="va">model</span><span class="op">$</span><span class="va">mbspls</span></span>
-<span>  <span class="va">mac_comp</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">state</span><span class="op">$</span><span class="va">obj_vec</span><span class="op">)</span></span>
-<span>  <span class="va">ev_comp</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">state</span><span class="op">$</span><span class="va">ev_comp</span><span class="op">)</span></span>
+<span>  <span class="co"># Payload of the weights this pipeline evaluates.</span></span>
+<span>  <span class="va">evaluated</span> <span class="op">=</span> <span class="fu"><a href="../reference/mbspls_eval_new_data.html">mbspls_eval_new_data</a></span><span class="op">(</span><span class="va">gl_final</span>, <span class="va">task_train</span><span class="op">)</span></span>
+<span>  <span class="va">n_selected</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">vapply</a></span><span class="op">(</span><span class="va">evaluated</span><span class="op">$</span><span class="va">weights</span>, <span class="kw">function</span><span class="op">(</span><span class="va">component</span><span class="op">)</span> <span class="op">{</span></span>
+<span>    <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">vapply</a></span><span class="op">(</span><span class="va">component</span>, <span class="kw">function</span><span class="op">(</span><span class="va">w</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/sum.html" class="external-link">sum</a></span><span class="op">(</span><span class="va">w</span> <span class="op">!=</span> <span class="fl">0</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/base/integer.html" class="external-link">integer</a></span><span class="op">(</span><span class="fl">1L</span><span class="op">)</span><span class="op">)</span><span class="op">)</span></span>
+<span>  <span class="op">}</span>, <span class="fu"><a href="https://rdrr.io/r/base/integer.html" class="external-link">integer</a></span><span class="op">(</span><span class="fl">1L</span><span class="op">)</span><span class="op">)</span></span>
+<span>  <span class="va">blocks_kept</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">vapply</a></span><span class="op">(</span><span class="va">evaluated</span><span class="op">$</span><span class="va">weights</span>, <span class="kw">function</span><span class="op">(</span><span class="va">component</span><span class="op">)</span> <span class="op">{</span></span>
+<span>    <span class="va">kept</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">vapply</a></span><span class="op">(</span><span class="va">component</span>, <span class="kw">function</span><span class="op">(</span><span class="va">w</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/any.html" class="external-link">any</a></span><span class="op">(</span><span class="va">w</span> <span class="op">!=</span> <span class="fl">0</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/base/logical.html" class="external-link">logical</a></span><span class="op">(</span><span class="fl">1L</span><span class="op">)</span><span class="op">)</span></span>
+<span>    <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">component</span><span class="op">)</span><span class="op">[</span><span class="va">kept</span><span class="op">]</span>, collapse <span class="op">=</span> <span class="st">", "</span><span class="op">)</span></span>
+<span>  <span class="op">}</span>, <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">character</a></span><span class="op">(</span><span class="fl">1L</span><span class="op">)</span><span class="op">)</span></span>
 <span></span>
-<span>  <span class="va">summary_dt</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/data.table.html" class="external-link">data.table</a></span><span class="op">(</span></span>
-<span>    mode <span class="op">=</span> <span class="va">mode_name</span>,</span>
-<span>    component <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/sprintf.html" class="external-link">sprintf</a></span><span class="op">(</span><span class="st">"LC_%02d"</span>, <span class="fu"><a href="https://rdrr.io/r/base/seq.html" class="external-link">seq_along</a></span><span class="op">(</span><span class="va">mac_comp</span><span class="op">)</span><span class="op">)</span>,</span>
-<span>    train_objective <span class="op">=</span> <span class="va">mac_comp</span>,</span>
-<span>    train_ev <span class="op">=</span> <span class="va">ev_comp</span></span>
+<span>  <span class="va">final_summary</span><span class="op">[[</span><span class="va">mode</span><span class="op">]</span><span class="op">]</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/data.table.html" class="external-link">data.table</a></span><span class="op">(</span></span>
+<span>    mode <span class="op">=</span> <span class="va">mode</span>,</span>
+<span>    component <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">evaluated</span><span class="op">$</span><span class="va">weights</span><span class="op">)</span>,</span>
+<span>    raw_objective <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">gl_final</span><span class="op">$</span><span class="va">model</span><span class="op">$</span><span class="va">mbspls</span><span class="op">$</span><span class="va">obj_vec</span><span class="op">)</span>,</span>
+<span>    weights_evaluated <span class="op">=</span> <span class="va">evaluated</span><span class="op">$</span><span class="va">weights_source</span>,</span>
+<span>    n_selected <span class="op">=</span> <span class="va">n_selected</span>,</span>
+<span>    blocks_kept <span class="op">=</span> <span class="va">blocks_kept</span>,</span>
+<span>    train_mac <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">evaluated</span><span class="op">$</span><span class="va">mac_comp</span><span class="op">)</span>,</span>
+<span>    train_ev <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/numeric.html" class="external-link">as.numeric</a></span><span class="op">(</span><span class="va">evaluated</span><span class="op">$</span><span class="va">ev_comp</span><span class="op">)</span></span>
 <span>  <span class="op">)</span></span>
-<span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/fwrite.html" class="external-link">fwrite</a></span><span class="op">(</span><span class="va">summary_dt</span>, <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">mode_dir</span>, <span class="st">"train_summary.csv"</span><span class="op">)</span><span class="op">)</span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/fwrite.html" class="external-link">fwrite</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/data.table/man/data.table.html" class="external-link">data.table</a></span><span class="op">(</span>row_id <span class="op">=</span> <span class="va">pred_train</span><span class="op">$</span><span class="va">row_ids</span>, cluster <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="va">pred_train</span><span class="op">$</span><span class="va">partition</span><span class="op">)</span><span class="op">)</span>,</span>
-<span>    <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">mode_dir</span>, <span class="st">"clusters_train.csv"</span><span class="op">)</span><span class="op">)</span></span>
-<span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/readRDS.html" class="external-link">saveRDS</a></span><span class="op">(</span><span class="va">gl_final</span>, <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">mode_dir</span>, <span class="st">"graphlearner.rds"</span><span class="op">)</span><span class="op">)</span></span>
-<span>  <span class="fu"><a href="https://rdrr.io/r/base/readRDS.html" class="external-link">saveRDS</a></span><span class="op">(</span><span class="va">state</span>, <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">mode_dir</span>, <span class="st">"train_state.rds"</span><span class="op">)</span><span class="op">)</span></span>
-<span></span>
-<span>  <span class="va">final_models</span><span class="op">[[</span><span class="va">mode_name</span><span class="op">]</span><span class="op">]</span> <span class="op">=</span> <span class="va">gl_final</span></span>
-<span>  <span class="va">final_train_summary</span><span class="op">[[</span><span class="va">mode_name</span><span class="op">]</span><span class="op">]</span> <span class="op">=</span> <span class="va">summary_dt</span></span>
+<span>  <span class="va">final_clusters</span><span class="op">[[</span><span class="va">mode</span><span class="op">]</span><span class="op">]</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="va">prediction</span><span class="op">$</span><span class="va">partition</span><span class="op">)</span></span>
+<span>  <span class="va">final_models</span><span class="op">[[</span><span class="va">mode</span><span class="op">]</span><span class="op">]</span> <span class="op">=</span> <span class="va">gl_final</span></span>
 <span><span class="op">}</span></span>
 <span></span>
-<span><span class="fu"><a href="https://rdrr.io/pkg/data.table/man/rbindlist.html" class="external-link">rbindlist</a></span><span class="op">(</span><span class="va">final_train_summary</span><span class="op">)</span></span></code></pre></div>
-<p>Comparing the three mode summaries is a practical way to assess how
-stability filtering changes component strength and downstream
-clustering.</p>
+<span><span class="co"># One shared MB-sPLS fit: the raw objectives agree across pipelines.</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/stopifnot.html" class="external-link">stopifnot</a></span><span class="op">(</span></span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/identical.html" class="external-link">identical</a></span><span class="op">(</span><span class="va">final_models</span><span class="op">$</span><span class="va">raw</span><span class="op">$</span><span class="va">model</span><span class="op">$</span><span class="va">mbspls</span><span class="op">$</span><span class="va">obj_vec</span>, <span class="va">final_models</span><span class="op">$</span><span class="va">stable_ci</span><span class="op">$</span><span class="va">model</span><span class="op">$</span><span class="va">mbspls</span><span class="op">$</span><span class="va">obj_vec</span><span class="op">)</span>,</span>
+<span>  <span class="fu"><a href="https://rdrr.io/r/base/identical.html" class="external-link">identical</a></span><span class="op">(</span><span class="va">final_models</span><span class="op">$</span><span class="va">raw</span><span class="op">$</span><span class="va">model</span><span class="op">$</span><span class="va">mbspls</span><span class="op">$</span><span class="va">obj_vec</span>, <span class="va">final_models</span><span class="op">$</span><span class="va">stable_frequency</span><span class="op">$</span><span class="va">model</span><span class="op">$</span><span class="va">mbspls</span><span class="op">$</span><span class="va">obj_vec</span><span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span></span>
+<span><span class="va">final_summary</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/rbindlist.html" class="external-link">rbindlist</a></span><span class="op">(</span><span class="va">final_summary</span><span class="op">)</span></span>
+<span><span class="va">final_summary</span></span>
+<span><span class="co">#&gt;                mode component raw_objective weights_evaluated n_selected</span></span>
+<span><span class="co">#&gt;              &lt;char&gt;    &lt;char&gt;         &lt;num&gt;            &lt;char&gt;      &lt;int&gt;</span></span>
+<span><span class="co">#&gt; 1:              raw     LC_01     0.5360264               raw         13</span></span>
+<span><span class="co">#&gt; 2:              raw     LC_02     0.3293241               raw         18</span></span>
+<span><span class="co">#&gt; 3:        stable_ci     LC_01     0.5360264         stable_ci         12</span></span>
+<span><span class="co">#&gt; 4:        stable_ci     LC_02     0.3293241         stable_ci          5</span></span>
+<span><span class="co">#&gt; 5: stable_frequency     LC_01     0.5360264  stable_frequency         13</span></span>
+<span><span class="co">#&gt; 6: stable_frequency     LC_02     0.3293241  stable_frequency         17</span></span>
+<span><span class="co">#&gt;                  blocks_kept train_mac   train_ev</span></span>
+<span><span class="co">#&gt;                       &lt;char&gt;     &lt;num&gt;      &lt;num&gt;</span></span>
+<span><span class="co">#&gt; 1: block_a, block_b, block_c 0.5360264 0.74007389</span></span>
+<span><span class="co">#&gt; 2: block_a, block_b, block_c 0.3293241 0.12064247</span></span>
+<span><span class="co">#&gt; 3:          block_b, block_c 0.5090598 0.56069354</span></span>
+<span><span class="co">#&gt; 4:          block_b, block_c 0.2058790 0.03173958</span></span>
+<span><span class="co">#&gt; 5: block_a, block_b, block_c 0.5360264 0.74007389</span></span>
+<span><span class="co">#&gt; 6: block_a, block_b, block_c 0.3293241 0.12064247</span></span>
+<span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">lapply</a></span><span class="op">(</span><span class="va">final_models</span>, <span class="kw">function</span><span class="op">(</span><span class="va">gl</span><span class="op">)</span> <span class="va">gl</span><span class="op">$</span><span class="va">model</span><span class="op">$</span><span class="va">clust.kmeans</span><span class="op">$</span><span class="va">train_task</span><span class="op">$</span><span class="va">feature_names</span><span class="op">)</span></span>
+<span><span class="co">#&gt; $raw</span></span>
+<span><span class="co">#&gt; [1] "LV1_block_a" "LV1_block_b" "LV1_block_c" "LV2_block_a" "LV2_block_b"</span></span>
+<span><span class="co">#&gt; [6] "LV2_block_c"</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $stable_ci</span></span>
+<span><span class="co">#&gt; [1] "LV1_block_b" "LV1_block_c" "LV2_block_b" "LV2_block_c"</span></span>
+<span><span class="co">#&gt; </span></span>
+<span><span class="co">#&gt; $stable_frequency</span></span>
+<span><span class="co">#&gt; [1] "LV1_block_a" "LV1_block_b" "LV1_block_c" "LV2_block_a" "LV2_block_b"</span></span>
+<span><span class="co">#&gt; [6] "LV2_block_c"</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span>raw <span class="op">=</span> <span class="va">final_clusters</span><span class="op">$</span><span class="va">raw</span>, stable_ci <span class="op">=</span> <span class="va">final_clusters</span><span class="op">$</span><span class="va">stable_ci</span><span class="op">)</span></span>
+<span><span class="co">#&gt;    stable_ci</span></span>
+<span><span class="co">#&gt; raw  1  2</span></span>
+<span><span class="co">#&gt;   1 58  1</span></span>
+<span><span class="co">#&gt;   2  1 30</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/base/table.html" class="external-link">table</a></span><span class="op">(</span>raw <span class="op">=</span> <span class="va">final_clusters</span><span class="op">$</span><span class="va">raw</span>, stable_frequency <span class="op">=</span> <span class="va">final_clusters</span><span class="op">$</span><span class="va">stable_frequency</span><span class="op">)</span></span>
+<span><span class="co">#&gt;    stable_frequency</span></span>
+<span><span class="co">#&gt; raw  1  2</span></span>
+<span><span class="co">#&gt;   1 59  0</span></span>
+<span><span class="co">#&gt;   2  0 31</span></span></code></pre></div>
+<p>All pipelines share one MB-sPLS fit, so <code>raw_objective</code> is
+identical by construction. The mode-specific columns describe the
+weights each pipeline evaluates: how many features and which blocks the
+stability filter kept, and the resulting training-row MAC and explained
+variance. A <code>NaN</code> MAC means that fewer than two blocks were
+kept for that component, so no cross-block association is defined. When
+the filter keeps every feature with a non-zero training weight, as a
+lenient frequency threshold can, the stable pipeline reproduces the raw
+one. These in-sample values are optimistic descriptions, not performance
+estimates. The LV features and cross-tabulations show how the filter
+changes what k-means sees and how the clustering changes. An honest
+comparison of the pipelines requires the selection to be repeated inside
+resampling, as in the nested CV of section 7.</p>
 </div>
 <div class="section level2">
-<h2 id="save-nested-cv-and-session-info">7) Save Nested CV and Session Info<a class="anchor" aria-label="anchor" href="#save-nested-cv-and-session-info"></a>
+<h2 id="visualize-validation-and-stability">10) Visualize Validation and Stability<a class="anchor" aria-label="anchor" href="#visualize-validation-and-stability"></a>
 </h2>
-<p>Write compact tabular outputs plus serialized objects for
-reproducibility and downstream reporting. Saving
-<code>session_info.txt</code> helps track package versions and runtime
-context.</p>
-<div class="sourceCode" id="cb9"><pre class="downlit sourceCode r">
-<code class="sourceCode R"><span><span class="va">nested_dir</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">output_dir</span>, <span class="st">"nested_cv"</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/files2.html" class="external-link">dir.create</a></span><span class="op">(</span><span class="va">nested_dir</span>, recursive <span class="op">=</span> <span class="cn">TRUE</span>, showWarnings <span class="op">=</span> <span class="cn">FALSE</span><span class="op">)</span></span>
-<span></span>
-<span><span class="fu"><a href="https://rdrr.io/pkg/data.table/man/fwrite.html" class="external-link">fwrite</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/data.table/man/as.data.table.html" class="external-link">as.data.table</a></span><span class="op">(</span><span class="va">nested_cv</span><span class="op">$</span><span class="va">summary_table</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">nested_dir</span>, <span class="st">"nested_cv_summary.csv"</span><span class="op">)</span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">nested_results_csv</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/copy.html" class="external-link">copy</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/data.table/man/as.data.table.html" class="external-link">as.data.table</a></span><span class="op">(</span><span class="va">nested_cv</span><span class="op">$</span><span class="va">results</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="kw">for</span> <span class="op">(</span><span class="va">col</span> <span class="kw">in</span> <span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">nested_results_csv</span><span class="op">)</span><span class="op">[</span><span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">vapply</a></span><span class="op">(</span><span class="va">nested_results_csv</span>, <span class="va">is.list</span>, <span class="fu"><a href="https://rdrr.io/r/base/logical.html" class="external-link">logical</a></span><span class="op">(</span><span class="fl">1</span><span class="op">)</span><span class="op">)</span><span class="op">]</span><span class="op">)</span> <span class="op">{</span></span>
-<span>  <span class="va">nested_results_csv</span><span class="op">[</span>, <span class="op">(</span><span class="va">col</span><span class="op">)</span> <span class="op">:=</span> <span class="fu"><a href="https://rdrr.io/r/base/lapply.html" class="external-link">vapply</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/get.html" class="external-link">get</a></span><span class="op">(</span><span class="va">col</span><span class="op">)</span>, <span class="kw">function</span><span class="op">(</span><span class="va">x</span><span class="op">)</span> <span class="fu"><a href="https://rdrr.io/r/base/paste.html" class="external-link">paste</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="va">x</span><span class="op">)</span>, collapse <span class="op">=</span> <span class="st">";"</span><span class="op">)</span>, <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">character</a></span><span class="op">(</span><span class="fl">1</span><span class="op">)</span><span class="op">)</span><span class="op">]</span></span>
-<span><span class="op">}</span></span>
-<span><span class="fu"><a href="https://rdrr.io/pkg/data.table/man/fwrite.html" class="external-link">fwrite</a></span><span class="op">(</span><span class="va">nested_results_csv</span>, <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">nested_dir</span>, <span class="st">"nested_cv_results.csv"</span><span class="op">)</span><span class="op">)</span></span>
-<span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/readRDS.html" class="external-link">saveRDS</a></span><span class="op">(</span><span class="va">nested_cv</span>, <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">nested_dir</span>, <span class="st">"nested_cv_object.rds"</span><span class="op">)</span><span class="op">)</span></span>
-<span><span class="fu"><a href="https://rdrr.io/r/base/writeLines.html" class="external-link">writeLines</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/utils/capture.output.html" class="external-link">capture.output</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/utils/sessionInfo.html" class="external-link">sessionInfo</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span>, con <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/file.path.html" class="external-link">file.path</a></span><span class="op">(</span><span class="va">output_dir</span>, <span class="st">"session_info.txt"</span><span class="op">)</span><span class="op">)</span></span>
-<span></span>
-<span><span class="va">output_dir</span></span></code></pre></div>
+<p>The outer-fold plot shows assessment performance only. It is not a
+permutation test and is not interchangeable with the null-distribution
+plots above.</p>
+<div class="sourceCode" id="cb17"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">nested_plot_data</span> <span class="op">=</span> <span class="va">nested_results</span><span class="op">[</span></span>
+<span>  , <span class="fu">.</span><span class="op">(</span><span class="va">mode</span>, split <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/factor.html" class="external-link">factor</a></span><span class="op">(</span><span class="va">split</span><span class="op">)</span>, assessment_score <span class="op">=</span> <span class="va">measure_test</span><span class="op">)</span></span>
+<span><span class="op">]</span></span>
+<span><span class="va">nested_plot</span> <span class="op">=</span> <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggplot.html" class="external-link">ggplot</a></span><span class="op">(</span></span>
+<span>  <span class="va">nested_plot_data</span>,</span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/aes.html" class="external-link">aes</a></span><span class="op">(</span>x <span class="op">=</span> <span class="va">split</span>, y <span class="op">=</span> <span class="va">assessment_score</span>, fill <span class="op">=</span> <span class="va">mode</span><span class="op">)</span></span>
+<span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/geom_bar.html" class="external-link">geom_col</a></span><span class="op">(</span>position <span class="op">=</span> <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/position_dodge.html" class="external-link">position_dodge</a></span><span class="op">(</span>width <span class="op">=</span> <span class="fl">0.8</span><span class="op">)</span>, width <span class="op">=</span> <span class="fl">0.7</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/scale_manual.html" class="external-link">scale_fill_manual</a></span><span class="op">(</span>values <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"#5B9BD5"</span>, <span class="st">"#70AD47"</span>, <span class="st">"#ED7D31"</span><span class="op">)</span><span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/labs.html" class="external-link">labs</a></span><span class="op">(</span></span>
+<span>    x <span class="op">=</span> <span class="st">"Outer fold"</span>,</span>
+<span>    y <span class="op">=</span> <span class="st">"EV-weighted MAC"</span>,</span>
+<span>    fill <span class="op">=</span> <span class="st">"Pipeline"</span>,</span>
+<span>    title <span class="op">=</span> <span class="st">"Nested-CV assessment performance"</span>,</span>
+<span>    subtitle <span class="op">=</span> <span class="st">"Each outer fold reruns tuning and bootstrap selection"</span></span>
+<span>  <span class="op">)</span> <span class="op">+</span></span>
+<span>  <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/ggtheme.html" class="external-link">theme_minimal</a></span><span class="op">(</span>base_size <span class="op">=</span> <span class="fl">11</span><span class="op">)</span></span>
+<span><span class="va">nested_plot</span></span></code></pre></div>
+<p><img src="quickstart_files/figure-html/nested-cv-plot-1.png" class="r-plt" alt="" width="672" style="display: block; margin: auto;"></p>
+<p>The next plot shows the bootstrap means, percentile intervals, and
+selection-frequency opacity of the <code>stable_ci</code> pipeline.
+Replicate weights are sign-aligned separately for every block. These are
+stability summaries rather than feature-level significance tests.</p>
+<div class="sourceCode" id="cb18"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">weight_stability_plot</span> <span class="op">=</span> <span class="fu"><a href="../reference/mbspls_plot_block_weight_ci.html">mbspls_plot_block_weight_ci</a></span><span class="op">(</span></span>
+<span>  <span class="va">final_models</span><span class="op">$</span><span class="va">stable_ci</span>,</span>
+<span>  source <span class="op">=</span> <span class="st">"bootstrap"</span>,</span>
+<span>  ci_filter <span class="op">=</span> <span class="st">"none"</span>,</span>
+<span>  top_n <span class="op">=</span> <span class="fl">4L</span>,</span>
+<span>  add_block_rule <span class="op">=</span> <span class="cn">FALSE</span>,</span>
+<span>  alpha_by_stability <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">weight_stability_plot</span></span></code></pre></div>
+<p><img src="quickstart_files/figure-html/weight-stability-plot-1.png" class="r-plt" alt="" width="1152" style="display: block; margin: auto;"></p>
+<p>Explained variance provides a complementary component-level
+description of the same final model.</p>
+<div class="sourceCode" id="cb19"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="va">variance_plot</span> <span class="op">=</span> <span class="fu"><a href="https://ggplot2.tidyverse.org/reference/autoplot.html" class="external-link">autoplot</a></span><span class="op">(</span></span>
+<span>  <span class="va">final_models</span><span class="op">$</span><span class="va">stable_ci</span>,</span>
+<span>  type <span class="op">=</span> <span class="st">"mbspls_variance"</span>,</span>
+<span>  source <span class="op">=</span> <span class="st">"bootstrap"</span>,</span>
+<span>  show_total <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">variance_plot</span></span></code></pre></div>
+<p><img src="quickstart_files/figure-html/variance-plot-1.png" class="r-plt" alt="" width="672" style="display: block; margin: auto;"></p>
 </div>
 <div class="section level2">
-<h2 id="objects-to-inspect-during-development">8) Objects to Inspect During Development<a class="anchor" aria-label="anchor" href="#objects-to-inspect-during-development"></a>
+<h2 id="inspect-results-in-memory">11) Inspect Results in Memory<a class="anchor" aria-label="anchor" href="#inspect-results-in-memory"></a>
+</h2>
+<p>Nested-CV results, fitted models, summaries, predictions, and runtime
+versions remain available in the current R session.</p>
+<p><code><a href="../reference/mbspls_model_summary.html">mbspls_model_summary()</a></code> extracts reporting tables from
+fitted MB-sPLS, MB-sPLS-XY, or MB-sPCA models. Its
+<code>conditional_p_value</code> column holds the train-time permutation
+diagnostic (<code>permutation_test = TRUE</code>), which conditions on
+the fitted preprocessing and hyperparameters; <code>p_value_scope</code>
+states that scope. Both are <code>NA</code> here because the diagnostic
+was not run.</p>
+<div class="sourceCode" id="cb20"><pre class="downlit sourceCode r">
+<code class="sourceCode R"><span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">final_models</span><span class="op">)</span></span>
+<span><span class="co">#&gt; [1] "raw"              "stable_ci"        "stable_frequency"</span></span>
+<span><span class="fu"><a href="../reference/mbspls_model_summary.html">mbspls_model_summary</a></span><span class="op">(</span><span class="va">final_models</span><span class="op">$</span><span class="va">raw</span><span class="op">)</span><span class="op">$</span><span class="va">components</span></span>
+<span><span class="co">#&gt;    component objective conditional_p_value p_value_scope   ev_comp</span></span>
+<span><span class="co">#&gt;       &lt;char&gt;     &lt;num&gt;               &lt;num&gt;        &lt;char&gt;     &lt;num&gt;</span></span>
+<span><span class="co">#&gt; 1:     LC_01 0.5360264                  NA          &lt;NA&gt; 0.7400739</span></span>
+<span><span class="co">#&gt; 2:     LC_02 0.3293241                  NA          &lt;NA&gt; 0.1206425</span></span>
+<span><span class="va">final_models</span><span class="op">$</span><span class="va">raw</span><span class="op">$</span><span class="va">model</span><span class="op">$</span><span class="va">mbspls</span><span class="op">$</span><span class="va">converged</span></span>
+<span><span class="co">#&gt; LC_01 LC_02 </span></span>
+<span><span class="co">#&gt;  TRUE  TRUE</span></span>
+<span><span class="fu"><a href="https://rdrr.io/r/utils/head.html" class="external-link">head</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/pkg/data.table/man/data.table.html" class="external-link">data.table</a></span><span class="op">(</span>row_id <span class="op">=</span> <span class="va">task_train</span><span class="op">$</span><span class="va">row_ids</span>, cluster <span class="op">=</span> <span class="va">final_clusters</span><span class="op">$</span><span class="va">raw</span><span class="op">)</span><span class="op">)</span></span>
+<span><span class="co">#&gt;    row_id cluster</span></span>
+<span><span class="co">#&gt;     &lt;int&gt;  &lt;char&gt;</span></span>
+<span><span class="co">#&gt; 1:      1       1</span></span>
+<span><span class="co">#&gt; 2:      2       1</span></span>
+<span><span class="co">#&gt; 3:      3       1</span></span>
+<span><span class="co">#&gt; 4:      4       2</span></span>
+<span><span class="co">#&gt; 5:      5       1</span></span>
+<span><span class="co">#&gt; 6:      6       2</span></span>
+<span></span>
+<span><span class="va">runtime_versions</span> <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/pkg/data.table/man/data.table.html" class="external-link">data.table</a></span><span class="op">(</span></span>
+<span>  package <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"R"</span>, <span class="st">"mlr3"</span>, <span class="st">"mlr3mbspls"</span><span class="op">)</span>,</span>
+<span>  version <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span></span>
+<span>    <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/numeric_version.html" class="external-link">getRversion</a></span><span class="op">(</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>    <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/utils/packageDescription.html" class="external-link">packageVersion</a></span><span class="op">(</span><span class="st">"mlr3"</span><span class="op">)</span><span class="op">)</span>,</span>
+<span>    <span class="fu"><a href="https://rdrr.io/r/base/character.html" class="external-link">as.character</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/utils/packageDescription.html" class="external-link">packageVersion</a></span><span class="op">(</span><span class="st">"mlr3mbspls"</span><span class="op">)</span><span class="op">)</span></span>
+<span>  <span class="op">)</span></span>
+<span><span class="op">)</span></span>
+<span><span class="va">runtime_versions</span></span>
+<span><span class="co">#&gt;       package version</span></span>
+<span><span class="co">#&gt;        &lt;char&gt;  &lt;char&gt;</span></span>
+<span><span class="co">#&gt; 1:          R   4.6.1</span></span>
+<span><span class="co">#&gt; 2:       mlr3   1.8.0</span></span>
+<span><span class="co">#&gt; 3: mlr3mbspls   0.4.0</span></span></code></pre></div>
+</div>
+<div class="section level2">
+<h2 id="objects-to-inspect">12) Objects to Inspect<a class="anchor" aria-label="anchor" href="#objects-to-inspect"></a>
 </h2>
 <p>At any point, inspect objects such as:</p>
 <ul>
 <li><code>dt_demo</code></li>
 <li><code>blocks</code></li>
+<li><code>mb_test_results</code></li>
+<li><code>complete_test</code></li>
+<li><code>lc_confirmation$results</code></li>
+<li><code>lc_confirmation$pairwise_correlations</code></li>
+<li><code>bootstrap_summary</code></li>
 <li><code>task_train</code></li>
-<li><code>nested_cv$summary_table</code></li>
+<li><code>nested_results</code></li>
+<li><code>nested_summary</code></li>
 <li><code>c_matrix_final</code></li>
-<li><code>final_models$raw$model$mbspls$state</code></li>
+<li><code>final_summary</code></li>
+<li><code>final_clusters</code></li>
+<li><code>final_models$raw$model$mbspls</code></li>
+<li><code>final_models$stable_ci$model$mbspls_bootstrap_select</code></li>
 </ul>
-<p>This keeps the workflow easy to debug while remaining fully
-executable end-to-end.</p>
 </div>
   </div>
 

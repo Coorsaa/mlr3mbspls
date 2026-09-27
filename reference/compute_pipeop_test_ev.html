@@ -20,7 +20,7 @@ latent correlation on a list of test blocks."><!-- mathjax --><script src="https
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -57,7 +57,7 @@ latent correlation on a list of test blocks."><!-- mathjax --><script src="https
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>Compute prediction-side EV and latent correlation from a PipeOpMBsPLS state</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/mbspls_test_ev.R" class="external-link"><code>R/mbspls_test_ev.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.4.0/R/mbspls_test_ev.R" class="external-link"><code>R/mbspls_test_ev.R</code></a></small>
     <div class="hidden name"><code>compute_pipeop_test_ev.Rd</code></div>
     </div>
 
@@ -85,7 +85,8 @@ latent correlation on a list of test blocks.</p>
 <dd><p><code>list</code>. Trained PipeOp state. Must contain at least:</p><ul><li><p><code>weights</code>: component-wise block weights (as in training),</p></li>
 <li><p><code>loadings</code>: (optional) component-wise block loadings,</p></li>
 <li><p><code>performance_metric</code>: <code>"mac"</code> or <code>"frobenius"</code>,</p></li>
-<li><p><code>correlation_method</code>: (optional) <code>"pearson"</code> or <code>"spearman"</code>.</p></li>
+<li><p><code>correlation_method</code>: (optional) <code>"pearson"</code> or <code>"spearman"</code>,</p></li>
+<li><p><code>center</code>: (optional) training column means per block.</p></li>
 </ul></dd>
 
 </dl></div>
@@ -101,9 +102,12 @@ validity mask, and the test score matrix.</p>
 (component-wise) behavior used during training. The correlation method for
 MAC/Frobenius is taken from <code>state$correlation_method</code> when available;
 otherwise it defaults to <code>"pearson"</code>.</p>
-<p>The wrapper now requires training loadings in <code>state$loadings</code>; if they are
+<p>The wrapper requires training loadings in <code>state$loadings</code>; if they are
 absent, it errors instead of silently switching to test-derived least-squares
 loadings.</p>
+<p>The test blocks are centred with the training means stored in
+<code>state$center</code> (states without <code>center</code>, fitted before centring
+was introduced, are used as supplied).</p>
     </div>
 
   </div>

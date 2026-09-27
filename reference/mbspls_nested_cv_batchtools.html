@@ -3,7 +3,8 @@
 batchtools package to parallelize the outer folds as separate jobs.
 Each outer fold is processed in a separate job, which tunes the MB-sPLS
 model on the inner folds and evaluates it on the outer test fold.
-The results are collected and summarized after all jobs are completed."><!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js" integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/config/TeX-AMS-MML_HTMLorMML.js" integrity="sha256-84DKXVJXs0/F8OTMzX4UR909+jtl4G7SPypPavF+GfA=" crossorigin="anonymous"></script><!--[if lt IE 9]>
+The results are collected and summarized with collect_mbspls_nested_cv()
+after the jobs have completed."><!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js" integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/config/TeX-AMS-MML_HTMLorMML.js" integrity="sha256-84DKXVJXs0/F8OTMzX4UR909+jtl4G7SPypPavF+GfA=" crossorigin="anonymous"></script><!--[if lt IE 9]>
 <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
 <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
 <![endif]--></head><body data-spy="scroll" data-target="#toc">
@@ -21,7 +22,7 @@ The results are collected and summarized after all jobs are completed."><!-- mat
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -58,7 +59,7 @@ The results are collected and summarized after all jobs are completed."><!-- mat
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>Perform nested cross-validation for MB-sPLS using batchtools</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/mbspls_nested_cv_batch.R" class="external-link"><code>R/mbspls_nested_cv_batch.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.4.0/R/mbspls_nested_cv_batch.R" class="external-link"><code>R/mbspls_nested_cv_batch.R</code></a></small>
     <div class="hidden name"><code>mbspls_nested_cv_batchtools.Rd</code></div>
     </div>
 
@@ -67,7 +68,8 @@ The results are collected and summarized after all jobs are completed."><!-- mat
 <code>batchtools</code> package to parallelize the outer folds as separate jobs.
 Each outer fold is processed in a separate job, which tunes the MB-sPLS
 model on the inner folds and evaluates it on the outer test fold.
-The results are collected and summarized after all jobs are completed.</p>
+The results are collected and summarized with <code><a href="collect_mbspls_nested_cv.html">collect_mbspls_nested_cv()</a></code>
+after the jobs have completed.</p>
     </div>
 
     <div id="ref-usage">
@@ -90,7 +92,7 @@ The results are collected and summarized after all jobs are completed.</p>
 <span>  store_payload <span class="op">=</span> <span class="cn">TRUE</span>,</span>
 <span>  reg_dir <span class="op">=</span> <span class="st">"registry_mbspls_nestedcv"</span>,</span>
 <span>  seed <span class="op">=</span> <span class="fl">1L</span>,</span>
-<span>  cluster_function <span class="op">=</span> <span class="fu">batchtools</span><span class="fu">::</span><span class="fu"><a href="https://batchtools.mlr-org.com/reference/makeClusterFunctionsSocket.html" class="external-link">makeClusterFunctionsSocket</a></span><span class="op">(</span>ncpus <span class="op">=</span> <span class="fl">1L</span><span class="op">)</span>,</span>
+<span>  cluster_function <span class="op">=</span> <span class="cn">NULL</span>,</span>
 <span>  autosubmit <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
@@ -113,7 +115,8 @@ The results are collected and summarized after all jobs are completed.</p>
 
 
 <dt id="arg-rs-inner">rs_inner<a class="anchor" aria-label="anchor" href="#arg-rs-inner"></a></dt>
-<dd><p>An <code>mlr3</code> resampling instance for the inner folds.</p></dd>
+<dd><p>An <code>mlr3</code> resampling template for the inner folds; it is
+instantiated on the analysis rows of every outer fold.</p></dd>
 
 
 <dt id="arg-ncomp">ncomp<a class="anchor" aria-label="anchor" href="#arg-ncomp"></a></dt>
@@ -125,8 +128,10 @@ The results are collected and summarized after all jobs are completed.</p>
 
 
 <dt id="arg-tuning-early-stop">tuning_early_stop<a class="anchor" aria-label="anchor" href="#arg-tuning-early-stop"></a></dt>
-<dd><p>Logical, whether to stop tuning early if
-non-significant components are found.</p></dd>
+<dd><p>Logical, whether the tuner applies its
+permutation-based component stopping heuristic. The heuristic is
+evaluated on the inner validation folds that selected <code>c</code> and pools
+dependent folds, so it is optimistic; see <a href="TunerSeqMBsPLS.html">TunerSeqMBsPLS</a>.</p></dd>
 
 
 <dt id="arg-measure">measure<a class="anchor" aria-label="anchor" href="#arg-measure"></a></dt>
@@ -142,33 +147,33 @@ used for inner tuning and aligned outer-fold scoring. Must resolve to one of
 
 
 <dt id="arg-val-test">val_test<a class="anchor" aria-label="anchor" href="#arg-val-test"></a></dt>
-<dd><p>Character, type of validation test to perform
-("none", "permutation", or "bootstrap").</p></dd>
+<dd><p>Character, prediction-side diagnostic: "none", conditional
+"permutation", or descriptive "bootstrap".</p></dd>
 
 
 <dt id="arg-val-test-n">val_test_n<a class="anchor" aria-label="anchor" href="#arg-val-test-n"></a></dt>
 <dd><p>Integer, number of permutations or bootstrap samples
-for the validation test (default is 1000).</p></dd>
+for the prediction-side diagnostic (default is 1000).</p></dd>
 
 
 <dt id="arg-val-test-alpha">val_test_alpha<a class="anchor" aria-label="anchor" href="#arg-val-test-alpha"></a></dt>
-<dd><p>Numeric, significance level for the validation test
-(default is 0.05).</p></dd>
+<dd><p>Numeric alpha for the descriptive bootstrap interval;
+retained for permutation API compatibility (default is 0.05).</p></dd>
 
 
 <dt id="arg-val-permute-all">val_permute_all<a class="anchor" aria-label="anchor" href="#arg-val-permute-all"></a></dt>
 <dd><p>Logical, whether to permute all blocks during
-the validation test (default is TRUE).</p></dd>
+the conditional permutation diagnostic (default is TRUE).</p></dd>
 
 
 <dt id="arg-n-perm-tuning">n_perm_tuning<a class="anchor" aria-label="anchor" href="#arg-n-perm-tuning"></a></dt>
 <dd><p>Integer, number of permutations for the tuning
-significance test (default is 500).</p></dd>
+stopping heuristic (default is 500).</p></dd>
 
 
 <dt id="arg-perm-alpha-tuning">perm_alpha_tuning<a class="anchor" aria-label="anchor" href="#arg-perm-alpha-tuning"></a></dt>
-<dd><p>Numeric, significance level for the tuning
-permutation test (default is 0.05).</p></dd>
+<dd><p>Numeric cutoff of the tuning stopping heuristic
+(default is 0.05). It is not an error rate.</p></dd>
 
 
 <dt id="arg-store-payload">store_payload<a class="anchor" aria-label="anchor" href="#arg-store-payload"></a></dt>
@@ -185,9 +190,9 @@ each outer fold (may consume a lot of memory).</p></dd>
 
 
 <dt id="arg-cluster-function">cluster_function<a class="anchor" aria-label="anchor" href="#arg-cluster-function"></a></dt>
-<dd><p>A <code>batchtools</code> cluster function object.
-Defaults to a local socket setup created via
-<code><a href="https://batchtools.mlr-org.com/reference/makeClusterFunctionsSocket.html" class="external-link">batchtools::makeClusterFunctionsSocket()</a></code>.</p></dd>
+<dd><p>A <code>batchtools</code> cluster function object, or <code>NULL</code>
+(default) for a local socket setup created via
+<code>batchtools::makeClusterFunctionsSocket(ncpus = 1L)</code>.</p></dd>
 
 
 <dt id="arg-autosubmit">autosubmit<a class="anchor" aria-label="anchor" href="#arg-autosubmit"></a></dt>
@@ -197,24 +202,32 @@ after creating the registry (default is FALSE).</p></dd>
 </dl></div>
     <div id="value">
     <h2>Value</h2>
-    <p>A <code>batchtools</code> registry object. Use <code><a href="collect_mbspls_nested_cv.html">collect_mbspls_nested_cv()</a></code>
-to gather and summarize the results after all jobs are completed.</p>
+    <p>A list with elements <code>ids</code>, the job table returned by
+<code><a href="https://batchtools.mlr-org.com/reference/batchMap.html" class="external-link">batchtools::batchMap()</a></code> (one job per outer split), and <code>reg</code>, the
+<code>batchtools</code> Registry. Submit the jobs with
+<code>batchtools::submitJobs(reg = out$reg)</code> unless <code>autosubmit = TRUE</code>, and pass
+<code>reg = out$reg</code> (or the whole list) to <code><a href="collect_mbspls_nested_cv.html">collect_mbspls_nested_cv()</a></code>.</p>
     </div>
     <div id="details">
     <h2>Details</h2>
-    <p><code>performance_metric</code> and <code>measure</code> operate at different layers of the
+    <p>Each job runs exactly the code of one outer fold of <code><a href="mbspls_nested_cv.html">mbspls_nested_cv()</a></code>:
+the tuner and the evaluation learner are deep clones of <code>graphlearner</code>, and
+every PipeOp with a <code>log_env</code> parameter (the MB-sPLS node and, for example,
+a <a href="PipeOpMBsPLSBootstrapSelect.html">PipeOpMBsPLSBootstrapSelect</a> node) receives one fresh environment per job.
+Graphs with bootstrap stability selection are therefore evaluated as
+configured.</p>
+<p><code>performance_metric</code> and <code>measure</code> operate at different layers of the
 procedure.</p>
-<p><code>performance_metric</code> controls the direct objective optimized inside the
-MB-sPLS C++ fitting routine when each latent component is estimated. It
-therefore changes how the component weights are fitted (<code>"mac"</code> or
-<code>"frobenius"</code>).</p>
+<p><code>performance_metric</code> selects the association criterion evaluated for
+convergence and scoring (<code>"mac"</code> or <code>"frobenius"</code>). Weight updates follow
+the same covariance-style sparse multiblock procedure for either criterion;
+the solver does not directly optimize a correlation-gradient objective.</p>
 <p><code>measure</code> controls model selection across candidate sparsity settings and
 across resampling folds on held-out data. It therefore acts as an indirect
 outer optimization criterion for tuning and evaluation.</p>
 <p>Choosing <code>measure = "mbspls.ev"</code> or <code>measure = "mbspls.block_ev"</code> does not
 make the underlying MB-sPLS algorithm optimize explained variance directly.
-It selects among models that were still fitted with the chosen
-<code>performance_metric</code>, using an EV-based validation criterion.</p>
+It selects among fitted models using an EV-based validation criterion.</p>
     </div>
 
   </div>

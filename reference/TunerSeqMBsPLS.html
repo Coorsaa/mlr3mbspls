@@ -3,11 +3,11 @@
 multi-block sparse PLS (MB-sPLS) model in the mlr3 ecosystem. For each
 latent component it samples block-wise sparsity vectors c, scores them via
 inner resampling using one of the package's MB-sPLS measures, optionally
-applies a permutation-based early-stop test, and then deflates before moving
-to the next component.
+applies a permutation-based early-stopping heuristic, and then deflates
+before moving to the next component.
 The tuner supports the package-native MB-sPLS measures:
 mbspls.mac_evwt, mbspls.mac, mbspls.ev, and mbspls.block_ev.
-Passing any other measure now errors explicitly instead of being silently
+Passing any other measure errors explicitly instead of being silently
 ignored."><!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js" integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/config/TeX-AMS-MML_HTMLorMML.js" integrity="sha256-84DKXVJXs0/F8OTMzX4UR909+jtl4G7SPypPavF+GfA=" crossorigin="anonymous"></script><!--[if lt IE 9]>
 <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
 <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
@@ -26,7 +26,7 @@ ignored."><!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/ma
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -63,7 +63,7 @@ ignored."><!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/ma
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>Sequential Component-wise Tuner for MB-sPLS</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/TunerSeqMBsPLS.R" class="external-link"><code>R/TunerSeqMBsPLS.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.4.0/R/TunerSeqMBsPLS.R" class="external-link"><code>R/TunerSeqMBsPLS.R</code></a></small>
     <div class="hidden name"><code>TunerSeqMBsPLS.Rd</code></div>
     </div>
 
@@ -72,23 +72,75 @@ ignored."><!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/ma
 multi-block sparse PLS (MB-sPLS) model in the <strong>mlr3</strong> ecosystem. For each
 latent component it samples block-wise sparsity vectors <code>c</code>, scores them via
 inner resampling using one of the package's MB-sPLS measures, optionally
-applies a permutation-based early-stop test, and then deflates before moving
-to the next component.</p>
+applies a permutation-based early-stopping heuristic, and then deflates
+before moving to the next component.</p>
 <p>The tuner supports the package-native MB-sPLS measures:
 <code>mbspls.mac_evwt</code>, <code>mbspls.mac</code>, <code>mbspls.ev</code>, and <code>mbspls.block_ev</code>.
-Passing any other measure now errors explicitly instead of being silently
+Passing any other measure errors explicitly instead of being silently
 ignored.</p>
     </div>
 
 
+    <div id="details">
+    <h2>Details</h2>
+    <p><strong>Inner folds mirror the final fit.</strong> For every inner fold, the
+preprocessing graph upstream of <code>PipeOpMBsPLS</code> is trained on the fold's
+training rows only and then applied to its validation rows and to
+<code>additional_task</code>. Block columns are resolved exactly as <code>PipeOpMBsPLS</code>
+resolves them, from the feature columns it receives (never the target, and
+only those selected by its <code>affect_columns</code>): <code><a href="mb_resolve_block_columns.html">mb_resolve_block_columns()</a></code>
+(so encoded factor columns such as <code>sex.m</code> belong to their declared block),
+followed by the numeric and finite-variance filters. Blocks without a usable
+column on the full tuning task are dropped with a warning, as
+<code>PipeOpMBsPLS</code> drops them, and the tuned <code>c_matrix</code> has one row per retained
+block. As in <code>PipeOpMBsPLS</code>, the node's <code>ncomp</code> may not exceed the rank of
+any centred retained block on the full tuning task; this is checked before
+the search. Every retained block must keep at least one usable column in
+each inner training fold. The upper bound of a block's <code>c</code> is <code>sqrt(p)</code> for
+the smallest width <code>p</code> of that block on the full task and across the inner
+training folds. An error raised while scoring a candidate, for example by
+the solver, stops the tuning with its original message.</p>
+<p>The native solver expects column-centred blocks. Each inner fold is centred
+by the column means of the rows its components are fitted on (the fold's
+training rows plus any <code>additional_task</code> rows), and the validation rows are
+centred by the same means, as <code>PipeOpMBsPLS</code> centres prediction data by its
+training means.</p>
+<p>Fold fits use the solver settings of <code>PipeOpMBsPLS</code>: at most 600 sweeps,
+stopping when the largest change in block weights between sweeps falls below
+<code>1e-4</code>. The solver starts deterministically, so the fit that scored the
+selected candidate is reused for the fold payloads, the early-stopping
+diagnostic and the deflation, and it equals the fit <code>PipeOpMBsPLS</code> obtains
+for the same data and <code>c</code>. A warning names retained components whose fold
+fits did not converge.</p>
+<p><strong>Reported score.</strong> <code>result_y</code> is the inner-resampling score of the tuned
+<code>c_matrix</code>. Each component's <code>c</code> is chosen to maximise this score on the same
+inner folds, so it is optimistically biased (for a single component it is the
+best score in the search archive). Use <code><a href="mbspls_nested_cv.html">mbspls_nested_cv()</a></code> to estimate
+performance on unseen data.</p>
+<p><strong>Early stopping is a heuristic.</strong> After the <code>c</code> of component <code>k</code> is
+selected, a permutation test that permutes the validation rows with the
+trained weights held fixed is run on every inner validation fold. These are
+the folds that selected <code>c</code>, and the fixed-weight null ignores that
+selection, so the fold p-values are optimistic (anti-conservative), the more
+so the larger <code>budget</code>. The fold p-values are pooled with a
+<code>sqrt(n_validation)</code>-weighted Stouffer combination that treats the folds as
+independent, although their training rows overlap. Tuning stops at the first
+component whose running maximum of pooled p-values exceeds <code>perm_alpha</code>, and
+that component is dropped; LC1 is always kept. <code>perm_alpha</code> is therefore a
+cutoff for this heuristic, not a false-retention or type-I error rate, and
+the pooled values are not confirmatory p-values.</p>
+<p>The performance metric can also be changed after construction through
+<code>tuner$param_set$values$performance_metric</code>; the parameter set is the only
+source of this setting.</p>
+    </div>
     <div id="construction">
     <h2>Construction</h2>
 
 
 
-<p></p><div class="sourceCode"><pre><code><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a>tuner <span class="ot">&lt;-</span> TunerSeqMBsPLS<span class="sc">$</span><span class="fu">new</span>(</span>
+<p></p><div class="sourceCode"><pre><code><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a>tuner <span class="ot">=</span> TunerSeqMBsPLS<span class="sc">$</span><span class="fu">new</span>(</span>
 <span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>  <span class="at">tuner              =</span> <span class="st">"random_search"</span>,</span>
-<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a>  <span class="at">budget             =</span> <span class="dv">1500</span><span class="dt">L</span>,</span>
+<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a>  <span class="at">budget             =</span> <span class="dv">100</span><span class="dt">L</span>,</span>
 <span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a>  <span class="at">resampling         =</span> <span class="fu">rsmp</span>(<span class="st">"cv"</span>, <span class="at">folds =</span> <span class="dv">3</span>),</span>
 <span id="cb1-5"><a href="#cb1-5" tabindex="-1"></a>  <span class="at">parallel           =</span> <span class="st">"none"</span>,</span>
 <span id="cb1-6"><a href="#cb1-6" tabindex="-1"></a>  <span class="at">early_stopping     =</span> <span class="cn">TRUE</span>,</span>
@@ -101,6 +153,25 @@ ignored.</p>
     <div id="super-class">
     <h2>Super class</h2>
     <p><code><a href="https://mlr3tuning.mlr-org.com/reference/Tuner.html" class="external-link">mlr3tuning::Tuner</a></code> -&gt; <code>TunerSeqMBsPLS</code></p>
+    </div>
+    <div id="active-bindings">
+    <h2>Active bindings</h2>
+    <p></p><div class="r6-active-bindings"><dl><dt><code>diagnostics</code></dt>
+<dd><p>(<code><a href="https://rdrr.io/r/base/list.html" class="external-link">list()</a></code> or <code>NULL</code>)<br>
+Diagnostics of the last completed <code><a href="https://rdrr.io/r/stats/optimize.html" class="external-link">optimize()</a></code> call: <code>blocks</code>, the
+resolved block columns on the full tuning task; <code>fold_statistics</code>, a
+<code><a href="https://rdrr.io/pkg/data.table/man/data.table.html" class="external-link">data.table::data.table()</a></code> with one row per evaluated component and inner
+fold (<code>component</code>, <code>fold</code>, <code>n_train</code> (fitted rows, including
+<code>additional_task</code> rows), <code>n_validation</code>, the fold <code>score</code> of the
+selected <code>c</code>, solver <code>converged</code> and <code>iterations</code>, the fold
+early-stopping <code>p_value</code>, and <code>kept</code>); and <code>components</code>, one row per
+evaluated component with its <code>c_&lt;block&gt;</code> values, <code>search_score</code> (score of
+the selected candidate in the search archive), <code>n_evals</code>, the pooled
+early-stopping <code>p_combined</code> and its running maximum <code>p_sequential</code>, and
+<code>kept</code>. Read-only.</p></dd>
+
+
+</dl><p></p></div>
     </div>
     <div id="methods">
     <h2>Methods</h2>
@@ -149,12 +220,18 @@ component.</p></dd>
 
 
 <dt><code>parallel</code></dt>
-<dd><p>(<code>character(1)</code>) <code>"none"</code> (default) or <code>"inner"</code>.</p></dd>
+<dd><p>(<code>character(1)</code>) <code>"none"</code> (default) or <code>"inner"</code>, which
+fits the inner folds of each candidate in parallel with <code>future</code>
+(multisession). Fold fits draw no random numbers, so both settings propose
+the same candidates for a given seed.</p></dd>
 
 
 <dt><code>early_stopping</code></dt>
-<dd><p>(<code>logical(1)</code>) If <code>TRUE</code>, run a permutation test after
-each latent component and stop when <code>p &gt; perm_alpha</code>. LC1 is always kept.</p></dd>
+<dd><p>(<code>logical(1)</code>) If <code>TRUE</code>, run the permutation-based
+stopping heuristic after each latent component (see Details) and stop
+when its sequential pooled p-value exceeds <code>perm_alpha</code>. LC1 is always
+kept. The diagnostic reuses the inner validation folds that selected <code>c</code>
+and is optimistic; it is not confirmatory inference.</p></dd>
 
 
 <dt><code>n_perm</code></dt>
@@ -162,12 +239,15 @@ each latent component and stop when <code>p &gt; perm_alpha</code>. LC1 is alway
 
 
 <dt><code>perm_alpha</code></dt>
-<dd><p>(<code>numeric(1)</code>) Significance level for early stopping.</p></dd>
+<dd><p>(<code>numeric(1)</code>) Cutoff of the early-stopping heuristic. It
+is not an error rate: the pooled fold p-values ignore the selection of <code>c</code>
+on the same folds and the dependence between folds.</p></dd>
 
 
 <dt><code>performance_metric</code></dt>
 <dd><p>(<code>character(1)</code>) Correlation objective used inside
-<code>PipeOpMBsPLS</code>: <code>"mac"</code> or <code>"frobenius"</code>.</p></dd>
+<code>PipeOpMBsPLS</code>: <code>"mac"</code> or <code>"frobenius"</code>. Initial value of the parameter
+<code>performance_metric</code>; it must match the <code>PipeOpMBsPLS</code> node.</p></dd>
 
 
 <dt><code>additional_task</code></dt>

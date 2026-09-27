@@ -3,9 +3,14 @@
 into weighted cross-fold summaries. Supports component-wise aggregation of:
 latent correlation (MAC or Frobenius), with mean/SD,
 explained variance (per-block and total),
-optional validation p-values (combined via Stouffer or Fisher).
+optional, explicitly exploratory validation p-value combinations.
 
-"><!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js" integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/config/TeX-AMS-MML_HTMLorMML.js" integrity="sha256-84DKXVJXs0/F8OTMzX4UR909+jtl4G7SPypPavF+GfA=" crossorigin="anonymous"></script><!--[if lt IE 9]>
+
+Fold-wise values produced by PipeOpMBsPLS are conditional diagnostics, and
+resampling folds generally do not supply independent p-values. Consequently,
+no p-value combination is performed by default. Stouffer or Fisher
+combination requires an explicit opt-in and a study-specific justification;
+it is not upgraded to confirmatory inference by this function."><!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js" integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/config/TeX-AMS-MML_HTMLorMML.js" integrity="sha256-84DKXVJXs0/F8OTMzX4UR909+jtl4G7SPypPavF+GfA=" crossorigin="anonymous"></script><!--[if lt IE 9]>
 <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
 <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
 <![endif]--></head><body data-spy="scroll" data-target="#toc">
@@ -23,7 +28,7 @@ optional validation p-values (combined via Stouffer or Fisher).
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -60,7 +65,7 @@ optional validation p-values (combined via Stouffer or Fisher).
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>Aggregate MB-sPLS test metrics across outer CV folds</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/mbspls_aggr_payloads.R" class="external-link"><code>R/mbspls_aggr_payloads.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.4.0/R/mbspls_aggr_payloads.R" class="external-link"><code>R/mbspls_aggr_payloads.R</code></a></small>
     <div class="hidden name"><code>aggregate_mbspls_payloads.Rd</code></div>
     </div>
 
@@ -68,14 +73,20 @@ optional validation p-values (combined via Stouffer or Fisher).
     <p>Collapses the per-fold payloads written by <code>PipeOpMBsPLS</code> (via <code>log_env$last</code>)
 into weighted cross-fold summaries. Supports component-wise aggregation of:</p><ul><li><p>latent correlation (MAC or Frobenius), with mean/SD,</p></li>
 <li><p>explained variance (per-block and total),</p></li>
-<li><p>optional validation p-values (combined via Stouffer or Fisher).</p></li>
-</ul></div>
+<li><p>optional, explicitly exploratory validation p-value combinations.</p></li>
+</ul><p>Fold-wise values produced by <code>PipeOpMBsPLS</code> are conditional diagnostics, and
+resampling folds generally do not supply independent p-values. Consequently,
+no p-value combination is performed by default. Stouffer or Fisher
+combination requires an explicit opt-in and a study-specific justification;
+it is not upgraded to confirmatory inference by this function.</p>
+    </div>
 
     <div id="ref-usage">
     <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">aggregate_mbspls_payloads</span><span class="op">(</span></span>
 <span>  <span class="va">payloads</span>,</span>
 <span>  weight_by <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"sqrt_n"</span>, <span class="st">"n"</span>, <span class="st">"equal"</span><span class="op">)</span>,</span>
-<span>  p_method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"stouffer"</span>, <span class="st">"fisher"</span>, <span class="st">"none"</span><span class="op">)</span>,</span>
+<span>  p_method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"none"</span>, <span class="st">"stouffer"</span>, <span class="st">"fisher"</span><span class="op">)</span>,</span>
+<span>  allow_p_combination <span class="op">=</span> <span class="cn">FALSE</span>,</span>
 <span>  enforce_monotone <span class="op">=</span> <span class="cn">FALSE</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
@@ -97,12 +108,20 @@ into weighted cross-fold summaries. Supports component-wise aggregation of:</p><
 
 <dt id="arg-p-method">p_method<a class="anchor" aria-label="anchor" href="#arg-p-method"></a></dt>
 <dd><p>character(1). How to combine validation p-values across folds:
-<code>"stouffer"</code> (default), <code>"fisher"</code>, or <code>"none"</code>.</p></dd>
+<code>"none"</code> (default), <code>"stouffer"</code>, or <code>"fisher"</code>.</p></dd>
+
+
+<dt id="arg-allow-p-combination">allow_p_combination<a class="anchor" aria-label="anchor" href="#arg-allow-p-combination"></a></dt>
+<dd><p>logical(1). Must be explicitly <code>TRUE</code> to request
+Stouffer or Fisher combination. This asserts that the caller has justified
+the required dependence assumptions or calibrated the combination for the
+study design. The result remains labelled exploratory.</p></dd>
 
 
 <dt id="arg-enforce-monotone">enforce_monotone<a class="anchor" aria-label="anchor" href="#arg-enforce-monotone"></a></dt>
-<dd><p>logical(1). If TRUE, makes combined p-values
-nondecreasing across components (useful for sequential stopping). Default FALSE.</p></dd>
+<dd><p>logical(1). If TRUE, makes exploratory combined
+p-values nondecreasing across components as a display constraint. This is
+not a sequential-testing or multiplicity correction. Default FALSE.</p></dd>
 
 </dl></div>
     <div id="value">

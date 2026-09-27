@@ -4,19 +4,38 @@ latent variable (LV) per block and component to the task's backend.
 After each component the corresponding rank-1 structure is removed
 (block-wise score deflation in the sense of Westerhuis et al., 2001),
 ensuring that successive LVs are orthogonal within every block.
-The training objective is controlled by performance_metric:
+The association criterion reported per component is controlled by
+performance_metric:
 &quot;mac&quot;: mean absolute correlation (average of \(|r|\)
 across all block-score pairs) per component;
-&quot;frobenius&quot;: Frobenius norm of the block-score correlation
-matrix \(\sqrt{\sum r^2}\).
-We refer to this scalar as the latent correlation.
+&quot;frobenius&quot;: Euclidean norm of the distinct off-diagonal
+block-score correlations \(\sqrt{\sum_{i&amp;lt;j} r_{ij}^2}\).
+We refer to this scalar as the latent correlation. Weights are updated
+block by block (Gauss-Seidel sweeps) by constrained PMD steps against
+standardized scores from the other blocks, starting from a deterministic
+cross-covariance start, so fits do not depend on the random seed. The
+updates do not directly optimize the reported correlation criterion, and the
+solution is a local optimum of a non-convex problem: with strong sparsity,
+pure noise or many more features than rows, other local optima can reach a
+higher objective. correlation_method and performance_metric
+change evaluation, tuning and testing, not the weight update or the stopping
+rule. A component is converged when the largest change of a block weight
+vector between two sweeps is below 1e-4; after at most 600 sweeps the
+last iterate is returned and a warning names the components that did not
+converge.
+Centring. Every retained block column is centred by its training
+mean before fitting; the means are stored in the state and subtracted from
+prediction data. The fitted weights do not depend on centring, but the
+deflation loadings, explained variances and scores do.
 During prediction, the same criterion (MAC/Frobenius) and explained variances
 are computed on test data and, if log_env is provided, a compact
 payload is written to log_env$last. Optionally, prediction-side
-validation tests can be requested (permutation or bootstrap; see Parameters).
+diagnostics can be requested (permutation or descriptive bootstrap; see
+Parameters).
 The operator is a pure transformer: it performs no internal resampling,
-tuning or preprocessing. Hyper-parameters such as the L1 sparsity levels
-\(c_\mathrm{block}\) are tuned externally (e.g., with mlr3tuning)."><!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js" integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/config/TeX-AMS-MML_HTMLorMML.js" integrity="sha256-84DKXVJXs0/F8OTMzX4UR909+jtl4G7SPypPavF+GfA=" crossorigin="anonymous"></script><!--[if lt IE 9]>
+tuning or preprocessing beyond centring. Hyper-parameters such as the L1
+sparsity levels \(c_\mathrm{block}\) are tuned externally (e.g., with
+mlr3tuning)."><!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js" integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/config/TeX-AMS-MML_HTMLorMML.js" integrity="sha256-84DKXVJXs0/F8OTMzX4UR909+jtl4G7SPypPavF+GfA=" crossorigin="anonymous"></script><!--[if lt IE 9]>
 <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
 <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
 <![endif]--></head><body data-spy="scroll" data-target="#toc">
@@ -34,7 +53,7 @@ tuning or preprocessing. Hyper-parameters such as the L1 sparsity levels
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -71,7 +90,7 @@ tuning or preprocessing. Hyper-parameters such as the L1 sparsity levels
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>Extract up to <code>ncomp</code> orthogonal latent components from multiple data blocks</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/PipeOpMBsPLS.R" class="external-link"><code>R/PipeOpMBsPLS.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.4.0/R/PipeOpMBsPLS.R" class="external-link"><code>R/PipeOpMBsPLS.R</code></a></small>
     <div class="hidden name"><code>PipeOpMBsPLS.Rd</code></div>
     </div>
 
@@ -81,18 +100,37 @@ latent variable (LV) per block and component to the task's backend.
 After each component the corresponding rank-1 structure is removed
 (block-wise score deflation in the sense of Westerhuis et al., 2001),
 ensuring that successive LVs are orthogonal within every block.</p>
-<p>The training objective is controlled by <code>performance_metric</code>:</p><ul><li><p><code>"mac"</code>: mean absolute correlation (average of \(|r|\)
+<p>The association criterion reported per component is controlled by
+<code>performance_metric</code>:</p><ul><li><p><code>"mac"</code>: mean absolute correlation (average of \(|r|\)
 across all block-score pairs) per component;</p></li>
-<li><p><code>"frobenius"</code>: Frobenius norm of the block-score correlation
-matrix \(\sqrt{\sum r^2}\).</p></li>
-</ul><p>We refer to this scalar as the <em>latent correlation</em>.</p>
+<li><p><code>"frobenius"</code>: Euclidean norm of the distinct off-diagonal
+block-score correlations \(\sqrt{\sum_{i&lt;j} r_{ij}^2}\).</p></li>
+</ul><p>We refer to this scalar as the <em>latent correlation</em>. Weights are updated
+block by block (Gauss-Seidel sweeps) by constrained PMD steps against
+standardized scores from the other blocks, starting from a deterministic
+cross-covariance start, so fits do not depend on the random seed. The
+updates do not directly optimize the reported correlation criterion, and the
+solution is a local optimum of a non-convex problem: with strong sparsity,
+pure noise or many more features than rows, other local optima can reach a
+higher objective. <code>correlation_method</code> and <code>performance_metric</code>
+change evaluation, tuning and testing, not the weight update or the stopping
+rule. A component is converged when the largest change of a block weight
+vector between two sweeps is below <code>1e-4</code>; after at most 600 sweeps the
+last iterate is returned and a warning names the components that did not
+converge.</p>
+<p><strong>Centring.</strong> Every retained block column is centred by its training
+mean before fitting; the means are stored in the state and subtracted from
+prediction data. The fitted weights do not depend on centring, but the
+deflation loadings, explained variances and scores do.</p>
 <p>During prediction, the same criterion (MAC/Frobenius) and explained variances
 are computed on test data and, if <code>log_env</code> is provided, a compact
-payload is written to <code>log_env$last</code>. Optionally, <em>prediction-side
-validation tests</em> can be requested (permutation or bootstrap; see Parameters).</p>
+payload is written to <code>log_env$last</code>. Optionally, prediction-side
+diagnostics can be requested (permutation or descriptive bootstrap; see
+Parameters).</p>
 <p>The operator is a pure transformer: it performs no internal resampling,
-tuning or preprocessing. Hyper-parameters such as the L1 sparsity levels
-\(c_\mathrm{block}\) are tuned externally (e.g., with <span class="pkg">mlr3tuning</span>).</p>
+tuning or preprocessing beyond centring. Hyper-parameters such as the L1
+sparsity levels \(c_\mathrm{block}\) are tuned externally (e.g., with
+<span class="pkg">mlr3tuning</span>).</p>
     </div>
 
 
@@ -110,7 +148,13 @@ tuning or preprocessing. Hyper-parameters such as the L1 sparsity levels
 
 
 <dl><dt><code>blocks</code></dt>
-<dd><p>Named list mapping block names to feature column IDs.</p></dd>
+<dd><p>Named list mapping block names to the resolved feature
+columns used for fitting.</p></dd>
+
+<dt><code>center</code></dt>
+<dd><p>Named list (by block) of training column means,
+each a numeric vector named by column; subtracted from prediction
+data.</p></dd>
 
 <dt><code>weights</code></dt>
 <dd><p>List of length <code>ncomp</code>; block-specific weight vectors \(w_b^{(k)}\).</p></dd>
@@ -128,44 +172,91 @@ tuning or preprocessing. Hyper-parameters such as the L1 sparsity levels
 <dd><p>Objective value of the last retained component (training).</p></dd>
 
 <dt><code>ev_block</code></dt>
-<dd><p>Training explained variance per block (rows = components, cols = blocks).</p></dd>
+<dd><p>Training explained variance per block, a matrix
+with rows <code>LC_xx</code> and one column per block.</p></dd>
 
 <dt><code>ev_comp</code></dt>
-<dd><p>Training explained variance per component (summed across blocks).</p></dd>
+<dd><p>Training explained variance per component, a named
+numeric vector (<code>LC_xx</code>). It is SS-weighted across blocks,
+\(\sum_b SS_{exp,b} / \sum_b SS_{tot,b}\), not the row sum of
+<code>ev_block</code>.</p></dd>
+
+<dt><code>converged</code>, <code>iterations</code></dt>
+<dd><p>Per component: whether the
+solver converged and the number of sweeps it used.</p></dd>
 
 <dt><code>p_values</code></dt>
-<dd><p>Permutation p-values per component if enabled during training.</p></dd>
+<dd><p>Conditional component-wise permutation p-values if
+enabled during training (<code>NA</code> otherwise). They assume the
+supplied preprocessed data and hyperparameters are fixed and are not
+full-pipeline inference.</p></dd>
 
-<dt><code>performance_metric</code></dt>
-<dd><p><code>"mac"</code> or <code>"frobenius"</code>.</p></dd>
+<dt><code>p_value_scope</code></dt>
+<dd><p>Description of that scope when the diagnostic
+ran, otherwise <code>NULL</code>.</p></dd>
+
+<dt><code>performance_metric</code>, <code>correlation_method</code></dt>
+<dd><p>Settings used
+for the objective.</p></dd>
 
 <dt><code>c_matrix</code></dt>
-<dd><p>If provided/derived, the block-by-component sparsity matrix.</p></dd>
+<dd><p>If provided, the block-by-component sparsity matrix
+actually used (retained blocks; entries capped at
+\(\sqrt{p_b}\) of the retained columns).</p></dd>
 
 <dt><code>T_mat</code></dt>
 <dd><p>Training score matrix (per-component deflation applied);
 columns ordered <code>LV1_&lt;block1&gt;, ..., LV1_&lt;blockB&gt;, LV2_&lt;block1&gt;, ...</code>.</p></dd>
 
-<dt><code>weights_stable</code></dt>
-<dd><p>Optional stability-filtered weights (from the bootstrap PipeOp).</p></dd>
+<dt><code>run_id</code></dt>
+<dd><p>Identifier of the training snapshot in <code>log_env</code>,
+if a <code>log_env</code> is used.</p></dd>
 
 
 </dl></div>
+    <div id="emitted-features">
+    <h2>Emitted features</h2>
+
+
+<p>The <code>LVk_&lt;block&gt;</code> columns are always computed from the training fit:
+raw weights, training centring and training deflation loadings, both at
+train and at predict time, so a downstream learner sees one feature
+definition. Stability-selected weights published by a
+<a href="PipeOpMBsPLSBootstrapSelect.html">PipeOpMBsPLSBootstrapSelect</a> only affect the prediction-side payload
+(see <code>predict_weights</code>); stable LV features reach a learner only through
+a PipeOpMBsPLSBootstrapSelect that is not in stability-only mode, which
+replaces the upstream LV columns consistently at train and predict.</p>
+    </div>
     <div id="prediction-side-logging-log-env-last-">
     <h2>Prediction-side logging (<code>log_env$last</code>)</h2>
 
 
 <p>A list containing:</p><ul><li><p><code>mac_comp</code>: numeric vector (length <code>ncomp</code>) with test MAC/Frobenius per component,</p></li>
 <li><p><code>ev_block</code>: matrix <code>(ncomp x n_blocks)</code> with test per-block explained variances,</p></li>
-<li><p><code>ev_comp</code>: numeric vector <code>(ncomp)</code> with test per-component EV (summed across blocks),</p></li>
-<li><p><code>T_mat</code>: test scores <code>(n_test x (ncomp * n_blocks))</code> with the same column order as training,</p></li>
+<li><p><code>ev_comp</code>: numeric vector <code>(ncomp)</code> with test per-component
+EV, SS-weighted across blocks (see <code><a href="compute_test_ev.html">compute_test_ev()</a></code>),</p></li>
+<li><p><code>ev_block_cum</code>, <code>ev_comp_cum</code>: cumulative counterparts,</p></li>
+<li><p><code>T_mat</code>: test scores <code>(n_test x (ncomp * n_blocks))</code> of the
+evaluated weights, with the same column order as training,</p></li>
+<li><p><code>weights</code>, <code>loadings</code>: the evaluated weights and loadings,
+aligned to the trained features,</p></li>
+<li><p><code>weights_source</code>: <code>"raw"</code>, <code>"stable_ci"</code> or
+<code>"stable_frequency"</code>, the source of <code>weights</code>,</p></li>
+<li><p><code>emitted_weights_source</code>: always <code>"raw"</code>; the emitted LV
+features use the training weights,</p></li>
 <li><p><code>blocks</code>: character vector with block names,</p></li>
-<li><p><code>perf_metric</code>: objective used (<code>"mac"</code> or <code>"frobenius"</code>),</p></li>
+<li><p><code>perf_metric</code>, <code>corr_method</code>: evaluation settings,</p></li>
+<li><p><code>run_id</code>: identifier of the matching training snapshot,</p></li>
 <li><p><code>time</code>: POSIXct timestamp,</p></li>
-<li><p><code>val_test_p</code>: (if <code>val_test = "permutation"</code> or <code>"bootstrap"</code>) per-component p-values,</p></li>
+<li><p><code>val_test_p</code>: (if <code>val_test = "permutation"</code>) per-component
+conditional permutation p-values,</p></li>
 <li><p><code>val_test_stat</code>: (if available) observed test statistic per component,</p></li>
+<li><p><code>val_test_status</code>: (if <code>val_test != "none"</code>) per component,
+<code>"computed"</code> or the reason the diagnostic was not computed,</p></li>
 <li><p><code>val_bootstrap</code>: (if <code>val_test = "bootstrap"</code>) data.table with
-observed statistic, bootstrap mean/SE, p-value, and CI per component.</p></li>
+the observed statistic, bias, standard error, interval, confidence
+level, and effective replicate count. Its p-value fields are <code>NA</code>
+because an ordinary bootstrap distribution is not a null distribution.</p></li>
 </ul></div>
     <div id="parameters">
     <h2>Parameters</h2>
@@ -173,26 +264,95 @@ observed statistic, bootstrap mean/SE, p-value, and CI per component.</p></li>
 
 <p>Hyperparameters are defined in the object's <code>param_set</code> and can be set
 via <code>param_vals</code>. Block membership (<code>blocks</code>) is a constructor
-argument and stored in the object state.</p>
-    </div>
+argument and stored in the object.</p><ul><li><p><code>blocks</code> (<code>uty</code>, default: the constructor <code>blocks</code>; tag <code>"train"</code>): named
+list mapping block names to declared feature names. Declared names absent
+from the data expand to encoded columns <code>&lt;name&gt;.&lt;suffix&gt;</code> as described in
+<code><a href="mb_resolve_block_columns.html">mb_resolve_block_columns()</a></code>; the resolved blocks must be disjoint.
+Non-numeric columns and columns without finite positive variance in the
+training data are dropped, and blocks without usable columns are dropped.</p></li>
+<li><p><code>ncomp</code> (<code>int</code>, default <code>1</code>; tag <code>"train"</code>): number of latent components to
+extract. Replaced by <code>ncol(c_matrix)</code> when <code>c_matrix</code> is set.</p></li>
+<li><p><code>c_&lt;block&gt;</code> (one <code>dbl</code> per block, lower <code>1</code>, upper <code>sqrt(p_b)</code> of the
+declared names, default <code>max(1, sqrt(p_b) / 3)</code>; tags <code>c("train", "tune")</code>):
+L1 budget of the unit-L2 weight vector of that block. Budgets above
+<code>sqrt(p)</code> of the retained columns are nonbinding.</p></li>
+<li><p><code>c_matrix</code> (<code>uty</code>, default <code>NULL</code>; tags <code>c("train", "tune")</code>): matrix of L1
+budgets (rows = blocks, columns = components) that overrides <code>c_&lt;block&gt;</code>
+and <code>ncomp</code>. Named rows must be unique and non-empty and match either all
+declared or all retained blocks; an unnamed matrix is matched by position
+to the declared blocks. Every entry must lie in <code>[1, sqrt(p_b)]</code>, where
+<code>p_b</code> is the structural width of the block (its resolved numeric columns
+before constant columns are removed). Entries above <code>sqrt(p)</code> of the
+retained columns are nonbinding; they are capped there and logged.</p></li>
+<li><p><code>efficient</code> (<code>lgl</code>, default <code>FALSE</code>; tag <code>"train"</code>): reserved; no effect.</p></li>
+<li><p><code>correlation_method</code> (<code>fct</code>, <code>"pearson"</code> (default) or <code>"spearman"</code>; tags
+<code>c("train", "predict")</code>): correlation of block scores used for the
+objective, the prediction-side payload and the diagnostics.</p></li>
+<li><p><code>performance_metric</code> (<code>fct</code>, <code>"mac"</code> (default) or <code>"frobenius"</code>; tags
+<code>c("train", "predict")</code>): latent-correlation summary reported per component
+and used by tuning, measures and diagnostics.</p></li>
+<li><p><code>permutation_test</code> (<code>lgl</code>, default <code>FALSE</code>; tag <code>"train"</code>): run a
+conditional component-wise permutation diagnostic during training and stop
+extraction when its empirical p-value exceeds <code>perm_alpha</code> (LV1 is always
+retained). It conditions on the supplied preprocessed data and
+hyperparameters and does not replace a design-valid full-pipeline
+permutation analysis (see <code><a href="mbspls_permutation_test.html">mbspls_permutation_test()</a></code>).</p></li>
+<li><p><code>n_perm</code> (<code>int</code>, default <code>100</code>; tag <code>"train"</code>): permutations of the
+training diagnostic.</p></li>
+<li><p><code>perm_alpha</code> (<code>dbl</code> in <code>[0, 1]</code>, default <code>0.05</code>; tag <code>"train"</code>): cutoff for
+the conditional training diagnostic.</p></li>
+<li><p><code>store_train_blocks</code> (<code>lgl</code>, default <code>FALSE</code>; tag <code>"train"</code>): if <code>TRUE</code> and
+<code>log_env</code> is set, store the centred training block matrices
+(<code>X_train_blocks</code>) and the sparsity settings in the training snapshot.
+Required by <a href="PipeOpMBsPLSBootstrapSelect.html">PipeOpMBsPLSBootstrapSelect</a>.</p></li>
+<li><p><code>predict_weights</code> (<code>fct</code>, one of <code>"auto"</code> (default), <code>"raw"</code>,
+<code>"stable_ci"</code>, <code>"stable_frequency"</code>; tag <code>"predict"</code>): weights evaluated in
+the prediction-side payload (<code>log_env$last</code>) and by <code>val_test</code>. The emitted
+LV features always use the training weights (see Emitted features).
+<code>"auto"</code> uses the stable weights published by a
+<a href="PipeOpMBsPLSBootstrapSelect.html">PipeOpMBsPLSBootstrapSelect</a> for the same run on the same <code>log_env</code>, and
+raw weights if there are none or if that stage ran with
+<code>stability_only = TRUE</code>. Explicit <code>"stable_ci"</code>/<code>"stable_frequency"</code>
+requests error if the requested weights are unavailable, or if the
+bootstrap stage ran in stability-only mode, where stable weights define no
+feature a downstream learner sees.</p></li>
+<li><p><code>val_test</code> (<code>fct</code>, <code>"none"</code> (default), <code>"permutation"</code> or <code>"bootstrap"</code>;
+tag <code>"predict"</code>): prediction-side diagnostic with the trained weights held
+fixed: a conditional held-out permutation diagnostic of the latent
+correlation, or descriptive bootstrap uncertainty (no p-value). A component
+with fewer than two blocks that have non-zero weights and non-degenerate
+held-out scores is not tested: its results are <code>NA</code> and <code>val_test_status</code>
+records the reason. A design-level hypothesis test must rerun the complete
+preprocessing, tuning and fitting pipeline within each valid permutation.</p></li>
+<li><p><code>val_test_alpha</code> (<code>dbl</code> in <code>[0, 1]</code>, default <code>0.05</code>; tag <code>"predict"</code>): alpha
+of the descriptive bootstrap confidence interval. Retained for permutation
+calls for API compatibility; sampled permutation p-values always use all
+replicates.</p></li>
+<li><p><code>val_test_n</code> (<code>int</code>, default <code>1000</code>; tag <code>"predict"</code>): permutations or
+bootstrap replicates of the prediction-side diagnostic.</p></li>
+<li><p><code>val_test_permute_all</code> (<code>lgl</code>, default <code>TRUE</code>; tag <code>"predict"</code>): permute all
+blocks; for two blocks, <code>FALSE</code> permutes block 2 only.</p></li>
+<li><p><code>seed_validation</code> (<code>int</code> or <code>NULL</code>, default <code>NULL</code>; tag <code>"predict"</code>):
+optional seed for the prediction-side diagnostics. One L'Ecuyer-CMRG stream
+is assigned per component and the caller's RNG state is restored.</p></li>
+<li><p><code>log_env</code> (<code>environment</code> or <code>NULL</code>, default <code>NULL</code>; tags
+<code>c("train", "predict")</code>): if set, training stores a snapshot via
+<code>log_env$mbspls_state</code> / <code>log_env$mbspls_states</code> and prediction writes the
+payload to <code>log_env$last</code> and <code>log_env$mbspls_last[[run_id]]</code>.</p></li>
+<li><p><code>append</code> (<code>lgl</code>, default <code>FALSE</code>; tags <code>c("train", "predict")</code>): if <code>TRUE</code>,
+keep the original features and append the LV columns; otherwise output only
+the LV columns.</p></li>
+<li><p><code>seed_train</code> (<code>int</code> or <code>NULL</code>, default <code>NULL</code>; tag <code>"train"</code>): optional
+seed for random draws during training, i.e. the permutations of
+<code>permutation_test</code>. The fit itself is deterministic and does not depend on
+the seed.</p></li>
+</ul></div>
     <div id="construction">
     <h2>Construction</h2>
 
 
 <p><code>PipeOpMBsPLS$new(id = "mbspls", blocks, param_vals = list())</code></p>
     </div>
-    <div id="methods">
-    <h2>Methods</h2>
-
-
-<ul><li><p><code>$new(id, blocks, param_vals)</code> : Initialize the PipeOpMBsPLS.</p></li>
-</ul></div>
-    <div id="fields">
-    <h2>Fields</h2>
-
-
-<ul><li><p><code>blocks</code> : Named list mapping block names to character vectors of feature names. Set during initialization.</p></li>
-</ul></div>
     <div id="see-also">
     <h2>See also</h2>
     <div class="dont-index"><p>Other PipeOps:

@@ -17,7 +17,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -54,7 +54,7 @@
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>MB-sPLS-XY GraphLearner: preproc -&gt; MB-sPLS-XY -&gt; learner</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/graph_mbspls.R" class="external-link"><code>R/graph_mbspls.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.4.0/R/graph_mbspls.R" class="external-link"><code>R/graph_mbspls.R</code></a></small>
     <div class="hidden name"><code>mbsplsxy_graph_learner.Rd</code></div>
     </div>
 
@@ -127,7 +127,8 @@ the inferred supervised task type is used.</p></dd>
 
 
 <dt id="arg-permutation-test-n-perm-perm-alpha">permutation_test, n_perm, perm_alpha<a class="anchor" aria-label="anchor" href="#arg-permutation-test-n-perm-perm-alpha"></a></dt>
-<dd><p>Train-time permutation test for MB-sPLS-XY.</p></dd>
+<dd><p>Conditional component-wise
+train-time permutation diagnostic for MB-sPLS-XY.</p></dd>
 
 
 <dt id="arg-y-rep">y_rep<a class="anchor" aria-label="anchor" href="#arg-y-rep"></a></dt>
@@ -135,11 +136,16 @@ the inferred supervised task type is used.</p></dd>
 
 
 <dt id="arg-emit-y-scores">emit_y_scores<a class="anchor" aria-label="anchor" href="#arg-emit-y-scores"></a></dt>
-<dd><p>Logical; append Y-side scores to the transformed task.</p></dd>
+<dd><p>Logical; store the training target-block scores in the
+state of <a href="PipeOpMBsPLSXY.html">PipeOpMBsPLSXY</a> (<code>$state$scores_y</code>) for inspection. They are
+never added to the task features.</p></dd>
 
 
 <dt id="arg-center-y-scale-y">center_y, scale_y<a class="anchor" aria-label="anchor" href="#arg-center-y-scale-y"></a></dt>
-<dd><p>Logical target centering/scaling flags.</p></dd>
+<dd><p>Logical target centering/scaling flags. The target
+block is always centred by its training means (<code>center_y = FALSE</code> is
+ignored with a warning); <code>scale_y</code> scales it to unit training standard
+deviation.</p></dd>
 
 
 <dt id="arg-id-suffix">id_suffix<a class="anchor" aria-label="anchor" href="#arg-id-suffix"></a></dt>

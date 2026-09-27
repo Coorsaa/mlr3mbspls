@@ -34,7 +34,7 @@ and backward compatibility."><!-- mathjax --><script src="https://cdnjs.cloudfla
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -71,7 +71,7 @@ and backward compatibility."><!-- mathjax --><script src="https://cdnjs.cloudfla
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>Block-wise quality-control summary for TaskMultiBlock objects</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/mb_task_overview.R" class="external-link"><code>R/mb_task_overview.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.4.0/R/mb_task_overview.R" class="external-link"><code>R/mb_task_overview.R</code></a></small>
     <div class="hidden name"><code>mb_task_overview.Rd</code></div>
     </div>
 
@@ -118,7 +118,9 @@ carries multiblock metadata in <code>task$blocks</code> or <code>task$extra_args
 
 <dt id="arg-blocks">blocks<a class="anchor" aria-label="anchor" href="#arg-blocks"></a></dt>
 <dd><p>Optional block subset. Either a character vector of block names
-or a named block mapping.</p></dd>
+or a named block mapping. Declared columns are resolved against the
+task's current features with <code><a href="mb_resolve_block_columns.html">mb_resolve_block_columns()</a></code>, so encoded
+factor columns are summarised with the block that declares the factor.</p></dd>
 
 
 <dt id="arg-include-target">include_target<a class="anchor" aria-label="anchor" href="#arg-include-target"></a></dt>

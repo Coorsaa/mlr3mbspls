@@ -20,7 +20,7 @@ workflows, with support for unsupervised, classification, and regression pipelin
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -57,7 +57,7 @@ workflows, with support for unsupervised, classification, and regression pipelin
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>mlr3mbspls: Multi-Block Sparse PLS for mlr3</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/mlr3mbspls-package.R" class="external-link"><code>R/mlr3mbspls-package.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.4.0/R/mlr3mbspls-package.R" class="external-link"><code>R/mlr3mbspls-package.R</code></a></small>
     <div class="hidden name"><code>mlr3mbspls-package.Rd</code></div>
     </div>
 
@@ -76,23 +76,76 @@ workflows, with support for unsupervised, classification, and regression pipelin
 <ul><li><p>Custom <code>PipeOpMBsPLS</code> and <code>PipeOpMBsPLSXY</code> transformers for unsupervised and supervised multi-block representation learning</p></li>
 <li><p><code><a href="as_task_multiblock.html">TaskMultiBlock()</a></code> factory plus packaged synthetic multi-block tasks with persistent block membership metadata</p></li>
 <li><p>Integration with <span class="pkg">mlr3pipelines</span> for complex workflows</p></li>
+<li><p>Bootstrap stability selection of sparse weights with group-level resampling</p></li>
 <li><p>Visualization and interpretation tools</p></li>
 <li><p>Block-level task QC via <code>task$overview()</code> (with <code><a href="mb_task_overview.html">mb_task_overview()</a></code> retained as a wrapper) and tidy reporting via <code><a href="mbspls_model_summary.html">mbspls_model_summary()</a></code></p></li>
-<li><p>Hyperparameter tuning support</p></li>
+<li><p>Sequential component-wise tuning and nested resampling</p></li>
+<li><p>Permutation tests with explicit exchangeability designs</p></li>
+<li><p>Statistical-validity, reproducibility, and
+clinical model-card checklists installed with the package</p></li>
 </ul></div>
+    <div id="fitting">
+    <h2>Fitting</h2>
+
+
+<p>Each MB-sPLS component is fitted by block-coordinate (Gauss-Seidel) sparse
+PMD updates from a deterministic cross-covariance start, so fits do not
+depend on the random seed; seeds only govern permutations and bootstrap
+replicates. The criterion is non-convex and the fit is a local optimum; for
+pure noise, very strong sparsity, or many more features than rows, other
+starts can reach a higher objective. Fitted states record per-component
+convergence. The MB operators centre every block column with its training
+mean and reuse these means at prediction, and they always compute the
+emitted LV features from the training fit (in <a href="PipeOpMBsPLS.html">PipeOpMBsPLS</a>,
+<code>predict_weights</code> only changes the evaluation payload). A downstream
+<a href="PipeOpMBsPLSBootstrapSelect.html">PipeOpMBsPLSBootstrapSelect</a> that is not in stability-only mode replaces
+these features with stable LVs, consistently at training and prediction.
+Block columns declared on original feature names are resolved to their
+encoded columns by <code><a href="mb_resolve_block_columns.html">mb_resolve_block_columns()</a></code>; blocks must stay disjoint.
+The package measures score each resampling iteration on its own prediction
+and require <code>store_models = TRUE</code>.</p>
+    </div>
+    <div id="inference-boundary">
+    <h2>Inference boundary</h2>
+
+
+<p>Ordinary bootstrap output is descriptive uncertainty and stability, not a
+null-hypothesis test. Built-in component-wise permutations are conditional
+diagnostics and are reported as <code>conditional_p_value</code> with a
+<code>p_value_scope</code>. <code><a href="mb_permutation_test.html">mb_permutation_test()</a></code> reruns a supplied complete analysis
+and <code><a href="mbspls_permutation_test.html">mbspls_permutation_test()</a></code> provides a fixed-specification omnibus
+MB-sPLS test. <code><a href="mb_lc_confirmation_test.html">mb_lc_confirmation_test()</a></code> tests frozen LC scores only on
+explicitly independent confirmation observations and applies Holm
+correction across LCs. It is a directional replication test only when the
+expected signs from discovery are supplied as <code>reference_signs</code>, and then
+for the mean sign-oriented association across block pairs; replication also
+requires the observed sign to agree (<code>replicated</code>); otherwise it
+tests dependence in either direction. None of these tests supports
+later-LC population-rank claims. All require design-valid exchangeability,
+and Monte Carlo precision is reported as an exact Clopper-Pearson interval.
+The package cannot infer the correct grouping, causal estimand, deployment
+population, or clinical-use requirements from code or data.</p>
+    </div>
     <div id="main-functions">
     <h2>Main Functions</h2>
 
 
 <ul><li><p><code><a href="PipeOpMBsPLS.html">PipeOpMBsPLS</a></code> / <code><a href="PipeOpMBsPLSXY.html">PipeOpMBsPLSXY</a></code>: Main unsupervised and supervised MB-sPLS transformers</p></li>
+<li><p><code><a href="PipeOpMBsPLSBootstrapSelect.html">PipeOpMBsPLSBootstrapSelect</a></code>: Bootstrap stability selection downstream of MB-sPLS</p></li>
+<li><p><code><a href="PipeOpMBsPCA.html">PipeOpMBsPCA</a></code>: Multi-block sparse PCA transformer</p></li>
 <li><p><code><a href="as_task_multiblock.html">TaskMultiBlock</a></code>: Create multiblock tasks with optional supervision</p></li>
 <li><p><code><a href="PipeOpSiteCorrection.html">PipeOpSiteCorrection</a></code>: Site/batch correction as a PipeOp</p></li>
 <li><p><code><a href="mbspls_graph.html">mbspls_graph</a></code> / <code><a href="mbsplsxy_graph.html">mbsplsxy_graph</a></code>: Construct unsupervised or supervised preprocessing + MB-sPLS graphs</p></li>
 <li><p><code><a href="mbspls_graph_learner.html">mbspls_graph_learner</a></code> / <code><a href="mbsplsxy_graph_learner.html">mbsplsxy_graph_learner</a></code>: Wrap graphs as GraphLearners</p></li>
 <li><p><code>task$overview()</code> / <code><a href="mb_task_overview.html">mb_task_overview</a></code> / <code><a href="mbspls_model_summary.html">mbspls_model_summary</a></code>: Task QC and fitted-model reporting helpers</p></li>
 <li><p><code><a href="mbspls_eval_new_data.html">mbspls_eval_new_data</a></code>: Evaluate new data via a trained graph</p></li>
+<li><p><code><a href="TunerSeqMBsPLS.html">TunerSeqMBsPLS</a></code> / <code><a href="TunerSeqMBsPCA.html">TunerSeqMBsPCA</a></code>: Sequential component-wise sparsity tuning</p></li>
 <li><p><code><a href="mbspls_nested_cv.html">mbspls_nested_cv</a></code> / <code><a href="mbspls_nested_cv_batchtools.html">mbspls_nested_cv_batchtools</a></code>:
 Nested resampling utilities</p></li>
+<li><p><code><a href="mb_permutation_test.html">mb_permutation_test</a></code> / <code><a href="mbspls_permutation_test.html">mbspls_permutation_test</a></code>:
+Complete-analysis and fixed-specification MB-sPLS omnibus permutation inference</p></li>
+<li><p><code><a href="mb_lc_confirmation_test.html">mb_lc_confirmation_test</a></code>: Multiplicity-adjusted frozen-LC
+association tests on independent confirmation observations</p></li>
 </ul></div>
     <div id="see-also">
     <h2>See also</h2>

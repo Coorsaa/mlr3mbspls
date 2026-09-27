@@ -15,7 +15,12 @@ method: block -&amp;gt; &quot;partial_corr&quot; | &quot;combat&quot; | &quot;di
 default to &quot;partial_corr&quot;.
 
 
-Blocks absent from site_correction are left unchanged."><!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js" integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/config/TeX-AMS-MML_HTMLorMML.js" integrity="sha256-84DKXVJXs0/F8OTMzX4UR909+jtl4G7SPypPavF+GfA=" crossorigin="anonymous"></script><!--[if lt IE 9]>
+Blocks absent from site_correction are left unchanged.
+Columns that are read at prediction time (all &quot;partial_corr&quot; and &quot;dir&quot;
+columns and the ComBat site) must not be target columns: the correction of
+assessment rows would otherwise depend on their labels, and unlabeled new
+data could not be corrected. Only ComBat covariates may reference a target,
+because they are used at training time only (see below)."><!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js" integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/config/TeX-AMS-MML_HTMLorMML.js" integrity="sha256-84DKXVJXs0/F8OTMzX4UR909+jtl4G7SPypPavF+GfA=" crossorigin="anonymous"></script><!--[if lt IE 9]>
 <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
 <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
 <![endif]--></head><body data-spy="scroll" data-target="#toc">
@@ -33,7 +38,7 @@ Blocks absent from site_correction are left unchanged."><!-- mathjax --><script 
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -70,7 +75,7 @@ Blocks absent from site_correction are left unchanged."><!-- mathjax --><script 
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>Site-/Batch-Effect Correction PipeOp (block-specific, lean)</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/PipeOpSiteCorrection.R" class="external-link"><code>R/PipeOpSiteCorrection.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.4.0/R/PipeOpSiteCorrection.R" class="external-link"><code>R/PipeOpSiteCorrection.R</code></a></small>
     <div class="hidden name"><code>PipeOpSiteCorrection.Rd</code></div>
     </div>
 
@@ -88,6 +93,11 @@ encoded into a model matrix and passed as <code>mod</code>.
 <li><p><code>method</code>: <code>block -&gt; "partial_corr" | "combat" | "dir"</code>. Missing blocks
 default to <code>"partial_corr"</code>.</p></li>
 </ul><p>Blocks <strong>absent</strong> from <code>site_correction</code> are <strong>left unchanged</strong>.</p>
+<p>Columns that are read at prediction time (all <code>"partial_corr"</code> and <code>"dir"</code>
+columns and the ComBat <code>site</code>) must not be target columns: the correction of
+assessment rows would otherwise depend on their labels, and unlabeled new
+data could not be corrected. Only ComBat <code>covariates</code> may reference a target,
+because they are used at training time only (see below).</p>
     </div>
 
 
@@ -102,18 +112,53 @@ Site/covariate columns referenced by <code>site_correction</code> are dropped un
     </div>
     <div id="details">
     <h2>Details</h2>
-    <p><strong>Partial correlation (<code>"partial_corr"</code>)</strong></p><ul><li><p>If the site spec is a <strong>single categorical</strong> column, we build a dummy-coded
+    <p>All correction parameters are estimated from the training rows only and are
+applied unchanged at prediction; prediction data are never used to
+re-estimate site effects, batch parameters or repair maps.</p>
+<p><strong>Partial correlation (<code>"partial_corr"</code>)</strong></p><ul><li><p>If the site spec is a <strong>single categorical</strong> column, we build a dummy-coded
 design with an intercept and keep a stable column layout across train/predict.
-At predict-time, <strong>unseen site labels</strong> are treated as <strong>no-op rows</strong> (i.e.,
-zero design contribution) or can be mapped to baseline if you set
-<code>unknown_site = "baseline"</code>.</p></li>
-<li><p>If the site spec is <strong>multiple columns</strong> (e.g., PRS PCs) or numeric,
-we construct the design as <code>cbind(1, Z)</code> via <code>model.matrix(~ .)</code>.</p></li>
-<li><p>We solve a ridge-stabilized normal equation for the site effects and
-subtract them; optional mean re-add (<code>zero_center = FALSE</code> by default).</p></li>
-</ul><p><strong>ComBat (<code>"combat"</code>, via <span class="pkg">neuroCombat</span>) - now with <code>mod</code> support</strong></p><ul><li><p>Trains using <code>neuroCombat(dat = t(X), batch = site, mod = MM, ...)</code>, where
-<code>MM = model.matrix(~ ., data = covariates)</code>; character covariates are
-auto-factorized. ComBat accepts <strong>one</strong> batch vector, but <strong>many covariates</strong>.
+At predict-time, <strong>unseen or missing site labels</strong> receive no site-specific
+correction under <code>unknown_site = "other"</code> (default), or are mapped to the
+baseline (first training level) under <code>unknown_site = "baseline"</code>. With
+<code>"other"</code>, such rows share the output location of the corrected rows: they
+are returned unchanged when <code>zero_center = FALSE</code> and minus the training
+grand means when <code>zero_center = TRUE</code>.</p></li>
+<li><p>If the site spec is <strong>multiple columns</strong> (e.g., site plus covariates such
+as age or PRS PCs) or numeric, we construct the design as <code>cbind(1, Z)</code> via
+<code>model.matrix(~ .)</code>. Categorical columns of such designs keep their
+training levels: prediction rows with unseen levels (including an unseen
+site) are rejected and <code>unknown_site</code> does not apply. Use a single
+categorical site column for unseen-site handling.</p></li>
+<li><p>We solve a (ridge-stabilized) normal equation for the site effects and
+subtract them. The training grand means are re-added unless
+<code>zero_center = TRUE</code>.</p></li>
+<li><p>With unpenalized fitting (<code>regularization = 0</code>), a site with a single
+fitting row is fitted exactly: that row's corrected values carry no
+within-site information (with the default settings they equal the training
+grand means) and the site offset applied to new rows of that site rests on
+one observation. A warning is emitted in this case. A positive
+<code>regularization</code> shrinks the site coefficients and avoids the exact fit;
+alternatively, merge or exclude very small sites.</p></li>
+<li><p><code>subgroup</code> restricts the rows used to <strong>fit</strong> the site effects (e.g.
+controls only); the correction is applied to all rows. It is only used by
+<code>"partial_corr"</code> blocks and can be given as task row ids (numeric), as the
+name of a logical column, or as <code>list(column = &lt;character(1)&gt;, values = &lt;vector&gt;)</code>
+selecting rows whose <code>column</code> value is in <code>values</code>. Row ids and columns
+travel with the data, so the selection is resampling-safe: ids of rows
+outside the current training set are ignored, while ids that do not exist
+in the task's backend (e.g. row positions of a task whose row ids are not
+<code>1..n</code>) are an error. A logical vector is interpreted positionally (one
+entry per row of the training task) and is therefore only suitable for
+direct use outside resampling.</p></li>
+</ul><p><strong>ComBat (<code>"combat"</code>, via <span class="pkg">neuroCombat</span>)</strong></p><ul><li><p><span class="pkg">neuroCombat</span> is distributed on GitHub only; install it with
+<code>remotes::install_github("Jfortin1/neuroCombat_Rpackage@fbec46a61bc92bedb450b0e44addae4ce6afa934")</code>,
+the revision used in continuous integration.</p></li>
+<li><p>Trains using <code>neuroCombat(dat = t(X), batch = site, mod = MM, ...)</code>, where
+<code>MM = model.matrix(~ ., data = covariates)</code>; character and logical
+covariates are factorized. Only site and covariate levels observed in the
+training rows are used, so training folds that lack a site (e.g.
+leave-site-out resampling) are supported; at least two observed batches
+are required. ComBat accepts <strong>one</strong> batch vector, but <strong>many covariates</strong>.
 We store the returned <code>estimates</code>, the valid batch levels, the <code>site_var</code>,
 and the list of <code>covariates</code>.</p></li>
 <li><p>At predict, we apply <code>neuroCombatFromTraining(dat, batch, estimates)</code>.
@@ -123,13 +168,40 @@ the batch-effect removal at predict-time uses the training covariate-effect
 estimates only and does NOT re-apply the covariate model to new observations.
 <strong>A <code><a href="https://rdrr.io/r/base/warning.html" class="external-link">warning()</a></code> is emitted at predict-time</strong> whenever <code>covariates</code> is non-empty
 to alert users of this limitation. If predict-time covariate correction matters,
-consider using <code>"partial_corr"</code> instead.
+consider using <code>"partial_corr"</code> instead. Covariates, including a target
+column, are therefore only used to estimate the batch parameters from the
+training rows; prediction never reads them and applies the same batch
+adjustment to every row of a batch. In unbalanced designs, preserving a
+group variable during batch correction can exaggerate downstream group
+differences (Nygaard et al., 2016).
 Unseen batches can be handled with
 <code>combat_unknown = "noop"</code> (skip) or <code>"baseline"</code> (map to <code>ref_batch</code>).</p></li>
-</ul><p><strong>DIR (<code>"dir"</code>, via <span class="pkg">fairmodels</span>)</strong></p><ul><li><p>Applies distribution repair per block with the given <code>lambda</code>.</p></li>
-</ul><p>The operator preserves targets, reconstructs a backend with stable row ids,
-and (by default) <strong>drops</strong> all site/covariate columns referenced in <code>site_correction</code>
-unless <code>keep_site_col = TRUE</code>.</p>
+</ul><p><strong>DIR (<code>"dir"</code>, geometric disparate impact repair)</strong></p><ul><li><p>Implements the geometric repair of Feldman et al. (2015) per feature:
+$$x \mapsto (1 - \lambda) x + \lambda Q_{med}(F_g(x)),$$
+where \(F_g\) is the empirical distribution function of the training
+values of protected group \(g\) (linear interpolation between order
+statistics, mid-ranks for ties; the inverse of type-7 quantiles) and
+\(Q_{med}\) is the pointwise median of the groups' type-7 quantile
+functions. The repair is rank-preserving within groups, continuous in
+<code>lambda</code>, the identity at <code>lambda = 0</code>, and it does not quantize the data.</p></li>
+<li><p>The fitted map of each feature and group is the piecewise-linear
+interpolant of this transform through the group's training values; the
+training output is the map evaluated at the training values. Prediction
+evaluates the same maps by linear interpolation, carrying the repair shift
+at the nearest boundary forward beyond the training range (out-of-range
+values are shifted, not clipped). The maps are exact at the training
+values; between them they approximate the exact transform, and the
+approximation is coarsest for groups with few training rows next to much
+larger groups, whose quantile functions vary between a small group's
+knots. Distributions are never re-estimated from prediction data. For
+<code>lambda &gt; 0</code>, every group needs at least two distinct training values per
+feature. Missing or unseen protected groups are rejected at prediction.</p></li>
+</ul><p>The operator updates the task in place (<code>Task$select()</code> / <code>Task$cbind()</code>, as
+in <a href="https://mlr3pipelines.mlr-org.com/reference/PipeOpTaskPreproc.html" class="external-link">mlr3pipelines::PipeOpTaskPreproc</a>): corrected features are returned as
+numeric columns, and column information, backend keys and all column roles
+stay consistent. By default, all site/covariate columns referenced in
+<code>site_correction</code> are removed from the features unless <code>keep_site_col = TRUE</code>
+(other roles of these columns are kept).</p>
     </div>
     <div id="construction">
     <h2>Construction</h2>
@@ -163,26 +235,40 @@ Missing block =&gt; <code>"partial_corr"</code>.</p></li>
 <dt><strong>Partial-correlation</strong></dt>
 <dd>
 <ul><li><p><code>unknown_site</code> (<code>"other"|"baseline"</code>): Predict-time strategy for an
-unseen <strong>categorical</strong> site under <code>"partial_corr"</code>. Default <code>"other"</code>.</p></li>
-<li><p><code>zero_center</code> (<code>logical(1)</code>): Re-add grand means? Default <code>FALSE</code>.</p></li>
+unseen or missing site when the <code>"partial_corr"</code> spec is a <strong>single
+categorical</strong> column. Ignored for multi-column or numeric designs,
+which reject unseen levels. Default <code>"other"</code>.</p></li>
+<li><p><code>zero_center</code> (<code>logical(1)</code>): If <code>TRUE</code>, return the site-corrected
+values centred at zero. If <code>FALSE</code> (default), add the training grand
+means (column means of all training rows, stored in
+<code>$state$per_block[[b]]$means</code>) back, so the corrected features stay on
+the original scale.</p></li>
 <li><p><code>revertflag</code> (<code>logical(1)</code>): Add instead of subtract the site effect.</p></li>
 <li><p><code>regularization</code> (<code>numeric(1)</code>): Ridge penalty to stabilize the site
-regression (<code>0</code> =&gt; internally <code>1e-6</code>).</p></li>
-<li><p><code>subgroup</code> (<code><a href="https://rdrr.io/r/base/logical.html" class="external-link">logical()</a></code>/<code><a href="https://rdrr.io/r/base/integer.html" class="external-link">integer()</a></code>): Optional row subset for fitting.</p></li>
+regression (the intercept is not penalized). A value of <code>0</code> requests
+unpenalized least squares.</p></li>
+<li><p><code>subgroup</code> (<code><a href="https://rdrr.io/r/base/integer.html" class="external-link">integer()</a></code>/<code>character(1)</code>/<code><a href="https://rdrr.io/r/base/list.html" class="external-link">list()</a></code>/<code><a href="https://rdrr.io/r/base/logical.html" class="external-link">logical()</a></code>):
+Optional subset of training rows used to fit the site effects: task
+row ids, the name of a logical column, <code>list(column = , values = )</code>,
+or a positional logical vector (not resampling-safe). Only used by
+<code>"partial_corr"</code> blocks. Default <code>NULL</code> (all training rows).</p></li>
 </ul></dd>
 
 <dt><strong>ComBat (neuroCombat)</strong></dt>
 <dd>
 <ul><li><p><code>eb</code> (<code>logical(1)</code>): Empirical Bayes shrinkage. Default <code>TRUE</code>.</p></li>
 <li><p><code>mean_only</code> (<code>logical(1)</code>): Adjust means only. Default <code>FALSE</code>.</p></li>
-<li><p><code>ref_batch</code> (<code>character(1)</code> or <code>NULL</code>): Optional reference.</p></li>
+<li><p><code>ref_batch</code> (<code>character(1)</code> or <code>NULL</code>): Optional reference batch;
+must be observed in the training rows.</p></li>
 <li><p><code>combat_unknown</code> (<code>"noop"|"baseline"</code>): Predict-time policy for
 unseen batches. Default <code>"noop"</code>.</p></li>
 </ul></dd>
 
-<dt><strong>DIR (fairmodels)</strong></dt>
+<dt><strong>DIR</strong></dt>
 <dd>
-<ul><li><p><code>lambda</code> (<code>numeric(1)</code> in [0,1]): Repair strength. Default <code>0.5</code>.</p></li>
+<ul><li><p><code>lambda</code> (<code>numeric(1)</code> in [0,1]): Repair strength of the
+geometric repair; <code>0</code> is the identity and <code>1</code> maps every group onto
+the median distribution. Default <code>0.5</code>.</p></li>
 </ul></dd>
 
 <dt><strong>Misc</strong></dt>
@@ -203,7 +289,8 @@ unseen batches. Default <code>"noop"</code>.</p></li>
 <li><p><code>design_kind</code>, <code>design_cols</code>, <code>beta</code>, <code>means</code>, <code>zero_center</code>, <code>revert</code> (partial_corr).</p></li>
 <li><p><code>site_var</code> (<code>character(1)</code>), <code>covariates</code> (<code><a href="https://rdrr.io/r/base/character.html" class="external-link">character()</a></code>), <code>site_lvls</code>,
 <code>estimates</code>, <code>ref_batch</code> (combat).</p></li>
-<li><p><code>lambda</code>, <code>site_lvls</code> (dir).</p></li>
+<li><p><code>lambda</code>, <code>site_lvls</code>, <code>repair_maps</code> (dir; per feature and group,
+the training values <code>x</code> and the repair shifts <code>shift</code>).</p></li>
 </ul></li>
 <li><p><code>unknown_site</code>, <code>keep_site_col</code>.</p></li>
 </ul></div>
@@ -219,11 +306,21 @@ unseen batches. Default <code>"noop"</code>.</p></li>
 
 
 </dl></div>
+    <div id="references">
+    <h2>References</h2>
+    <p>Feldman, M., Friedler, S. A., Moeller, J., Scheidegger, C., and
+Venkatasubramanian, S. (2015). Certifying and removing disparate impact.
+<em>Proceedings of the 21th ACM SIGKDD International Conference on Knowledge
+Discovery and Data Mining</em>, 259-268. <a href="https://doi.org/10.1145/2783258.2783311" class="external-link">doi:10.1145/2783258.2783311</a></p>
+<p>Nygaard, V., Rodland, E. A., and Hovig, E. (2016). Methods that remove batch
+effects while retaining group differences may lead to exaggerated
+confidence in downstream analyses. <em>Biostatistics</em>, 17(1), 29-39.
+<a href="https://doi.org/10.1093/biostatistics/kxv027" class="external-link">doi:10.1093/biostatistics/kxv027</a></p>
+    </div>
     <div id="see-also">
     <h2>See also</h2>
     <div class="dont-index"><p><a href="https://mlr3pipelines.mlr-org.com/reference/PipeOpTaskPreproc.html" class="external-link">mlr3pipelines::PipeOpTaskPreproc</a>,
-neuroCombat::neuroCombat / neuroCombat::neuroCombatFromTraining,
-<a href="https://rdrr.io/pkg/fairmodels/man/disparate_impact_remover.html" class="external-link">fairmodels::disparate_impact_remover</a>.</p>
+neuroCombat::neuroCombat / neuroCombat::neuroCombatFromTraining.</p>
 <p>Other PipeOps:
 <code><a href="PipeOpMBsPLS.html">PipeOpMBsPLS</a></code>,
 <code><a href="PipeOpTargetLabelFilter.html">PipeOpTargetLabelFilter</a></code></p></div>
@@ -291,22 +388,34 @@ neuroCombat::neuroCombat / neuroCombat::neuroCombatFromTraining,
 <span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://mlr3pipelines.mlr-org.com" class="external-link">mlr3pipelines</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="kw"><a href="https://rdrr.io/r/base/library.html" class="external-link">library</a></span><span class="op">(</span><span class="va"><a href="https://r-datatable.com" class="external-link">data.table</a></span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="va">task</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3.mlr-org.com/reference/mlr_sugar.html" class="external-link">tsk</a></span><span class="op">(</span><span class="st">"pima"</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="co"># fake columns</span></span></span>
-<span class="r-in"><span><span class="va">task</span><span class="op">$</span><span class="va">data</span><span class="op">[</span>, <span class="va">site</span> <span class="op">:=</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span><span class="va">LETTERS</span><span class="op">[</span><span class="fl">1</span><span class="op">:</span><span class="fl">3</span><span class="op">]</span>, <span class="va">.N</span>, <span class="cn">TRUE</span><span class="op">)</span><span class="op">]</span></span></span>
-<span class="r-in"><span><span class="va">task</span><span class="op">$</span><span class="va">data</span><span class="op">[</span>, <span class="va">Age</span> <span class="op">:=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">.N</span><span class="op">)</span><span class="op">]</span></span></span>
-<span class="r-in"><span><span class="va">task</span><span class="op">$</span><span class="va">data</span><span class="op">[</span>, <span class="va">Sex</span> <span class="op">:=</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"F"</span>, <span class="st">"M"</span><span class="op">)</span>, <span class="va">.N</span>, <span class="cn">TRUE</span><span class="op">)</span><span class="op">]</span></span></span>
+<span class="r-in"><span><span class="kw">if</span> <span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/ns-load.html" class="external-link">requireNamespace</a></span><span class="op">(</span><span class="st">"neuroCombat"</span>, quietly <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span><span class="op">)</span> <span class="op">{</span></span></span>
+<span class="r-in"><span>  <span class="va">numeric_features</span> <span class="op">=</span> <span class="va">task</span><span class="op">$</span><span class="va">feature_names</span></span></span>
+<span class="r-in"><span>  <span class="va">backend</span> <span class="op">=</span> <span class="va">task</span><span class="op">$</span><span class="fu">data</span><span class="op">(</span><span class="op">)</span></span></span>
+<span class="r-in"><span>  <span class="va">backend</span> <span class="op">=</span> <span class="va">backend</span><span class="op">[</span><span class="fu">stats</span><span class="fu">::</span><span class="fu"><a href="https://rdrr.io/r/stats/complete.cases.html" class="external-link">complete.cases</a></span><span class="op">(</span><span class="va">backend</span><span class="op">)</span><span class="op">]</span></span></span>
+<span class="r-in"><span>  <span class="va">backend</span><span class="op">[</span>, <span class="va">site</span> <span class="op">:=</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span><span class="va">LETTERS</span><span class="op">[</span><span class="fl">1</span><span class="op">:</span><span class="fl">3</span><span class="op">]</span>, <span class="va">.N</span>, <span class="cn">TRUE</span><span class="op">)</span><span class="op">]</span></span></span>
+<span class="r-in"><span>  <span class="va">backend</span><span class="op">[</span>, <span class="va">age_adjustment</span> <span class="op">:=</span> <span class="fu"><a href="https://rdrr.io/r/stats/Normal.html" class="external-link">rnorm</a></span><span class="op">(</span><span class="va">.N</span><span class="op">)</span><span class="op">]</span></span></span>
+<span class="r-in"><span>  <span class="va">backend</span><span class="op">[</span>, <span class="va">sex_adjustment</span> <span class="op">:=</span> <span class="fu"><a href="https://rdrr.io/r/base/sample.html" class="external-link">sample</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"F"</span>, <span class="st">"M"</span><span class="op">)</span>, <span class="va">.N</span>, <span class="cn">TRUE</span><span class="op">)</span><span class="op">]</span></span></span>
+<span class="r-in"><span>  <span class="va">task</span> <span class="op">=</span> <span class="va"><a href="https://mlr3.mlr-org.com/reference/TaskClassif.html" class="external-link">TaskClassif</a></span><span class="op">$</span><span class="fu">new</span><span class="op">(</span></span></span>
+<span class="r-in"><span>    <span class="st">"pima_site"</span>,</span></span>
+<span class="r-in"><span>    <span class="va">backend</span>,</span></span>
+<span class="r-in"><span>    target <span class="op">=</span> <span class="st">"diabetes"</span>,</span></span>
+<span class="r-in"><span>    positive <span class="op">=</span> <span class="st">"pos"</span></span></span>
+<span class="r-in"><span>  <span class="op">)</span></span></span>
 <span class="r-in"><span></span></span>
-<span class="r-in"><span><span class="va">po_site</span> <span class="op">=</span> <span class="va">PipeOpSiteCorrection</span><span class="op">$</span><span class="fu">new</span><span class="op">(</span>param_vals <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
-<span class="r-in"><span>  blocks <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>num <span class="op">=</span> <span class="va">task</span><span class="op">$</span><span class="va">feature_names</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>  site_correction <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
-<span class="r-in"><span>    num <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>site <span class="op">=</span> <span class="st">"site"</span>, covariates <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"Age"</span>, <span class="st">"Sex"</span><span class="op">)</span><span class="op">)</span> <span class="co"># &lt;-- ComBat with mod</span></span></span>
-<span class="r-in"><span>  <span class="op">)</span>,</span></span>
-<span class="r-in"><span>  method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>num <span class="op">=</span> <span class="st">"combat"</span><span class="op">)</span>,</span></span>
-<span class="r-in"><span>  keep_site_col <span class="op">=</span> <span class="cn">FALSE</span>,</span></span>
-<span class="r-in"><span>  combat_unknown <span class="op">=</span> <span class="st">"noop"</span></span></span>
-<span class="r-in"><span><span class="op">)</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="va">g</span> <span class="op">=</span> <span class="fu"><a href="https://mlr3pipelines.mlr-org.com/reference/po.html" class="external-link">po</a></span><span class="op">(</span><span class="st">"copy"</span><span class="op">)</span> <span class="op"><a href="https://mlr3pipelines.mlr-org.com/reference/grapes-greater-than-greater-than-grapes.html" class="external-link">%&gt;&gt;%</a></span> <span class="va">po_site</span></span></span>
-<span class="r-in"><span><span class="va">g</span><span class="op">$</span><span class="fu">train</span><span class="op">(</span><span class="va">task</span><span class="op">)</span></span></span>
+<span class="r-in"><span>  <span class="va">po_site</span> <span class="op">=</span> <span class="va">PipeOpSiteCorrection</span><span class="op">$</span><span class="fu">new</span><span class="op">(</span>param_vals <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
+<span class="r-in"><span>    blocks <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>num <span class="op">=</span> <span class="va">numeric_features</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>    site_correction <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
+<span class="r-in"><span>      num <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span></span></span>
+<span class="r-in"><span>        site <span class="op">=</span> <span class="st">"site"</span>,</span></span>
+<span class="r-in"><span>        covariates <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"age_adjustment"</span>, <span class="st">"sex_adjustment"</span><span class="op">)</span></span></span>
+<span class="r-in"><span>      <span class="op">)</span></span></span>
+<span class="r-in"><span>    <span class="op">)</span>,</span></span>
+<span class="r-in"><span>    method <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/list.html" class="external-link">list</a></span><span class="op">(</span>num <span class="op">=</span> <span class="st">"combat"</span><span class="op">)</span>,</span></span>
+<span class="r-in"><span>    keep_site_col <span class="op">=</span> <span class="cn">FALSE</span>,</span></span>
+<span class="r-in"><span>    combat_unknown <span class="op">=</span> <span class="st">"noop"</span></span></span>
+<span class="r-in"><span>  <span class="op">)</span><span class="op">)</span></span></span>
+<span class="r-in"><span>  <span class="fu"><a href="https://mlr3pipelines.mlr-org.com/reference/as_graph.html" class="external-link">as_graph</a></span><span class="op">(</span><span class="va">po_site</span><span class="op">)</span><span class="op">$</span><span class="fu">train</span><span class="op">(</span><span class="va">task</span><span class="op">)</span></span></span>
+<span class="r-in"><span><span class="op">}</span></span></span>
 <span class="r-in"><span><span class="op">}</span> <span class="co"># }</span></span></span>
 <span class="r-in"><span></span></span>
 </code></pre></div>

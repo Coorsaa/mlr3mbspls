@@ -17,7 +17,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -54,7 +54,7 @@
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>Default MB-sPLS Preprocessing Graph</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/graph_mbspls.R" class="external-link"><code>R/graph_mbspls.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.4.0/R/graph_mbspls.R" class="external-link"><code>R/graph_mbspls.R</code></a></small>
     <div class="hidden name"><code>mbspls_preproc_graph.Rd</code></div>
     </div>
 
@@ -90,7 +90,10 @@ mapping is taken from <code>task$blocks</code>.</p></dd>
 
 <dt id="arg-site-correction">site_correction<a class="anchor" aria-label="anchor" href="#arg-site-correction"></a></dt>
 <dd><p>Named list of features used for site correction.
-Defaults to <code><a href="https://rdrr.io/r/base/list.html" class="external-link">list()</a></code> (no correction).</p></dd>
+Defaults to <code><a href="https://rdrr.io/r/base/list.html" class="external-link">list()</a></code> (no correction). When <code>task</code> is supplied, the columns
+read at prediction time (all <code>"partial_corr"</code> and <code>"dir"</code> columns and the
+ComBat <code>site</code>) must exist and must not be target columns; ComBat
+<code>covariates</code> may name the target (see <a href="PipeOpSiteCorrection.html">PipeOpSiteCorrection</a>).</p></dd>
 
 
 <dt id="arg-site-correction-methods">site_correction_methods<a class="anchor" aria-label="anchor" href="#arg-site-correction-methods"></a></dt>

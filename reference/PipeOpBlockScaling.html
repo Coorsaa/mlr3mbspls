@@ -11,7 +11,10 @@ optionally also divide the block by sqrt(p_b).
 
 
 The operator learns scaling parameters on the training task and applies
-them to any new data, ensuring no leakage in resampling."><!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js" integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/config/TeX-AMS-MML_HTMLorMML.js" integrity="sha256-84DKXVJXs0/F8OTMzX4UR909+jtl4G7SPypPavF+GfA=" crossorigin="anonymous"></script><!--[if lt IE 9]>
+them to any new data, ensuring no leakage in resampling. Scaled features are
+replaced in place (as in mlr3pipelines::PipeOpTaskPreproc), so column
+information, keys and all column roles of the output task stay consistent;
+scaled integer features are returned as numeric features."><!-- mathjax --><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js" integrity="sha256-nvJJv9wWKEm88qvoQl9ekL2J+k/RWIsaSScxxlsrv8k=" crossorigin="anonymous"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/config/TeX-AMS-MML_HTMLorMML.js" integrity="sha256-84DKXVJXs0/F8OTMzX4UR909+jtl4G7SPypPavF+GfA=" crossorigin="anonymous"></script><!--[if lt IE 9]>
 <script src="https://oss.maxcdn.com/html5shiv/3.7.3/html5shiv.min.js"></script>
 <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
 <![endif]--></head><body data-spy="scroll" data-target="#toc">
@@ -29,7 +32,7 @@ them to any new data, ensuring no leakage in resampling."><!-- mathjax --><scrip
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -66,7 +69,7 @@ them to any new data, ensuring no leakage in resampling."><!-- mathjax --><scrip
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>PipeOpBlockScaling</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/PipeOpBlockScaling.R" class="external-link"><code>R/PipeOpBlockScaling.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.4.0/R/PipeOpBlockScaling.R" class="external-link"><code>R/PipeOpBlockScaling.R</code></a></small>
     <div class="hidden name"><code>PipeOpBlockScaling.Rd</code></div>
     </div>
 
@@ -80,7 +83,10 @@ features don't dominate.</p></li>
 <li><p><code>"feature_zscore"</code>: z-score each feature (center + sd scaling);
 optionally also divide the block by <code>sqrt(p_b)</code>.</p></li>
 </ul><p>The operator learns scaling parameters on the <strong>training task</strong> and applies
-them to any new data, ensuring no leakage in resampling.</p>
+them to any new data, ensuring no leakage in resampling. Scaled features are
+replaced in place (as in <a href="https://mlr3pipelines.mlr-org.com/reference/PipeOpTaskPreproc.html" class="external-link">mlr3pipelines::PipeOpTaskPreproc</a>), so column
+information, keys and all column roles of the output task stay consistent;
+scaled integer features are returned as numeric features.</p>
     </div>
 
 
@@ -167,11 +173,11 @@ consistently: either block-level scalar(s) or per-feature means/SDs.</p>
 
     <div id="ref-examples">
     <h2>Examples</h2>
-    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="co"># blocks &lt;- list(clin = grep('^clin_', names(dt), value = TRUE),</span></span></span>
-<span class="r-in"><span><span class="co">#                geno = grep('^geno_', names(dt), value = TRUE))</span></span></span>
-<span class="r-in"><span><span class="co"># po_bs &lt;- PipeOpBlockScaling$new(param_vals = list(</span></span></span>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="co"># blocks = list(clin = grep("^clin_", names(dt), value = TRUE),</span></span></span>
+<span class="r-in"><span><span class="co">#               geno = grep("^geno_", names(dt), value = TRUE))</span></span></span>
+<span class="r-in"><span><span class="co"># po_bs = PipeOpBlockScaling$new(param_vals = list(</span></span></span>
 <span class="r-in"><span><span class="co">#   blocks = blocks, method = "unit_ssq"))</span></span></span>
-<span class="r-in"><span><span class="co"># graph &lt;- po_bs %&gt;&gt;% po("mbspls", blocks = blocks)</span></span></span>
+<span class="r-in"><span><span class="co"># graph = po_bs %&gt;&gt;% po("mbspls", blocks = blocks)</span></span></span>
 <span class="r-in"><span></span></span>
 </code></pre></div>
     </div>

@@ -30,7 +30,7 @@ stability table if include_stability = TRUE."><!-- mathjax --><script src="https
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -67,7 +67,7 @@ stability table if include_stability = TRUE."><!-- mathjax --><script src="https
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>Tidy summaries for MB-sPLS, MB-sPLS-XY, and MB-sPCA fits</h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/mbspls_model_summary.R" class="external-link"><code>R/mbspls_model_summary.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.4.0/R/mbspls_model_summary.R" class="external-link"><code>R/mbspls_model_summary.R</code></a></small>
     <div class="hidden name"><code>mbspls_model_summary.Rd</code></div>
     </div>
 
@@ -119,8 +119,29 @@ they are available.</p></dd>
 </dl></div>
     <div id="value">
     <h2>Value</h2>
-    <p>A named list of <code>data.table</code> objects.</p>
-    </div>
+    <p>A named list of <code>data.table</code> objects:</p><ul><li><p><code>overview</code>: one row with <code>source</code>, <code>model</code>, <code>pipeop_id</code>, <code>n_components</code>,
+<code>n_blocks</code>, <code>performance_metric</code>, <code>correlation_method</code> and <code>run_id</code> (for
+MB-sPLS-XY also <code>emit_y_scores</code>).</p></li>
+<li><p><code>components</code>: one row per component. MB-sPLS and MB-sPLS-XY report
+<code>objective</code> (training latent correlation) and MB-sPLS/MB-sPCA report
+<code>ev_comp</code> (training explained variance, SS-weighted across blocks); all
+models report <code>conditional_p_value</code> and <code>p_value_scope</code>, and MB-sPLS-XY
+also <code>n_target_columns</code>. <code>conditional_p_value</code> is the train-time
+component-wise permutation diagnostic (<code>permutation_test = TRUE</code>): it
+conditions on the fixed preprocessed data and hyperparameters, is not
+full-pipeline or LC-specific inference and is <code>NA</code> when the diagnostic did
+not run. <code>p_value_scope</code> states this scope (<code>NA</code> without a diagnostic).
+For reportable inference use <code><a href="mbspls_permutation_test.html">mbspls_permutation_test()</a></code>,
+<code><a href="mb_permutation_test.html">mb_permutation_test()</a></code> or <code><a href="mb_lc_confirmation_test.html">mb_lc_confirmation_test()</a></code>.</p></li>
+<li><p><code>blocks</code>: one row per component and block with <code>n_features</code>, <code>n_selected</code>
+(non-zero weights) and, where available, <code>ev_block</code>.</p></li>
+<li><p><code>weights</code> (if <code>include_weights = TRUE</code>): one row per component, block and
+feature with <code>weight</code>, <code>loading</code> and <code>selected</code>; MB-sPLS-XY adds the target
+block as <code>".target"</code>.</p></li>
+<li><p><code>stability</code> (MB-sPLS with a bootstrap-selection node and
+<code>include_stability = TRUE</code>): bootstrap means, standard deviations,
+intervals, selection frequencies and stable weights per feature.</p></li>
+</ul></div>
     <div id="details">
     <h2>Details</h2>
     <p>Summarize a fitted multi-block model</p>

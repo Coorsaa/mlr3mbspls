@@ -22,7 +22,7 @@ skipped pairwise in the distance."><!-- mathjax --><script src="https://cdnjs.cl
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">mlr3mbspls</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.3.4</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.4.0</span>
       </span>
     </div>
 
@@ -59,7 +59,7 @@ skipped pairwise in the distance."><!-- mathjax --><script src="https://cdnjs.cl
   <div class="col-md-9 contents">
     <div class="page-header">
     <h1>Learner: <code>classif.knngower</code></h1>
-    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/main/R/LearnerClassifKNNGower.R" class="external-link"><code>R/LearnerClassifKNNGower.R</code></a></small>
+    <small class="dont-index">Source: <a href="https://github.com/coorsaa/mlr3mbspls/blob/v0.4.0/R/LearnerClassifKNNGower.R" class="external-link"><code>R/LearnerClassifKNNGower.R</code></a></small>
     <div class="hidden name"><code>LearnerClassifKNNGower.Rd</code></div>
     </div>
 
@@ -87,9 +87,12 @@ skipped pairwise in the distance.</p>
 <li><p><strong>Categorical</strong>: integer-coded with <code>0 = NA</code>, <code>1..L = known levels</code>,
 and <code>-1 = unseen test level</code> (forces mismatch).</p></li>
 <li><p><strong>Ordered</strong>: integer codes <code>1..L</code> scaled to <code>[0, 1]</code> as
-<code>(code - 1)/(L - 1)</code>; <code>NA</code> skipped pairwise.</p></li>
-</ul><p>If no neighbour has sufficient comparable features, prediction now errors
-explicitly instead of silently reverting to training class priors.</p>
+<code>(code - 1)/(L - 1)</code>; <code>NA</code> and levels unseen in training are skipped
+pairwise (also for single-level ordered features).</p></li>
+</ul><p>The encoder is shared with <a href="LearnerRegrKNNGower.html">LearnerRegrKNNGower</a>; ranges and level sets are
+fitted on the training data and reused unchanged at prediction.</p>
+<p>If no neighbour has sufficient comparable features, prediction fails with
+an error; there is no fallback to the training class priors.</p>
     </div>
     <div id="parameters-in-param-set-">
     <h2>Parameters (in <code>param_set</code>)</h2>
@@ -109,8 +112,8 @@ comparable for a neighbour to be eligible. Default: <code>0.2</code>.</p></dd>
 
 <dt><code>na_handling</code></dt>
 <dd><p><code>character(1)</code>. <code>"pairwise"</code> to skip per-feature
-missing values (Gower), or <code>"fail"</code> to error if training features
-contain <code>NA</code>. Default: <code>"pairwise"</code>.</p></dd>
+missing values (Gower), or <code>"fail"</code> to error if training or prediction
+features contain <code>NA</code>. Default: <code>"pairwise"</code>.</p></dd>
 
 
 </dl></div>
