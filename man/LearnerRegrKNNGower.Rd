@@ -15,8 +15,8 @@ A \emph{k}-nearest neighbours regressor using \strong{Gower distance}
 ordered factors with the same encodings as the classification learner.
 Predictions are (optionally inverse-distance) \strong{weighted means} of the
 neighbour responses; the (weighted) variance provides an approximate
-\code{se} when requested. If no eligible neighbours exist, prediction now errors
-explicitly instead of silently reverting to the training mean/variance.
+\code{se} when requested. If no eligible neighbours exist, prediction fails with
+an error; there is no fallback to the training mean/variance.
 }
 \details{
 k-Nearest Neighbours with Gower Distance - Regression
@@ -30,7 +30,8 @@ Default: \code{"inverse"}.}
 \item{\code{min_feature_frac}}{\code{numeric(1)} in \verb{[0,1]}. Minimum fraction of
 comparable features required for a neighbour. Default: \code{0.2}.}
 \item{\code{na_handling}}{\code{character(1)}. \code{"pairwise"} (skip missing values
-per feature) or \code{"fail"}. Default: \code{"pairwise"}.}
+per feature) or \code{"fail"} to error if training or prediction features
+contain \code{NA}. Default: \code{"pairwise"}.}
 }
 }
 

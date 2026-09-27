@@ -1,7 +1,7 @@
 # nocov start
 #' @importFrom mlr3 mlr_learners
 
-.onLoad = function(libname, pkgname) { # nocov start
+.onLoad = function(libname, pkgname) {
   add_or_replace = function(dict, key, value) {
     if (key %in% dict$keys()) {
       dict$remove(key)
@@ -38,18 +38,26 @@
   add_or_replace(mlr3::mlr_tasks, "mbspls_synthetic_classif", task_multiblock_synthetic(task_type = "classif"))
   add_or_replace(mlr3::mlr_tasks, "mbspls_synthetic_regr", task_multiblock_synthetic(task_type = "regr"))
 
+  # Optional dataset tasks must not break package loading. A failing adapter is
+  # logged (visible with lgr's debug threshold) instead of being dropped silently.
+  log_skipped = function(what) {
+    function(e) {
+      lgr::lgr$debug("mlr3mbspls: %s tasks were not registered: %s", what, conditionMessage(e))
+    }
+  }
+
   if (requireNamespace("mixOmics", quietly = TRUE)) {
     tryCatch({
       add_or_replace(mlr3::mlr_tasks, "mbspls_breast_tcga_classif", task_multiblock_breast_tcga(task_type = "classif"))
       add_or_replace(mlr3::mlr_tasks, "mbspls_breast_tcga_clust", task_multiblock_breast_tcga(task_type = "clust"))
-    }, error = function(e) invisible(NULL))
+    }, error = log_skipped("mixOmics breast TCGA"))
   }
 
   if (requireNamespace("multiblock", quietly = TRUE)) {
     tryCatch({
       add_or_replace(mlr3::mlr_tasks, "mbspls_potato_regr", task_multiblock_potato(task_type = "regr"))
       add_or_replace(mlr3::mlr_tasks, "mbspls_potato_clust", task_multiblock_potato(task_type = "clust"))
-    }, error = function(e) invisible(NULL))
+    }, error = log_skipped("multiblock potato"))
   }
 }
 .onUnload = function(libpath) {
@@ -115,5 +123,7 @@
       t$remove(task)
     }
   }
+
+  library.dynam.unload("mlr3mbspls", libpath)
 }
 # nocov end

@@ -108,35 +108,115 @@ mb_align_named_numeric = function(v, cols, context = "vector", allow_null = FALS
 
 #' Execute code with a temporary RNG seed and restore RNG state afterwards.
 #'
+#' Evaluates `fn()` after seeding the generator `kind` together with the
+#' Inversion normal generator and the Rejection sampler, so a supplied seed
+#' yields the same draws whatever RNG kinds the caller has selected. The
+#' caller's RNG state is preserved: its RNG kinds and `.Random.seed` (including
+#' the absence of `.Random.seed`) are restored on exit, also when `fn()` fails.
+#' As with any seed-based restoration in R, a cached Box-Muller normal variate
+#' of the calling session cannot be restored.
+#'
+#' With `seed = NULL`, `fn()` runs unseeded in the caller's RNG context and
+#' nothing is changed or restored. `seed = 0` is an ordinary seed. The default
+#' Mersenne-Twister generator reproduces results obtained under R's default RNG
+#' kind. Use `kind = "L'Ecuyer-CMRG"` when `fn()` distributes work with
+#' `parallel::mclapply()` or `parallel::mcparallel()` (`mc.set.seed = TRUE`):
+#' these derive reproducible per-child streams only from that generator.
+#'
 #' This helper is intentionally implemented without additional dependencies
 #' (e.g. withr) and is used to make bootstrap/permutation procedures reproducible
 #' without permanently changing the session RNG state.
 #'
+#' @param seed `NULL` or one non-negative integer seed.
+#' @param fn Function without arguments to evaluate.
+#' @param kind RNG algorithm seeded for the evaluation: `"Mersenne-Twister"`
+#'   (default) or `"L'Ecuyer-CMRG"`.
+#' @return The value of `fn()`.
 #' @keywords internal
-with_seed_local = function(seed, fn) {
-  if (is.null(seed) || length(seed) != 1L || !is.finite(seed)) {
+with_seed_local = function(seed, fn, kind = c("Mersenne-Twister", "L'Ecuyer-CMRG")) {
+  if (!is.function(fn)) {
+    stop("`fn` must be a function.", call. = FALSE)
+  }
+  kind = match.arg(kind)
+  if (is.null(seed)) {
     return(fn())
   }
-  seed = as.integer(seed)
-  if (!is.finite(seed) || seed <= 0L) {
-    return(fn())
+  seed = .mb_assert_scalar_integer(seed, "seed", lower = 0L)
+
+  old_kind = RNGkind()
+  old_seed = if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+    get(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
   }
+  on.exit(.mb_restore_rng_state(old_kind, old_seed), add = TRUE)
 
-  had_seed = exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)
-  old_seed = if (had_seed) get(".Random.seed", envir = .GlobalEnv, inherits = FALSE) else NULL
-
-  on.exit({
-    if (is.null(old_seed)) {
-      if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
-        rm(".Random.seed", envir = .GlobalEnv)
-      }
-    } else {
-      assign(".Random.seed", old_seed, envir = .GlobalEnv)
-    }
-  }, add = TRUE)
-
-  set.seed(seed)
+  # Explicit algorithms make a supplied seed independent of ambient RNG kinds.
+  # R cannot restore Box-Muller's cached spare normal via .Random.seed.
+  set.seed(seed, kind = kind, normal.kind = "Inversion", sample.kind = "Rejection")
   fn()
+}
+
+# Restore RNG kinds and `.Random.seed` captured before a local RNG change;
+# `seed = NULL` means the caller had no `.Random.seed`. Re-selecting a legacy
+# kind (e.g. the "Rounding" sampler) makes R repeat the warning the caller
+# already received when choosing it, so warnings of this call are muffled.
+.mb_restore_rng_state = function(kind, seed) {
+  withCallingHandlers(
+    do.call(RNGkind, as.list(kind)),
+    warning = function(w) invokeRestart("muffleWarning")
+  )
+  if (is.null(seed)) {
+    if (exists(".Random.seed", envir = .GlobalEnv, inherits = FALSE)) {
+      rm(".Random.seed", envir = .GlobalEnv)
+    }
+  } else {
+    assign(".Random.seed", seed, envir = .GlobalEnv)
+  }
+  invisible(NULL)
+}
+
+# Preserve the actual upstream topology, including single-node prefixes.
+mb_preprocessing_graph = function(graph, target_id) {
+  if (!target_id %in% graph$ids()) {
+    stop("The requested component node is absent from the graph.", call. = FALSE)
+  }
+  edges = graph$edges
+  ancestors = target_id
+  repeat {
+    expanded = union(ancestors, edges$src_id[edges$dst_id %in% ancestors])
+    if (setequal(expanded, ancestors)) break
+    ancestors = expanded
+  }
+  ancestors = setdiff(ancestors, target_id)
+  result = mlr3pipelines::Graph$new()
+  for (id in intersect(graph$ids(), ancestors)) {
+    result$add_pipeop(graph$pipeops[[id]]$clone(deep = TRUE))
+  }
+  keep = edges$src_id %in% ancestors & edges$dst_id %in% ancestors
+  for (i in which(keep)) {
+    result$add_edge(
+      edges$src_id[[i]], edges$dst_id[[i]],
+      edges$src_channel[[i]], edges$dst_channel[[i]]
+    )
+  }
+  result
+}
+
+mb_assert_resampling_split = function(task, train, test) {
+  if (!length(train) || !length(test) ||
+    anyNA(c(train, test)) ||
+    !all(c(train, test) %in% task$row_ids)) {
+    stop("Resampling indices must select non-empty subsets of the current task.",
+      call. = FALSE)
+  }
+  if (length(intersect(train, test))) {
+    stop("Resampling analysis and assessment rows must be disjoint.", call. = FALSE)
+  }
+  train_groups = mb_task_group_vector(task, train)
+  test_groups = mb_task_group_vector(task, test)
+  if (!is.null(train_groups) || !is.null(test_groups)) {
+    mb_assert_disjoint_groups(train_groups, test_groups)
+  }
+  invisible(TRUE)
 }
 
 # ------------------------------------------------------------------------------
@@ -226,6 +306,56 @@ log_env_store_last = function(log_env, payload, run_id = NULL) {
 
   log_env$last = payload
   invisible(TRUE)
+}
+
+# Look up the prediction payload that belongs to one fitted MB-sPLS/MB-sPCA
+# node of a trained GraphLearner.
+#
+# Payloads are stored per training run in `log_env$mbspls_last[[run_id]]`.
+# The run id is read from the fitted PipeOp state `learner$model[[pipeop_id]]`
+# (a fitted PipeOp object is accepted as well) and the log environment from
+# the PipeOp's parameters, so each resampling iteration, benchmarked learner or
+# tuning configuration is scored on its own prediction. When a run id is known
+# but no payload is stored for it (e.g. the prediction ran in a parallel worker
+# whose `log_env` never reached this process), NULL is returned so the measure
+# becomes NA. The shared `log_env$last` is used, with a warning, only for a
+# fitted state that records no run id at all.
+.mb_prediction_payload = function(learner, pipeop_id) {
+  fit = tryCatch(learner$model[[pipeop_id]], error = function(e) NULL)
+  env = NULL
+  if (inherits(fit, "PipeOp")) {
+    env = tryCatch(fit$param_set$values$log_env, error = function(e) NULL)
+    fit = fit$state
+  }
+  if (!inherits(env, "environment")) {
+    env = tryCatch(learner$graph$pipeops[[pipeop_id]]$param_set$values$log_env,
+      error = function(e) NULL)
+  }
+  if (!inherits(env, "environment") || !is.list(fit) || !length(fit)) {
+    return(NULL)
+  }
+
+  run_id = fit[["run_id"]]
+  if (is.character(run_id) && length(run_id) == 1L && !is.na(run_id) && nzchar(run_id)) {
+    payload = env$mbspls_last[[run_id]]
+    return(if (is.list(payload)) payload else NULL)
+  }
+
+  if (!is.list(env$last)) {
+    return(NULL)
+  }
+  warning(
+    sprintf(
+      paste0(
+        "The fitted state of PipeOp '%s' records no run id; using the most recent ",
+        "prediction payload in log_env$last, which may belong to another ",
+        "resampling iteration or learner."
+      ),
+      pipeop_id
+    ),
+    call. = FALSE
+  )
+  env$last
 }
 
 # ------------------------------------------------------------------------------
@@ -334,16 +464,6 @@ assert_blocks_present = function(colnames_dt, blocks_map, context = "task") {
   invisible(TRUE)
 }
 
-#' Create a backend primary-key column name that does not collide.
-#' @keywords internal
-mb_make_backend_key_name = function(existing, key_name = "..row_id") {
-  key_name = key_name %||% "..row_id"
-  if (!(key_name %in% existing)) {
-    return(key_name)
-  }
-  make.unique(c(existing, key_name))[length(existing) + 1L]
-}
-
 # ------------------------------------------------------------------------------
 # Multi-block task helpers
 # ------------------------------------------------------------------------------
@@ -389,21 +509,83 @@ mb_has_finite_variance = function(x, tol = 1e-12) {
 }
 
 
-#' Expand stable base names to concrete task/backend column names.
+#' Resolve declared block columns against concrete data column names.
+#'
+#' Maps a block mapping declared on stable (pre-encoding) feature names to the
+#' columns of a concrete data table. This is the single rule set for resolving
+#' blocks after upstream preprocessing.
+#'
+#' @details
+#' Resolution rules:
+#'
+#' 1. A declared name present in `dt_names` maps exactly to itself.
+#' 2. A declared name absent from `dt_names`, typically a factor replaced by
+#'    encoded columns such as `sex.m`, expands to the columns starting with
+#'    `paste0(name, ".")`, kept in data order. A column equal to a declared name
+#'    of any block is never claimed by such an expansion.
+#' 3. A column matching several absent names is assigned to the longest one,
+#'    e.g. `sex.hormone.high` belongs to `sex.hormone`, not to `sex`.
+#' 4. The resolved blocks must be disjoint; a column resolved into more than
+#'    one block is an error.
+#'
+#' Prefixes are matched literally, so names containing regular-expression
+#' metacharacters need no escaping. Expansion cannot distinguish encoder output
+#' from an undeclared column that happens to start with `<name>.`; declare such
+#' columns in their own block to keep them out of other blocks.
+#'
+#' @param dt_names Character vector of data column names.
+#' @param blocks Named list of declared column names per block.
+#' @return Named list of resolved column vectors in block order. Blocks without
+#'   any matching column yield `character(0)`.
 #' @keywords internal
-mb_expand_block_cols = function(dt_names, cols) {
+mb_resolve_block_columns = function(dt_names, blocks) {
   checkmate::assert_character(dt_names, any.missing = FALSE, .var.name = "dt_names")
-  checkmate::assert_character(cols, any.missing = FALSE, min.len = 1L, .var.name = "cols")
+  checkmate::assert_list(blocks, types = "character", min.len = 1L, names = "unique",
+    .var.name = "blocks")
 
-  esc = function(s) gsub("([][{}()|^$.*+?\\\\-])", "\\\\\\\\1", s)
+  blocks = lapply(blocks, function(cols) unique(as.character(cols)))
+  declared = unique(unlist(blocks, use.names = FALSE))
+  if (anyNA(declared)) {
+    stop("`blocks` must not contain missing column names.", call. = FALSE)
+  }
+  absent = setdiff(declared, dt_names)
 
-  unique(unlist(lapply(cols, function(co) {
-    if (co %in% dt_names) {
-      co
-    } else {
-      grep(paste0("^", esc(co), "(\\\\.|$)"), dt_names, value = TRUE)
+  # Candidates for prefix expansion never include a declared name. Each one is
+  # owned by the longest absent declared name that is a prefix of it.
+  candidates = dt_names[!dt_names %in% declared]
+  owner = rep(NA_character_, length(candidates))
+  if (length(absent) && length(candidates)) {
+    owner_nchar = integer(length(candidates))
+    for (base in absent) {
+      hit = startsWith(candidates, paste0(base, ".")) & nchar(base) > owner_nchar
+      owner[hit] = base
+      owner_nchar[hit] = nchar(base)
     }
-  }), use.names = FALSE))
+  }
+
+  resolved = lapply(blocks, function(cols) {
+    unique(as.character(unlist(lapply(cols, function(co) {
+      if (co %in% dt_names) co else candidates[!is.na(owner) & owner == co]
+    }), use.names = FALSE)))
+  })
+
+  flat = unlist(resolved, use.names = FALSE)
+  shared = unique(flat[duplicated(flat)])
+  if (length(shared)) {
+    block_of = rep(names(resolved), lengths(resolved))
+    detail = vapply(shared, function(cl) {
+      sprintf("%s (%s)", cl, paste(block_of[flat == cl], collapse = ", "))
+    }, character(1L))
+    stop(
+      sprintf(
+        "Resolved block columns must be disjoint across blocks. Column(s) assigned to several blocks: %s",
+        mb_format_truncated(detail)
+      ),
+      call. = FALSE
+    )
+  }
+
+  resolved
 }
 
 
@@ -421,11 +603,11 @@ mb_resolve_blocks = function(
 
   blocks = mb_normalize_blocks(blocks)
   dt = data.table::as.data.table(dt)
-  dt_names = names(dt)
+  resolved = mb_resolve_block_columns(names(dt), blocks)
 
   out = lapply(names(blocks), function(bn) {
     cols = blocks[[bn]]
-    cand = mb_expand_block_cols(dt_names, cols)
+    cand = resolved[[bn]]
 
     if (isTRUE(numeric_only)) {
       cand = cand[vapply(cand, function(cl) is.numeric(dt[[cl]]), logical(1))]
@@ -491,9 +673,24 @@ mb_graph_blocks = function(blocks = NULL, task = NULL, context = "mbspls_graph")
 }
 
 
-#' Validate that referenced site-correction columns exist on a task.
+#' Validate site-correction columns against a task
+#'
+#' Checks that every column referenced in `site_correction` exists on the task
+#' and that no column read at prediction time is a target column: all
+#' `"partial_corr"` and `"dir"` columns and the ComBat `site`. ComBat
+#' `covariates` are only used to estimate the batch parameters on the training
+#' rows and may reference the target. This mirrors the training-time guard of
+#' [PipeOpSiteCorrection].
+#'
+#' @param task Optional [mlr3::Task]; without a task nothing is checked.
+#' @param site_correction Named list (by block) of site-correction
+#'   specifications.
+#' @param context Name of the calling function, used in error messages.
+#' @param methods Named list (by block) of methods; blocks without an entry use
+#'   `"partial_corr"`.
 #' @keywords internal
-mb_validate_site_correction = function(task, site_correction = list(), context = "mbspls_graph") {
+mb_validate_site_correction = function(task, site_correction = list(), context = "mbspls_graph",
+  methods = list()) {
   if (is.null(task) || !length(site_correction)) {
     return(invisible(TRUE))
   }
@@ -504,10 +701,8 @@ mb_validate_site_correction = function(task, site_correction = list(), context =
     return(invisible(TRUE))
   }
 
-  available = unique(c(
-    task$feature_names,
-    tryCatch(task$target_names, error = function(e) character(0))
-  ))
+  target_cols = tryCatch(task$target_names, error = function(e) character(0))
+  available = unique(c(task$feature_names, target_cols))
   missing = setdiff(cols, available)
   if (length(missing)) {
     stop(
@@ -518,6 +713,31 @@ mb_validate_site_correction = function(task, site_correction = list(), context =
       ),
       call. = FALSE
     )
+  }
+
+  for (bn in names(site_correction)) {
+    spec = site_correction[[bn]]
+    method = as.character(methods[[bn]] %||% "partial_corr")[1L]
+    # ComBat reads only the batch column at prediction time.
+    read_at_predict = if (identical(method, "combat")) {
+      if (is.list(spec)) as.character(spec$site) else as.character(spec)[1L]
+    } else {
+      as.character(unlist(spec, recursive = TRUE, use.names = FALSE))
+    }
+    leak = intersect(read_at_predict, target_cols)
+    if (length(leak)) {
+      stop(
+        sprintf(
+          paste0(
+            "%s: block '%s' (%s) uses target column(s) %s as site, protected or ",
+            "partial-correlation columns, which are read at prediction time; only ",
+            "ComBat `covariates` may reference a target (training only)."
+          ),
+          context, bn, method, paste(leak, collapse = ", ")
+        ),
+        call. = FALSE
+      )
+    }
   }
 
   invisible(TRUE)
@@ -580,5 +800,37 @@ mb_validate_supervised_learner = function(learner, expected_type, context = "mbs
     )
   }
 
+  invisible(TRUE)
+}
+
+
+# ------------------------------------------------------------------------------
+# Suggested packages
+# ------------------------------------------------------------------------------
+
+# Thin wrapper around requireNamespace() so that tests can simulate a missing
+# suggested package.
+.mbspls_has_namespace = function(pkg) {
+  requireNamespace(pkg, quietly = TRUE)
+}
+
+# Stop with an installation hint unless every suggested package in `pkgs` can be
+# loaded. `what` names the feature that needs them, e.g. "autoplot(type = 'x')".
+.mbspls_require_suggested = function(pkgs, what) {
+  checkmate::assert_character(pkgs, any.missing = FALSE, min.len = 1L, .var.name = "pkgs")
+  checkmate::assert_string(what, .var.name = "what")
+
+  missing = pkgs[!vapply(pkgs, .mbspls_has_namespace, logical(1L))]
+  if (length(missing)) {
+    stop(
+      sprintf(
+        "%s requires the suggested package(s) %s. Install with install.packages(c(%s)).",
+        what,
+        paste(sprintf("'%s'", missing), collapse = ", "),
+        paste(sprintf("\"%s\"", missing), collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
   invisible(TRUE)
 }

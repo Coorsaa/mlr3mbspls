@@ -34,6 +34,13 @@
 #' \emph{negative} (the deflation step increases SS on new data), unless you
 #' clamp values via \code{clamp_ev}.
 #'
+#' \strong{Centring.} The trained weights and loadings refer to blocks centred
+#' by their \emph{training} column means, so \code{X_blocks_test} must be
+#' centred with those training means (not with the test means) before calling
+#' this function; [PipeOpMBsPLS] and [compute_pipeop_test_ev()] do this. The
+#' total SS \eqn{\|X_{b,\mathrm{test}}^{(0)}\|_F^2} then includes any shift
+#' of the test means away from the training means.
+#'
 #' \strong{Deflation behavior.}
 #' If \code{deflate = TRUE} (recommended; matches training), components are applied
 #' sequentially and the test residuals are updated after each component.
@@ -54,8 +61,8 @@
 #'         estimate \eqn{p}).
 #' }
 #' If \code{P_all} is \code{NULL} or empty, callers must choose
-#' \code{loading_source = "test_ls"} explicitly; \code{"auto"} now errors
-#' instead of silently changing the diagnostic definition.
+#' \code{loading_source = "test_ls"} explicitly; \code{"auto"} errors instead
+#' of silently changing the diagnostic definition.
 #'
 #' \strong{Latent correlation (MAC/Frobenius).}
 #' For each component, the function computes pairwise correlations between block
@@ -81,7 +88,7 @@
 #' @param W_all \code{list}. Component-wise weight vectors learned in training.
 #'   Must be a list of length \code{K}; each element is a block-wise list of length
 #'   \code{B} containing weight vectors. Named vectors are aligned to the test
-#'   block column names and must cover all trained features; missing entries now
+#'   block column names and must cover all trained features; missing entries
 #'   raise an error instead of being silently zero-filled.
 #' @param P_all \code{list} or \code{NULL}. Optional component-wise block loadings.
 #'   Same nesting convention as \code{W_all}. Required when
@@ -299,9 +306,13 @@ compute_test_ev = function(
 #' MAC/Frobenius is taken from \code{state$correlation_method} when available;
 #' otherwise it defaults to \code{"pearson"}.
 #'
-#' The wrapper now requires training loadings in \code{state$loadings}; if they are
+#' The wrapper requires training loadings in \code{state$loadings}; if they are
 #' absent, it errors instead of silently switching to test-derived least-squares
 #' loadings.
+#'
+#' The test blocks are centred with the training means stored in
+#' \code{state$center} (states without \code{center}, fitted before centring
+#' was introduced, are used as supplied).
 #'
 #' @param X_blocks_test \code{list} of numeric matrices; test data blocks
 #'   (\code{n_test × p_b}). All blocks must have the same number of rows.
@@ -310,7 +321,8 @@ compute_test_ev = function(
 #'     \item \code{weights}: component-wise block weights (as in training),
 #'     \item \code{loadings}: (optional) component-wise block loadings,
 #'     \item \code{performance_metric}: \code{"mac"} or \code{"frobenius"},
-#'     \item \code{correlation_method}: (optional) \code{"pearson"} or \code{"spearman"}.
+#'     \item \code{correlation_method}: (optional) \code{"pearson"} or \code{"spearman"},
+#'     \item \code{center}: (optional) training column means per block.
 #'   }
 #'
 #' @return
@@ -321,6 +333,12 @@ compute_test_ev = function(
 #' @keywords internal
 #' @export
 compute_pipeop_test_ev = function(X_blocks_test, state) {
+  if (!is.null(state$center)) {
+    if (is.null(names(X_blocks_test))) {
+      names(X_blocks_test) = names(state$center)
+    }
+    X_blocks_test = .mb_center_blocks(X_blocks_test, state$center)
+  }
   compute_test_ev(
     X_blocks_test      = X_blocks_test,
     W_all              = state$weights,

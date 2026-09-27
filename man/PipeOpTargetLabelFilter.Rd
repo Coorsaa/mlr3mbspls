@@ -11,9 +11,8 @@ A \code{PipeOpTargetLabelFilter}.
 column and forwards the filtered \code{Task}. It is a dedicated, composable
 row filter that replaces ad-hoc filtering inside other PipeOps.
 
-By default, filtering is applied during training. During prediction, if the
-target column is not present (typical for newdata), the operator becomes a
-no-op and passes the task through unchanged.
+Filtering is applied only during training. Prediction passes every row
+through, regardless of whether target values are available.
 }
 \details{
 Target-Label Filter
@@ -28,11 +27,49 @@ level(s) from the original levels (as needed) so that \code{length(levels(target
 }
 Some learners still require \emph{two observed classes} in the training data;
 this PipeOp only guarantees the metadata (level set), not the label balance.
+
+For a \code{TaskClassif}, the \code{"twoclass"}/\code{"multiclass"} property
+is updated to the new target level set, so that, e.g., a three-class task
+filtered to two labels can be passed to learners that only support binary
+tasks. With mlr3 < 1.7.0 this update is only possible when every level of the
+new target level set is observed in the retained rows; a padded level set
+with unobserved levels then keeps the property of the input task. The target
+of prediction tasks is left unchanged, so such a learner can only predict
+tasks whose target has two levels.
+
+With \code{drop_unused_levels = TRUE}, the levels of every factor feature
+column are reduced to those observed in the retained training rows; target
+columns are never touched, so the padded target level set is kept. The
+resulting level sets are stored in the state and applied to the same columns
+at prediction, so training and prediction tasks share the same column
+information for downstream learners. As in
+\code{mlr3pipelines::PipeOpFixFactors}, prediction values of levels that were
+not observed in the training rows become \code{NA}. Factor columns without a
+feature role, such as a site column read by \code{PipeOpSiteCorrection} or
+group and stratum columns, are left unchanged, so later PipeOps still see
+their original values (e.g., the labels of unseen sites). Set
+\code{drop_unused_levels = FALSE} to keep all levels unchanged.
 }
 \section{Parameters}{
 
 Hyperparameters are defined in the object's \code{param_set} and can be set
 via \code{param_vals}.
+\itemize{
+\item \code{labels}: \code{vector} or \code{NULL}.
+Target label(s) used for filtering.
+If \code{invert = FALSE} (default), rows with \code{target \%in\% labels} are kept.
+If \code{invert = TRUE}, rows with \code{target \%in\% labels} are dropped.
+If \code{NULL}, the task is passed through unchanged.
+\item \code{target}: \code{character(1)} or \code{NULL}. Name of the target column.
+Defaults to the task's first target via \code{task$target_names[1]}.
+\item \code{invert}: \code{logical(1)}. If \code{TRUE}, invert the selection.
+\item \code{drop_unused_levels}: \code{logical(1)}. If \code{TRUE} (default),
+drop unused factor levels on factor \emph{feature} columns after filtering
+and re-apply these training level sets at prediction (see Details).
+The target's level set is controlled explicitly.
+\item \code{drop_stratum}: \code{logical(1)}. If \code{TRUE} (default \code{FALSE}),
+remove the \code{"stratum"} role from columns that are neither features nor targets.
+}
 }
 
 \seealso{

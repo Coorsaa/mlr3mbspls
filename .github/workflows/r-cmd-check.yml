@@ -22,6 +22,66 @@ permissions:
   contents: read
 
 jobs:
+  style:
+    runs-on: ubuntu-latest
+    name: styler.mlr
+
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - uses: r-lib/actions/setup-r@465b7d8e732ca3921382b1674c59bada9cbf3399 # v2
+        with:
+          r-version: release
+
+      - name: Install pinned style guide
+        run: |
+          install.packages(c("remotes", "roxygen2", "knitr"))
+          remotes::install_version(
+            "styler",
+            version = "1.10.3",
+            upgrade = "never"
+          )
+          remotes::install_github(
+            "mlr-org/styler.mlr@e950499afb6b28610400489f3ae6faacc6897358",
+            upgrade = "never"
+          )
+        shell: Rscript {0}
+
+      - name: Check repository style
+        run: Rscript tools/style.R --check
+
+  tooling:
+    runs-on: ubuntu-latest
+    name: source archive
+
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - uses: r-lib/actions/setup-r@465b7d8e732ca3921382b1674c59bada9cbf3399 # v2
+        with:
+          r-version: release
+
+      - name: Check that local files stay out of the source archive
+        run: |
+          mkdir -p .probe revdep
+          printf 'probe\n' > .probe/probe.md
+          printf 'probe\n' > PROBE.md
+          printf 'probe\n' > cran-comments.md
+          printf 'probe\n' > README.html
+          printf 'x = 1\n' > revdep/probe.R
+          R CMD build --no-build-vignettes .
+          tar -tzf mlr3mbspls_*.tar.gz > "$RUNNER_TEMP/archive.txt"
+          if grep -E '^[^/]+/([.]|PROBE[.]md|cran-comments[.]md|README[.]html|revdep(/|$))' "$RUNNER_TEMP/archive.txt"; then
+            echo "Local files were included in the source archive."
+            exit 1
+          fi
+          for entry in README.md NEWS.md inst/MODEL_CARD.md inst/REPRODUCIBILITY.md inst/STATISTICAL_VALIDITY.md inst/examples/ inst/validation/ vignettes/quickstart.Rmd; do
+            grep -Fx "mlr3mbspls/$entry" "$RUNNER_TEMP/archive.txt"
+          done
+
   r-cmd-check:
     runs-on: ${{ matrix.config.os }}
     name: ${{ matrix.config.os }} (${{ matrix.config.r }})
@@ -42,15 +102,15 @@ jobs:
           - { os: macos-latest,   r: 'release' }
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - uses: r-lib/actions/setup-pandoc@v2
+      - uses: r-lib/actions/setup-pandoc@465b7d8e732ca3921382b1674c59bada9cbf3399 # v2
 
-      - uses: r-lib/actions/setup-r@v2
+      - uses: r-lib/actions/setup-r@465b7d8e732ca3921382b1674c59bada9cbf3399 # v2
         with:
           r-version: ${{ matrix.config.r }}
 
-      - uses: r-lib/actions/setup-r-dependencies@v2
+      - uses: r-lib/actions/setup-r-dependencies@465b7d8e732ca3921382b1674c59bada9cbf3399 # v2
         with:
           needs: check
           extra-packages: |
@@ -68,18 +128,18 @@ jobs:
         
           install.packages("remotes")
           remotes::install_github(
-            "Jfortin1/neuroCombat_Rpackage",
+            "Jfortin1/neuroCombat_Rpackage@fbec46a61bc92bedb450b0e44addae4ce6afa934",
             upgrade = "never",
-            dependencies = TRUE
+            dependencies = NA
           )
         shell: Rscript {0}
 
-      - uses: mxschmitt/action-tmate@v3
+      - uses: mxschmitt/action-tmate@35b54afac29c97fb54faba5b513f8fbd1882f113 # v3
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.debug_enabled }}
         with:
           limit-access-to-actor: true
 
-      - uses: r-lib/actions/check-r-package@v2
+      - uses: r-lib/actions/check-r-package@465b7d8e732ca3921382b1674c59bada9cbf3399 # v2
         with:
           args: 'c("--no-manual", "--as-cran")'
           error-on: '"warning"'
@@ -93,15 +153,15 @@ jobs:
       BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - uses: r-lib/actions/setup-pandoc@v2
+      - uses: r-lib/actions/setup-pandoc@465b7d8e732ca3921382b1674c59bada9cbf3399 # v2
 
-      - uses: r-lib/actions/setup-r@v2
+      - uses: r-lib/actions/setup-r@465b7d8e732ca3921382b1674c59bada9cbf3399 # v2
         with:
           r-version: devel
 
-      - uses: r-lib/actions/setup-r-dependencies@v2
+      - uses: r-lib/actions/setup-r-dependencies@465b7d8e732ca3921382b1674c59bada9cbf3399 # v2
         with:
           needs: check
           extra-packages: |
@@ -124,13 +184,13 @@ jobs:
 
           install.packages("remotes")
           remotes::install_github(
-            "Jfortin1/neuroCombat_Rpackage",
+            "Jfortin1/neuroCombat_Rpackage@fbec46a61bc92bedb450b0e44addae4ce6afa934",
             upgrade = "never",
-            dependencies = TRUE
+            dependencies = NA
           )
         shell: Rscript {0}
 
-      - uses: r-lib/actions/check-r-package@v2
+      - uses: r-lib/actions/check-r-package@465b7d8e732ca3921382b1674c59bada9cbf3399 # v2
         with:
           args: 'c("--no-manual", "--as-cran")'
           error-on: '"warning"'

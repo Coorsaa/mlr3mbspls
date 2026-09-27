@@ -7,9 +7,19 @@
 #' multiple, predefined feature blocks. Each component is estimated with a
 #' GSMV-style algorithm (`cpp_mbspca_one_lv()`), and after extraction a
 #' block-wise rank-1 deflation is applied so later components capture novel
-#' structure. Optionally, a permutation test
-#' (`perm_test_component_mbspca()`) can stop extraction early if a component
-#' explains no more variance than expected under the null.
+#' structure. Every retained column is centred by its training mean before
+#' fitting (and the stored means are subtracted at prediction), so explained
+#' variance, loadings and scores refer to centred data.
+#'
+#' Optionally, a conditional component-wise permutation diagnostic
+#' (`perm_test_component_mbspca()`) can stop extraction early. Its null
+#' hypothesis is **no cross-block association**: the rows of each block are
+#' permuted independently, which preserves every within-block covariance and
+#' destroys only the alignment between blocks. A component that carries only
+#' block-specific variance therefore does not pass, and the diagnostic needs at
+#' least two blocks. With fewer than two usable blocks it is skipped with a
+#' warning, the requested number of components is kept and `p_values` are
+#' `NA`.
 #'
 #' The operator appends one column per *block x component* (name:
 #' `PC<k>_<block>`) to the feature table.
@@ -22,13 +32,25 @@
 #'
 #' @section State:
 #' The `$state` stores:
-#' * `blocks`: the (sanitised) named list of block -> feature names used.
+#' * `blocks`: the resolved named list of block -> feature names used.
+#' * `center`: named list (by block) of training column means, each a numeric
+#'   vector named by column; subtracted from prediction data.
 #' * `ncomp`: number of retained components.
 #' * `weights`: list(`PCk` -> list(`block` -> numeric named vector)).
 #' * `loadings`: same shape as `weights`, block-wise loadings used for deflation.
 #' * `ev_block`: matrix `[components x blocks]` of variance explained by each PC
 #'   within each block.
-#' * `ev_comp`: numeric vector of total variance explained by each PC.
+#' * `ev_comp`: numeric vector of total variance explained by each PC,
+#'   SS-weighted across blocks.
+#' * `p_values`: conditional component-wise cross-block permutation diagnostics,
+#'   or `NA` when the diagnostic is disabled or skipped.
+#' * `p_value_scope`: description of that scope when the diagnostic ran,
+#'   otherwise `NULL`.
+#' * `converged`: per component, whether the solver converged within
+#'   `max_iter` iterations (a warning names components that did not).
+#' * `c_matrix`: the sparsity matrix actually used when `c_matrix` was supplied
+#'   (retained blocks; entries capped at `sqrt(p)` of the retained columns),
+#'   otherwise `NULL`.
 #' * `T_mat`: numeric matrix of appended latent scores (column names match the
 #'   appended features).
 #' * `run_id`: optional identifier used to match prediction-side payloads to the
@@ -36,16 +58,31 @@
 #'
 #' @section Parameters (ParamSet):
 #' * `blocks` (`uty`, **required**; tag `"train"`): named list mapping block IDs
-#'   to character vectors of feature names.
+#'   to character vectors of feature names. Declared names absent from the data
+#'   expand to encoded columns `<name>.<suffix>` as described in
+#'   [mb_resolve_block_columns()]; the resolved blocks must be disjoint.
 #' * `ncomp` (`int`, default `1`; tag `"train"`): number of components to target
 #'   (may be shortened by permutation early-stopping).
-#' * `permutation_test` (`lgl`, default `FALSE`; tag `"train"`): enable early-stop test.
+#' * `permutation_test` (`lgl`, default `FALSE`; tag `"train"`): enable the
+#'   conditional cross-block early-stop diagnostic (see Description).
 #' * `n_perm` (`int`, default `500`; tag `"train"`): permutations for the test.
 #' * `perm_alpha` (`dbl` in `[0,1]`, default `0.05`; tag `"train"`): test alpha.
+#' * `max_iter` (`int`, default `60`; tag `"train"`): maximum solver iterations
+#'   per component.
+#' * `tol` (`dbl`, default `1e-4`; tag `"train"`): convergence tolerance on the
+#'   change of the variance-explained objective between iterations.
 #' * `c_<block>` (one `dbl` per block, lower `1`, upper `sqrt(#features in block)`,
-#'   default `sqrt(#features)`; tags `c("train","tune")`): sqrt(L1-budget) for that block.
+#'   default `sqrt(#features)`; tags `c("train","tune")`): L1-norm budget for
+#'   the unit-L2 loading vector in that block; capped at `sqrt(p)` of the
+#'   retained columns.
 #' * `c_matrix` (`uty`, default `NULL`; tags `c("train","tune")`): optional
-#'   matrix (`blocks x components`) overriding single-value `c_<block>` parameters.
+#'   matrix (`blocks x components`) overriding single-value `c_<block>`
+#'   parameters and `ncomp`. Named rows must be unique and non-empty and match
+#'   either all declared or all retained blocks; an unnamed matrix is matched by
+#'   position to the declared blocks. Entries must lie in `[1, sqrt(p_b)]`,
+#'   where `p_b` is the structural width of the block (its resolved numeric
+#'   columns before constant columns are removed); entries above `sqrt(p)` of
+#'   the retained columns are nonbinding, capped there and logged.
 #' * `log_env` (`uty`, default `NULL`; tags `c("train","predict")`): optional
 #'   environment that stores a training snapshot and prediction-side explained-
 #'   variance payloads for measures and diagnostics.
@@ -70,9 +107,11 @@
 #'
 #' @details
 #' During training, non-numeric or constant features are removed from
-#' each block before fitting. If no usable block remains, training errors explicitly. If `c_matrix` is supplied, its number of columns determines the
-#' maximum number of components (overrides `ncomp`). Deflation is performed
-#' block-wise after each component.
+#' each block and the remaining columns are centred by their training means
+#' before fitting. If no usable block remains, training errors explicitly. If
+#' `c_matrix` is supplied, its number of columns determines the maximum number
+#' of components (overrides `ncomp`). Deflation is performed block-wise after
+#' each component.
 #'
 #' @return
 #' * **Training**: appends latent score columns and sets `$state` as described.
@@ -88,8 +127,7 @@
 #' blocks = list(eng = c("disp", "hp", "drat"),
 #'   body = c("wt", "qsec"))
 #' po = PipeOpMBsPCA$new(blocks = blocks, param_vals = list(ncomp = 2))
-#' g = as_graph(po)
-#' g$train(task)
+#' po$train(list(task))
 #' print(po$plot_scree())
 #' }
 #'
@@ -129,7 +167,7 @@ PipeOpMBsPCA = R6::R6Class(
         log_env = paradox::p_uty(tags = c("train", "predict"), default = NULL)
       )
 
-      ## one sparsity hyper-parameter per block (sqrtL1 budget)
+      ## one sparsity hyper-parameter per block (L1 budget)
       for (bn in names(blocks)) {
         p = length(blocks[[bn]])
         ps_base[[paste0("c_", bn)]] = paradox::p_dbl(
@@ -154,9 +192,7 @@ PipeOpMBsPCA = R6::R6Class(
     #' @description Stacked bar plot of block-wise variance explained per component (training).
     #' @return A ggplot object.
     plot_variance = function() {
-      if (!requireNamespace("ggplot2", quietly = TRUE)) {
-        stop("Package 'ggplot2' is required for this plot.")
-      }
+      .mbspls_require_suggested("scales", "PipeOpMBsPCA$plot_variance()")
       st = self$state
       if (is.null(st$ev_block)) {
         stop("No variance information stored - did you train the operator?")
@@ -180,12 +216,10 @@ PipeOpMBsPCA = R6::R6Class(
     #' @param palette character(1) or character(2). Brewer palette name, or 2 custom fill colors (pos/neg).
     #' @return A ggplot object.
     plot_loadings = function(top_n = 20, palette = "Dark2") {
-      if (!requireNamespace("ggplot2", quietly = TRUE)) {
-        stop("Package 'ggplot2' is required for this plot.")
-      }
-      if (!requireNamespace("dplyr", quietly = TRUE)) {
-        stop("Package 'dplyr' is required for this plot.")
-      }
+      .mbspls_require_suggested(
+        c("dplyr", if (length(palette) == 1L) "RColorBrewer"),
+        "PipeOpMBsPCA$plot_loadings()"
+      )
 
       st = self$state
       if (is.null(st$weights)) {
@@ -260,9 +294,7 @@ PipeOpMBsPCA = R6::R6Class(
     #' @param type character(1). One of "component" or "cumulative".
     #' @return A ggplot object.
     plot_scree = function(type = c("component", "cumulative")) {
-      if (!requireNamespace("ggplot2", quietly = TRUE)) {
-        stop("Package 'ggplot2' is required for this plot.")
-      }
+      .mbspls_require_suggested("scales", "PipeOpMBsPCA$plot_scree()")
       type = match.arg(type)
       st = self$state
       ev = st$ev_comp
@@ -385,62 +417,71 @@ PipeOpMBsPCA = R6::R6Class(
         keep.null = TRUE
       )
 
-      blocks = pv$blocks
-
-      ## 0) sanity-filter columns: numeric, non-constant ---------------
-      blocks = lapply(blocks, function(cols) {
-        cols = intersect(cols, names(dt)) # still present?
-        cols = cols[vapply(cols, \(cl) is.numeric(dt[[cl]]),
-          logical(1))] # numeric only
-        cols = cols[vapply(cols,
-          \(cl) mb_has_finite_variance(dt[[cl]]),
-          logical(1))] # non-constant
-        cols
-      })
-      blocks = Filter(length, blocks) # drop empty blocks
+      ## 0) resolve blocks; keep numeric, non-constant columns ----------
+      resolved = .mb_training_blocks(dt, pv$blocks)
+      blocks = resolved$blocks
       if (!length(blocks)) {
         stop("No block contains at least one usable numeric column.")
       }
       n_block = length(blocks)
 
-      ## 1) materialise block matrices ---------------------------------
-      X = lapply(blocks, \(cols) {
-        M = as.matrix(dt[, ..cols])
+      ## 1) materialise and centre block matrices ------------------------
+      X_raw = lapply(names(blocks), function(name) {
+        cols = blocks[[name]]
+        M = .mb_numeric_matrix(
+          as.matrix(dt[, ..cols]),
+          sprintf("training block '%s'", name)
+        )
         storage.mode(M) = "double"
         M
-      })
+      }) |>
+        stats::setNames(names(blocks))
+      # Variance explained, loadings and deflation refer to centred blocks.
+      center = .mb_block_means(X_raw)
+      X = .mb_center_blocks(X_raw, center)
 
       ## 2) handle c-matrix vs single-value per block ------------------
       if (!is.null(pv$c_matrix)) {
-        cm = pv$c_matrix
-        if (!is.matrix(cm) || !is.numeric(cm)) {
-          stop("`c_matrix` must be a numeric matrix.", call. = FALSE)
-        }
-        if (!is.null(rownames(cm))) {
-          missing_rows = setdiff(names(blocks), rownames(cm))
-          if (length(missing_rows)) {
-            stop(
-              sprintf(
-                "`c_matrix` rows must cover all retained blocks. Missing: %s",
-                paste(missing_rows, collapse = ", ")
-              ),
-              call. = FALSE
-            )
-          }
-          cm = cm[names(blocks), , drop = FALSE]
-        } else if (nrow(cm) != n_block) {
-          stop(sprintf("`c_matrix` must have %d rows (retained blocks); got %d.", n_block, nrow(cm)), call. = FALSE)
-        }
+        cm_input = .mb_align_c_matrix(
+          pv$c_matrix,
+          declared = names(pv$blocks),
+          retained = names(blocks)
+        )
+        cm = .mb_prepare_c_matrix(
+          blocks = X,
+          c_matrix = cm_input,
+          ncomp = ncol(cm_input),
+          ncomp_missing = FALSE,
+          upper_p = resolved$p_struct
+        )
+        cm = .mb_finalize_c_matrix(cm, X, self$id)
         pv$ncomp = ncol(cm) # override
       } else {
         cm = NULL
       }
 
+      run_perm = isTRUE(pv$permutation_test)
+      if (run_perm && n_block < 2L) {
+        warning(sprintf(
+          paste0(
+            "[%s] The MB-sPCA permutation diagnostic tests cross-block association ",
+            "and needs at least two usable blocks, but %d remain after column ",
+            "filtering. The diagnostic is skipped, the requested %d component(s) ",
+            "are kept and p_values are NA."
+          ),
+          self$id, n_block, as.integer(pv$ncomp)
+        ), call. = FALSE)
+        run_perm = FALSE
+      }
+
       ncomp = pv$ncomp
+      .mb_assert_component_rank(X, ncomp, "PipeOpMBsPCA")
       W_all = P_all = vector("list", ncomp)
       ev_blk = matrix(0, nrow = ncomp, ncol = length(blocks))
       colnames(ev_blk) = names(blocks)
       ev_cmp = numeric(ncomp)
+      p_values = rep(NA_real_, ncomp)
+      converged = rep(NA, ncomp)
 
       ## copy of X that we deflate iteratively
       X_res = X
@@ -451,8 +492,10 @@ PipeOpMBsPCA = R6::R6Class(
 
         ## sparsity vector for this PC
         c_k = if (is.null(cm)) {
+          # Filtering can shrink a block after its parameter bounds were set.
+          # Larger L1 budgets are nonbinding and therefore equivalent to sqrt(p).
           vapply(names(blocks),
-            \(bn) pv[[paste0("c_", bn)]],
+            \(bn) min(pv[[paste0("c_", bn)]], sqrt(ncol(X[[bn]]))),
             numeric(1))
         } else {
           cm[, k]
@@ -462,6 +505,7 @@ PipeOpMBsPCA = R6::R6Class(
         fit = cpp_mbspca_one_lv(X_res, c_k,
           max_iter = pv$max_iter, tol = pv$tol)
         Wk = fit$W
+        converged[k] = as.logical(fit$converged %||% NA)
 
         ## block scores & loadings
         Tk = matrix(0, nrow = nrow(X_res[[1]]), ncol = length(blocks))
@@ -487,29 +531,35 @@ PipeOpMBsPCA = R6::R6Class(
         P_all[[k]] = Pk
 
         ## permutation early-stop? ------------------------------------
-        if (isTRUE(pv$permutation_test)) {
+        if (run_perm) {
           p_val = perm_test_component_mbspca(X_res, Wk, c_k,
             n_perm    = pv$n_perm,
             alpha     = pv$perm_alpha,
             max_iter  = pv$max_iter,
             tol       = pv$tol)
-          if (p_val > pv$perm_alpha && k != 1L) { # always keep PC-1
-            W_all = W_all[seq_len(k - 1)]
-            P_all = P_all[seq_len(k - 1)]
-            ev_blk = ev_blk[seq_len(k - 1), , drop = FALSE]
-            ev_cmp = ev_cmp[seq_len(k - 1)]
-            ncomp = k - 1
+          p_values[[k]] = p_val
+          if (p_val > pv$perm_alpha) {
+            keep = seq_len(max(1L, k - 1L))
+            W_all = W_all[keep]
+            P_all = P_all[keep]
+            ev_blk = ev_blk[keep, , drop = FALSE]
+            ev_cmp = ev_cmp[keep]
+            p_values = p_values[keep]
+            converged = converged[keep]
+            ncomp = length(keep)
             break
           }
         }
 
         ## deflate residual matrices ----------------------------------
-        for (b in seq_along(blocks)) {
-          tb = Tk[, b]
-          denom = drop(crossprod(tb))
-          if (denom > 1e-12) {
-            pb = Pk[[b]]
-            X_res[[b]] = X_res[[b]] - tcrossprod(tb, pb)
+        if (k < ncomp) {
+          for (b in seq_along(blocks)) {
+            tb = Tk[, b]
+            denom = drop(crossprod(tb))
+            if (denom > 1e-12) {
+              pb = Pk[[b]]
+              X_res[[b]] = X_res[[b]] - tcrossprod(tb, pb)
+            }
           }
         }
       }
@@ -517,11 +567,7 @@ PipeOpMBsPCA = R6::R6Class(
       ## -- build output latent score table ---------------------------
       coln = unlist(lapply(seq_len(ncomp),
         \(k) paste0("PC", k, "_", names(blocks))))
-      X_scores = lapply(X, function(M) {
-        M = as.matrix(M)
-        storage.mode(M) = "double"
-        M
-      })
+      X_scores = X
       T_seq = vector("list", ncomp)
       for (k in seq_len(ncomp)) {
         Tk = do.call(cbind, lapply(seq_along(blocks), \(b) X_scores[[b]] %*% W_all[[k]][[b]]))
@@ -559,21 +605,30 @@ PipeOpMBsPCA = R6::R6Class(
           W_all[[k]][[b]] = pad_and_name(W_all[[k]][[b]], feat)
           P_all[[k]][[b]] = pad_and_name(P_all[[k]][[b]], feat)
         }
+        names(W_all[[k]]) = names(P_all[[k]]) = names(blocks)
       }
       names(W_all) = names(P_all) = comp_ids
       rownames(ev_blk) = comp_ids
       names(ev_cmp) = comp_ids
+      names(p_values) = comp_ids
+      names(converged) = comp_ids
+      .mb_warn_nonconverged(converged, sprintf("[%s] MB-sPCA", self$id), pv$max_iter)
 
       ## store state --------------------------------------------------
       self$state = list(
-        blocks   = blocks,
-        ncomp    = ncomp,
-        weights  = W_all,
+        blocks = blocks,
+        center = center,
+        ncomp = ncomp,
+        weights = W_all,
         loadings = P_all,
         ev_block = ev_blk,
-        ev_comp  = ev_cmp,
-        T_mat    = T_mat,
-        run_id   = NULL
+        ev_comp = ev_cmp,
+        p_values = p_values,
+        p_value_scope = if (run_perm) .mb_train_p_value_scope("mbspca") else NULL,
+        converged = converged,
+        c_matrix = cm,
+        T_mat = T_mat,
+        run_id = NULL
       )
 
       log_env = pv$log_env
@@ -583,11 +638,14 @@ PipeOpMBsPCA = R6::R6Class(
         log_env$mbspca_state = list(
           run_id = run_id,
           blocks = blocks,
+          center = center,
           ncomp = ncomp,
           weights = W_all,
           loadings = P_all,
           ev_block = ev_blk,
           ev_comp = ev_cmp,
+          p_values = p_values,
+          converged = converged,
           T_mat_train = T_mat,
           time = Sys.time()
         )
@@ -624,11 +682,11 @@ PipeOpMBsPCA = R6::R6Class(
         storage.mode(M) = "double"
         M
       })
-      X_for_ev = lapply(X_cur, function(M) {
-        storage.mode(M) = "double"
-        M
-      })
-      names(X_for_ev) = names(blocks)
+      names(X_cur) = names(blocks)
+      # Apply the training centre (absent in states fitted before centring)
+      X_cur = .mb_center_blocks(X_cur, st$center,
+        context = sprintf("[%s] Training centre", self$id))
+      X_for_ev = X_cur
 
       lat_list = vector("list", st$ncomp)
 
@@ -681,6 +739,10 @@ PipeOpMBsPCA = R6::R6Class(
       }
 
       dt_lat
+    },
+
+    .additional_phash_input = function() {
+      list(blocks = self$blocks)
     }
   )
 )

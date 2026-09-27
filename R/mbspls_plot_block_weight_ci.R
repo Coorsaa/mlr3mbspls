@@ -1,16 +1,33 @@
-#' Plot LC block weights with 95% CIs from a GraphLearner (or legacy inputs)
+#' Plot LC block weights with bootstrap intervals from a GraphLearner (or legacy inputs)
 #'
 #' @param x Either:
 #'   - a trained GraphLearner built with `mbspls_graph_learner()` (recommended), or
 #'   - a list like `list(mbspls = <pipeop or state>, mbspls_bootstrap_select = <pipeop or state>)`,
-#'     or your previous `c(glearner$model$mbspls, glearner$model$mbspls_bootstrap_select)`.
+#'     or a combined list such as `c(glearner$model$mbspls, glearner$model$mbspls_bootstrap_select)`.
 #' @param source One of c("weights","bootstrap").
-#'   * "bootstrap": uses aligned summaries from selection state (`weights_ci` + `weights_selectfreq`).
-#'   * "weights"  : aggregates across multiple MB-sPLS fits (means + Wald CIs).
+#'   * "bootstrap": uses the aligned summaries of the selection state
+#'     (`weights_ci` + `weights_selectfreq`). Bars show aligned bootstrap means,
+#'     error bars the percentile intervals at level `1 - alpha` of the
+#'     selector (stored as `alpha`; 0.05 if absent).
+#'   * "weights"  : aggregates across several MB-sPLS fits. Each fit's block
+#'     weights are sign-aligned to the first fit by the inner product (fits
+#'     whose inner product is numerically zero are left unchanged). Bars show
+#'     the mean and error bars mean +/- one SD across fits. This is a
+#'     descriptive spread, not a confidence interval: resampling fits share
+#'     most of their training data. With a single fit no bar is drawn.
 #' @param ci_filter One of c("none","excludes_zero","overlaps_zero").
-#'   * "excludes_zero": keep if (ci_low >= 0 | ci_high <= 0) AND |mean| > 1e-3.
+#'   * "excludes_zero": keep if the interval is strictly above or below zero
+#'     AND |mean| exceeds the selector's \code{magnitude_threshold} (1e-3 if
+#'     it is not stored or no selection state is supplied).
+#'   * "overlaps_zero": keep if the interval contains zero.
+#'
+#'   With \code{source = "bootstrap"} the interval is the stored percentile
+#'   interval. With \code{source = "weights"} it is mean +/- one SD across
+#'   fits, so "excludes_zero" keeps features whose mean lies more than one SD
+#'   from zero. With a single fit there is no interval, so both filters keep
+#'   nothing and an error is raised.
 #' @param top_n Integer or NULL. Keep top-N features per blockxcomponent by |mean|.
-#' @param add_block_rule Logical; thin rule between block facets (default FALSE; safe implementation).
+#' @param add_block_rule Logical; whether to draw a thin rule between block facets.
 #' @param font Character; font family (default "sans").
 #' @param alpha_by_stability Logical; for source="bootstrap", map bar alpha to selection frequency.
 #'
@@ -21,19 +38,14 @@ mbspls_plot_block_weight_ci = function(
   source = c("weights", "bootstrap"),
   ci_filter = c("none", "excludes_zero", "overlaps_zero"),
   top_n = NULL,
-  add_block_rule = TRUE, # now FALSE by default to avoid separator pitfalls
+  add_block_rule = TRUE,
   font = "sans",
   alpha_by_stability = TRUE
 ) {
   source = match.arg(source)
   ci_filter = match.arg(ci_filter)
 
-  requireNamespace("ggplot2")
-  requireNamespace("dplyr")
-  requireNamespace("tibble")
-  requireNamespace("stringr")
-  requireNamespace("RColorBrewer")
-  requireNamespace("grid")
+  .mbspls_require_suggested(c("dplyr", "tibble", "stringr", "RColorBrewer"), "mbspls_plot_block_weight_ci()")
 
   `%||%` = function(x, y) if (is.null(x)) y else x
   .nice = function(s) gsub("_", " ", s, fixed = TRUE)
@@ -81,10 +93,18 @@ mbspls_plot_block_weight_ci = function(
       if (is.null(st_sel)) stop("Cannot locate a PipeOpMBsPLSBootstrapSelect node in the model for bootstrap plotting.")
     }
   } else if (is.list(x)) {
-    if (!is.null(x$mbspls)) st_fit <- .get_state(x$mbspls)
-    if (!is.null(x$mbspls_bootstrap_select)) st_sel <- .get_state(x$mbspls_bootstrap_select)
-    if (is.null(st_fit) && length(x) >= 1L) st_fit <- .get_state(x[[1]])
-    if (is.null(st_sel) && length(x) >= 2L && source == "bootstrap") st_sel <- .get_state(x[[2]])
+    if (!is.null(x$mbspls)) {
+      st_fit = .get_state(x$mbspls)
+    }
+    if (!is.null(x$mbspls_bootstrap_select)) {
+      st_sel = .get_state(x$mbspls_bootstrap_select)
+    }
+    if (is.null(st_fit) && length(x) >= 1L) {
+      st_fit = .get_state(x[[1L]])
+    }
+    if (is.null(st_sel) && length(x) >= 2L && source == "bootstrap") {
+      st_sel = .get_state(x[[2L]])
+    }
     if (is.null(st_fit)) stop("Could not extract MB-sPLS state from the provided list.")
     if (is.null(st_sel) && source == "bootstrap") {
       stop("Could not extract bootstrap-select state from the provided list.")
@@ -100,9 +120,13 @@ mbspls_plot_block_weight_ci = function(
   df = NULL
   freq_tbl = NULL
   align_tag = NULL
+  interval_label = NULL
   comp_levels = sprintf("LC_%02d", seq_len(st_fit$ncomp %||% length(st_fit$weights) %||% 1L))
 
   if (source == "bootstrap") {
+    # intervals were computed at the selector's level 1 - alpha
+    a = as.numeric(st_sel$alpha %||% 0.05)
+    interval_label = sprintf("%g%% bootstrap percentile interval", 100 * (1 - a))
     ci_tbl = st_sel$weights_ci
     if (!is.null(ci_tbl) && nrow(ci_tbl)) {
       ci_df = as.data.frame(ci_tbl)
@@ -112,7 +136,7 @@ mbspls_plot_block_weight_ci = function(
       ci_df$feature = as.character(ci_df$feature)
       # limit to known blocks; keep components present in table
       ci_df = ci_df[ci_df$block %in% block_levels, , drop = FALSE]
-      present_comp = intersect(unique(ci_df$component), comp_levels)
+      present_comp = intersect(comp_levels, unique(ci_df$component))
       if (!length(present_comp)) stop("No bootstrap CI rows for any component in selection state.")
       comp_levels = present_comp
 
@@ -159,15 +183,15 @@ mbspls_plot_block_weight_ci = function(
       d$block = as.character(d$block)
       d$feature = as.character(d$feature)
       d = d[d$block %in% block_levels, , drop = FALSE]
-      comp_levels = intersect(unique(d$component), comp_levels)
+      comp_levels = intersect(comp_levels, unique(d$component))
       if (!length(comp_levels)) stop("No bootstrap draws for any component in the supplied model.")
 
       df = d |>
         dplyr::group_by(component, block, feature) |>
         dplyr::summarise(
           mean = mean(weight, na.rm = TRUE),
-          ci_low = .q(weight, 0.025),
-          ci_high = .q(weight, 0.975),
+          ci_low = .q(weight, a / 2),
+          ci_high = .q(weight, 1 - a / 2),
           .groups = "drop"
         )
       if (isTRUE(alpha_by_stability) && !is.null(st_sel$weights_selectfreq)) {
@@ -209,6 +233,8 @@ mbspls_plot_block_weight_ci = function(
         }
       }
       model_list = lapply(x, grab_fit)
+      # Only MB-sPLS fits enter the aggregation (e.g. not a selection state).
+      model_list = Filter(function(m) is.list(m) && is.list(m$weights), model_list)
     }
     if (is.null(model_list) || !length(model_list)) {
       stop("No MB-sPLS model(s) provided for source='weights'.")
@@ -220,26 +246,36 @@ mbspls_plot_block_weight_ci = function(
       dplyr::bind_rows(lapply(block_levels, function(b) {
         cols = lapply(model_list, function(sfi) get_one_weight_vec(sfi, k_lab, b))
         mat = do.call(cbind, lapply(cols, as.numeric))
-        rownames(mat) = names(cols[[1]])
-        if (ncol(mat) > 1) { # sign-align columns to the first
+        rownames(mat) = blocks[[b]]
+        if (ncol(mat) > 1) {
+          # Block signs are identified separately; align each fit's block
+          # weights to the first fit by their inner product.
           ref = mat[, 1]
           for (j in 2:ncol(mat)) {
-            cc = suppressWarnings(stats::cor(ref, mat[, j], use = "complete.obs"))
-            if (is.finite(cc) && cc < 0) mat[, j] <- -mat[, j]
+            dp = sum(ref * mat[, j])
+            tol = sqrt(.Machine$double.eps) * sqrt(sum(ref^2) * sum(mat[, j]^2))
+            if (is.finite(dp) && dp < -tol) {
+              mat[, j] = -mat[, j]
+            }
           }
         }
         mu = rowMeans(mat, na.rm = TRUE)
-        sdv = apply(mat, 1, stats::sd, na.rm = TRUE)
         n = ncol(mat)
-        half = if (n > 1) 1.96 * sdv / sqrt(n) else NA_real_
+        # descriptive spread across fits (mean +/- SD), not a confidence interval
+        sdv = if (n > 1) apply(mat, 1, stats::sd, na.rm = TRUE) else NA_real_
         tibble::tibble(component = k_lab, block = b, feature = rownames(mat),
           mean = as.numeric(mu),
-          ci_low = as.numeric(mu - half),
-          ci_high = as.numeric(mu + half))
+          ci_low = as.numeric(mu - sdv),
+          ci_high = as.numeric(mu + sdv))
       }))
     }))
     freq_tbl = NULL
     align_tag = "across_models"
+    interval_label = if (length(model_list) > 1L) {
+      sprintf("Across %d models: mean +/- SD (descriptive; fits may share data)", length(model_list))
+    } else {
+      "Single model: no interval"
+    }
   }
 
   # -- attach stability alpha (bootstrap only) ---------------------------------
@@ -253,13 +289,15 @@ mbspls_plot_block_weight_ci = function(
   }
 
   # -- CI filter (exact rule for excludes_zero) --------------------------------
+  # the selector's CI rule: interval excludes 0 and |mean| > magnitude_threshold
+  magnitude = as.numeric(st_sel$magnitude_threshold %||% 1e-3)
   df = df |>
     dplyr::mutate(abs_m = abs(mean))
 
   if (ci_filter == "excludes_zero") {
     df = df |>
-      dplyr::filter(ci_low >= 0 | ci_high <= 0) |>
-      dplyr::filter(abs_m > 1e-3)
+      dplyr::filter(ci_low > 0 | ci_high < 0) |>
+      dplyr::filter(abs_m > magnitude)
   } else if (ci_filter == "overlaps_zero") {
     df = df |>
       dplyr::filter(ci_low <= 0 & ci_high >= 0)
@@ -309,13 +347,13 @@ mbspls_plot_block_weight_ci = function(
   base_sz = .base_size_from_n(nrow(df))
 
   subtitle_bits = c(
-    if (source == "weights") "Across models" else "Across bootstrap replicates",
-    "95% CI",
+    if (source == "bootstrap") "Across bootstrap replicates" else NULL,
+    interval_label,
     if (!is.null(top_n)) sprintf("Top %d per blockxcomponent", as.integer(top_n)) else NULL,
     if (ci_filter != "none") {
       switch(ci_filter,
-        excludes_zero = "Filter: CI excludes 0 & |mean|>1e-3",
-        overlaps_zero = "Filter: CI overlaps 0",
+        excludes_zero = sprintf("Filter: interval excludes 0 & |mean|>%g", magnitude),
+        overlaps_zero = "Filter: interval overlaps 0",
         "Filter: none")
     },
     if (!is.null(align_tag) && source == "bootstrap") paste0("Aligned: ", align_tag)
@@ -350,7 +388,8 @@ mbspls_plot_block_weight_ci = function(
     ggplot2::theme(
       panel.grid.major.y = ggplot2::element_blank(),
       panel.grid.minor   = ggplot2::element_blank(),
-      panel.spacing      = grid::unit(0, "pt"),
+      panel.spacing.x    = grid::unit(2.5, "lines"),
+      panel.spacing.y    = grid::unit(0, "pt"),
       strip.placement    = "outside",
       strip.background   = ggplot2::element_rect(fill = NA, colour = NA),
       strip.text.y.left  = ggplot2::element_text(angle = 0, face = "bold"),

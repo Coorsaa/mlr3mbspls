@@ -11,42 +11,7 @@
   if (is.null(mbspca_id)) {
     return(NULL)
   }
-
-  po_tpl = learner$graph$pipeops[[mbspca_id]]
-  po_fit = tryCatch(learner$model[[mbspca_id]], error = function(e) NULL)
-
-  envs = Filter(
-    function(x) inherits(x, "environment"),
-    list(
-      tryCatch(po_fit$param_set$values$log_env, error = function(e) NULL),
-      tryCatch(po_tpl$param_set$values$log_env, error = function(e) NULL)
-    )
-  )
-  if (!length(envs)) {
-    return(NULL)
-  }
-
-  run_ids = unique(Filter(
-    function(x) !is.null(x) && nzchar(as.character(x)),
-    list(
-      tryCatch(po_fit$state$run_id %||% NULL, error = function(e) NULL),
-      tryCatch(po_tpl$state$run_id %||% NULL, error = function(e) NULL)
-    )
-  ))
-
-  for (env in envs) {
-    for (run_id in run_ids) {
-      by_id = env$mbspls_last[[as.character(run_id)]] %||% NULL
-      if (is.list(by_id)) {
-        return(by_id)
-      }
-    }
-    if (is.list(env$last)) {
-      return(env$last)
-    }
-  }
-
-  NULL
+  .mb_prediction_payload(learner, mbspca_id)
 }
 
 .mbspca_measure_key = function(measure) {
@@ -93,12 +58,21 @@ mbspca_measure_score_from_payload = function(payload, measure = "mbspca.mean_ev"
 #' @description
 #' A custom [mlr3::Measure] that computes the mean prediction-side explained
 #' variance of the retained MB-sPCA components from the payload written by
-#' `PipeOpMBsPCA` into `log_env$last` during `$predict()`.
+#' `PipeOpMBsPCA` into its `log_env` during `$predict()`.
 #'
 #' The measure is task-type agnostic and can therefore be used with clustering,
 #' classification, or regression pipelines that contain a `PipeOpMBsPCA` node.
-#' For `resample()` / `benchmark()`, set `store_models = TRUE` so the trained
-#' learner is available during scoring.
+#'
+#' Payloads are stored under the run id of the model that produced them
+#' (`log_env$mbspls_last[[run_id]]`) and looked up through the fitted MB-sPCA
+#' state of the scored learner, so every resampling iteration, benchmarked
+#' learner, or tuning configuration is scored on its own prediction. The
+#' measure has the `"requires_model"` property: set `store_models = TRUE` in
+#' [mlr3::resample()], [mlr3::benchmark()], [mlr3tuning::tune()],
+#' [mlr3tuning::ti()], and [mlr3tuning::auto_tuner()]; otherwise mlr3 stops
+#' with "requires the trained model". A known run id without a stored payload,
+#' e.g. after prediction in a parallel worker whose `log_env` does not reach the
+#' main process, yields `NA`.
 #'
 #' @section Construction:
 #' ```
@@ -127,7 +101,7 @@ MeasureMBSPCAMEV = R6::R6Class(
         range        = c(-Inf, Inf),
         task_type    = NA_character_,
         predict_type = NA_character_,
-        properties   = c("requires_learner", "requires_no_prediction"),
+        properties   = c("requires_learner", "requires_model", "requires_no_prediction"),
         packages     = "mlr3"
       )
     }

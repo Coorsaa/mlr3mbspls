@@ -1,5 +1,26 @@
 library(testthat)
 
+test_that("cpp_mbspls_one_lv returns the final fitted objective", {
+  set.seed(100)
+  blocks = list(
+    matrix(rnorm(90), 30, 3),
+    matrix(rnorm(120), 30, 4)
+  )
+  fit = cpp_mbspls_one_lv(
+    blocks,
+    c_constraints = c(sqrt(3), 2),
+    max_iter = 25L,
+    tol = 1e-2
+  )
+  recalculated = cpp_block_objective_oos(blocks, fit$W)
+
+  expect_equal(fit$objective, recalculated, tolerance = 1e-12)
+  expect_error(
+    cpp_mbspls_one_lv(blocks, c(0.5, 2), 25L, 1e-2),
+    "at least 1"
+  )
+})
+
 # ── cpp_lm_coeff_ridge: lambda < 0 guard ─────────────────────────────────────
 test_that("cpp_lm_coeff_ridge errors on negative lambda", {
   X = cbind(1, matrix(rnorm(30), 10))
@@ -47,6 +68,63 @@ test_that("perm_test_component_mbspca errors on non-positive c_vec", {
     perm_test_component_mbspca(X, W, c(-1.0, 1.5), n_perm = 19L),
     "strictly positive"
   )
+  expect_error(
+    perm_test_component_mbspca(X, W[1L], c(1.0, 1.5), n_perm = 19L),
+    "W_list length"
+  )
+  expect_error(
+    perm_test_component_mbspca(X, W, c(1.0, 1.5), n_perm = 0L),
+    "n_perm"
+  )
+})
+
+test_that("cpp_mbspca_one_lv remains finite on unscaled heterogeneous blocks", {
+  blocks = list(
+    eng = as.matrix(mtcars[, c("disp", "hp", "drat")]),
+    body = as.matrix(mtcars[, c("wt", "qsec")])
+  )
+  budgets = sqrt(vapply(blocks, ncol, integer(1L)))
+
+  fit = cpp_mbspca_one_lv(blocks, budgets, max_iter = 60L, tol = 1e-4)
+
+  expect_true(all(vapply(fit$W, function(weight) {
+    all(is.finite(weight))
+  }, logical(1L))))
+  expect_equal(
+    vapply(fit$W, function(weight) sqrt(sum(weight^2)), numeric(1L)),
+    rep(1, length(blocks)),
+    tolerance = 1e-8
+  )
+  expect_true(all(
+    vapply(fit$W, function(weight) sum(abs(weight)), numeric(1L)) <=
+      budgets + 1e-6
+  ))
+  expect_error(
+    cpp_mbspca_one_lv(blocks, c(0.5, budgets[[2L]]), 60L, 1e-4),
+    "\\[1, sqrt\\(p\\)\\]"
+  )
+})
+
+test_that("perm_test_component_mbspca consumes every requested permutation", {
+  set.seed(13)
+  X = list(matrix(rnorm(36), 12, 3), matrix(rnorm(36), 12, 3))
+  fit = cpp_mbspca_one_lv(X, c(sqrt(3), sqrt(3)))
+
+  # Stopping early at alpha = 0 would end both calls after the same 52
+  # replicates and leave identical RNG states; using every requested
+  # permutation makes the following draws differ.
+  set.seed(44)
+  perm_test_component_mbspca(
+    X, fit$W, c(sqrt(3), sqrt(3)), n_perm = 55L, alpha = 0
+  )
+  after_55 = runif(1)
+  set.seed(44)
+  perm_test_component_mbspca(
+    X, fit$W, c(sqrt(3), sqrt(3)), n_perm = 56L, alpha = 0
+  )
+  after_56 = runif(1)
+
+  expect_false(identical(after_55, after_56))
 })
 
 # ── perm_test_component_mbspca: max_iter / tol are forwarded ──────────────────

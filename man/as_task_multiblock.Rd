@@ -122,7 +122,15 @@ for unsupervised, classification, and regression examples.
 
 \code{task_multiblock_breast_tcga()} and \code{task_multiblock_potato()} are optional
 dataset adapters for the \code{mixOmics::breast.TCGA} and \code{multiblock::potato}
-examples discussed in the package README.
+examples discussed in the package README. The breast TCGA task has the
+blocks \code{mRNA}, \code{miRNA}, and \code{protein} and, for classification, the target
+\code{subtype}.
+
+\code{block_features(materialize = TRUE)}, \code{block_data()}, and \code{overview()}
+resolve declared block columns against the task's current features with
+\code{\link[=mb_resolve_block_columns]{mb_resolve_block_columns()}}: a declared feature that was replaced by
+encoded columns (e.g. factor \code{sex} by \code{sex.m} and \code{sex.x} after
+\code{po("encode")}) resolves to those columns.
 }
 \details{
 Multi-block task factory, packaged toy tasks, and dataset adapters
@@ -154,10 +162,10 @@ toy_unsup = task_multiblock_synthetic(task_type = "clust")
 toy_class = task_multiblock_synthetic(task_type = "classif")
 toy_regr = task_multiblock_synthetic(task_type = "regr")
 
-\dontrun{
+\donttest{
 if (requireNamespace("mixOmics", quietly = TRUE)) {
-  tcga = try(task_multiblock_breast_tcga(task_type = "classif"), silent = TRUE)
-  if (!inherits(tcga, "try-error")) tcga$block_names
+  tcga = task_multiblock_breast_tcga(task_type = "classif")
+  tcga$block_names
 }
 
 if (requireNamespace("multiblock", quietly = TRUE)) {

@@ -4,24 +4,33 @@
 \alias{collect_mbspls_nested_cv}
 \title{Collect and summarize results from MB-sPLS nested CV Batchtools jobs}
 \usage{
-collect_mbspls_nested_cv(ids = NULL, reg)
+collect_mbspls_nested_cv(ids = NULL, reg, allow_partial = FALSE)
 }
 \arguments{
-\item{ids}{A vector of job IDs corresponding to the completed outer fold jobs.}
+\item{ids}{A vector (or job table) of job IDs of the outer fold jobs to
+collect, or \code{NULL} (default) for all jobs of the registry. IDs that are not
+in the registry are an error.}
 
-\item{reg}{A \code{batchtools} registry object returned by
-\code{mbspls_nested_cv_batchtools()}.}
+\item{reg}{A \code{batchtools} registry object, or the list returned by
+\code{\link[=mbspls_nested_cv_batchtools]{mbspls_nested_cv_batchtools()}}.}
+
+\item{allow_partial}{Logical; if \code{TRUE}, summarise the finished jobs and
+report unfinished or failed jobs as rows with missing scores instead of
+stopping (default \code{FALSE}).}
 }
 \value{
 A list containing:
 \itemize{
-\item \code{results}: A data.table with the results from each outer fold, including
-the selected objective (\code{measure_id}, \code{measure_key}, \code{measure_test},
-\code{measure_test_defined}, \code{measure_test_status}) plus secondary diagnostics
-such as \code{mac_lv1_test} and \code{mac_evwt_test}.
-\item \code{c_mats}: A list of the tuned C* matrices from each outer fold.
-\item \code{inner_scores}: A numeric vector of the best inner cross-validation
-scores from each outer fold.
+\item \code{results}: A data.table with one row per requested outer split, ordered
+by split, including the selected objective (\code{measure_id}, \code{measure_key},
+\code{measure_test}, \code{measure_test_defined}, \code{measure_test_status}), the
+number of components whose latent correlation was undefined and scored as
+zero (\code{measure_test_n_undefined}), plus secondary diagnostics such as
+\code{mac_lv1_test} and \code{mac_evwt_test}.
+\item \code{c_mats}: A list of the tuned C* matrices from each outer split (\code{NULL}
+for unfinished splits).
+\item \code{inner_scores}: A numeric vector of the tuner's inner cross-validation
+scores from each outer split (\code{NA} for unfinished splits).
 \item \code{payloads}: (optional) A list of the full payloads from each outer fold
 (if \code{store_payload = TRUE} was set).
 \item \code{summary_table}: A data.table with summary statistics across all outer folds,
@@ -34,6 +43,17 @@ MB-sPLS nested cross-validation jobs that were submitted to the
 Batchtools registry. It gathers the results from each outer fold,
 including the final model performance metrics and the inner cross-validation
 results. It also computes summary statistics across all outer folds.
+}
+\details{
+An outer-performance estimate computed from the folds that happened to
+finish is biased and would be presented as complete, so by default every
+requested job must have finished successfully. If a job errored, expired,
+is still queued or running, or was never submitted, the function stops with
+a report of the affected outer splits. With \code{allow_partial = TRUE} it warns
+instead and adds a row with missing scores for each unfinished split, whose
+\code{measure_test_status} describes the job status (including the error
+message). These rows count towards \code{n_total} and \code{n_failed} in the summary
+table.
 }
 \seealso{
 \code{mbspls_nested_cv_batchtools()}

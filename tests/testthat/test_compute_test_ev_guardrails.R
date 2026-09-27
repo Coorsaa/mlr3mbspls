@@ -1,7 +1,7 @@
 test_that("mac_comp is NaN (not 0) when all test block scores have zero variance", {
   # When every column of every test block is constant, Pearson correlations are
-  # undefined (n_pairs == 0 in C++).  The result must be NaN so downstream
-  # na.rm=TRUE summaries exclude it rather than treating missing correlation as 0.
+  # undefined (n_pairs == 0 in C++). NaN marks that no cross-block pair is
+  # identifiable, as opposed to an observed zero correlation.
   x_const = matrix(1, nrow = 5, ncol = 2)
   colnames(x_const) = c("a1", "a2")
   colnames(x_const) = c("a1", "a2") # both blocks constant
@@ -25,7 +25,8 @@ test_that("mac_comp is NaN (not 0) when all test block scores have zero variance
     loading_source = "train"
   )
 
-  # mac_comp must be NaN, not 0, so EV-weighted aggregation can skip it safely
+  # mac_comp must be NaN, not 0: no cross-block pair is identifiable, and the
+  # R measures score such a component as zero association
   expect_true(is.nan(res$mac_comp[[1L]]),
     info = "mac_comp should be NaN when all block scores are degenerate (zero-variance)")
   expect_true(is.na(mean(res$mac_comp, na.rm = FALSE)),

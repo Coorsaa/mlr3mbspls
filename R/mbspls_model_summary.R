@@ -28,7 +28,29 @@
 #' @param include_stability Logical; include bootstrap stability summaries when
 #'   they are available.
 #'
-#' @return A named list of `data.table` objects.
+#' @return A named list of `data.table` objects:
+#' * `overview`: one row with `source`, `model`, `pipeop_id`, `n_components`,
+#'   `n_blocks`, `performance_metric`, `correlation_method` and `run_id` (for
+#'   MB-sPLS-XY also `emit_y_scores`).
+#' * `components`: one row per component. MB-sPLS and MB-sPLS-XY report
+#'   `objective` (training latent correlation) and MB-sPLS/MB-sPCA report
+#'   `ev_comp` (training explained variance, SS-weighted across blocks); all
+#'   models report `conditional_p_value` and `p_value_scope`, and MB-sPLS-XY
+#'   also `n_target_columns`. `conditional_p_value` is the train-time
+#'   component-wise permutation diagnostic (`permutation_test = TRUE`): it
+#'   conditions on the fixed preprocessed data and hyperparameters, is not
+#'   full-pipeline or LC-specific inference and is `NA` when the diagnostic did
+#'   not run. `p_value_scope` states this scope (`NA` without a diagnostic).
+#'   For reportable inference use [mbspls_permutation_test()],
+#'   [mb_permutation_test()] or [mb_lc_confirmation_test()].
+#' * `blocks`: one row per component and block with `n_features`, `n_selected`
+#'   (non-zero weights) and, where available, `ev_block`.
+#' * `weights` (if `include_weights = TRUE`): one row per component, block and
+#'   feature with `weight`, `loading` and `selected`; MB-sPLS-XY adds the target
+#'   block as `".target"`.
+#' * `stability` (MB-sPLS with a bootstrap-selection node and
+#'   `include_stability = TRUE`): bootstrap means, standard deviations,
+#'   intervals, selection frequencies and stable weights per feature.
 #'
 #' @examples
 #' task = mlr3::tsk("mbspls_synthetic_blocks")
@@ -291,6 +313,26 @@ mb_named_ev_block = function(ev_block, component_names, block_names) {
 }
 
 
+# Train-time permutation p-values of a fitted state (NA when absent).
+mb_summary_p_values = function(state, n_components) {
+  p_values = as.numeric(state$p_values %||% rep(NA_real_, n_components))
+  if (length(p_values) != n_components) {
+    p_values = rep(NA_real_, n_components)
+  }
+  p_values
+}
+
+
+# Scope statement of the train-time permutation p-values (NA without them).
+mb_summary_p_value_scope = function(state, p_values) {
+  scope = state$p_value_scope
+  if (!is.character(scope) || length(scope) != 1L || all(is.na(p_values))) {
+    scope = NA_character_
+  }
+  rep(scope, length(p_values))
+}
+
+
 mb_summary_from_mbspls = function(state, pipeop_id, source, selection_state = NULL, include_weights = TRUE, include_stability = TRUE) {
   blocks = mb_normalize_blocks(state$blocks, .var.name = "state$blocks")
   weights = state$weights
@@ -298,7 +340,7 @@ mb_summary_from_mbspls = function(state, pipeop_id, source, selection_state = NU
   component_names = mb_component_names(weights, "LC_%02d")
   ev_comp = as.numeric(state$ev_comp %||% rep(NA_real_, length(component_names)))
   obj_vec = as.numeric(state$obj_vec %||% rep(NA_real_, length(component_names)))
-  p_values = as.numeric(state$p_values %||% rep(NA_real_, length(component_names)))
+  p_values = mb_summary_p_values(state, length(component_names))
   ev_block = mb_named_ev_block(state$ev_block %||% NULL, component_names = component_names, block_names = names(blocks))
 
   overview = data.table::data.table(
@@ -315,7 +357,8 @@ mb_summary_from_mbspls = function(state, pipeop_id, source, selection_state = NU
   components = data.table::data.table(
     component = component_names,
     objective = obj_vec,
-    p_value = p_values,
+    conditional_p_value = p_values,
+    p_value_scope = mb_summary_p_value_scope(state, p_values),
     ev_comp = ev_comp
   )
 
@@ -410,8 +453,17 @@ mb_summary_from_mbspls = function(state, pipeop_id, source, selection_state = NU
 
 mb_summary_from_mbspca = function(state, pipeop_id, source, include_weights = TRUE) {
   blocks = mb_normalize_blocks(state$blocks, .var.name = "state$blocks")
-  weights = state$weights
-  loadings = state$loadings
+  # States fitted by older versions store unnamed block lists in block order.
+  name_blocks = function(components) {
+    lapply(components, function(x) {
+      if (is.list(x) && is.null(names(x)) && length(x) == length(blocks)) {
+        names(x) = names(blocks)
+      }
+      x
+    })
+  }
+  weights = name_blocks(state$weights)
+  loadings = name_blocks(state$loadings)
   component_names = mb_component_names(weights, "PC%d")
   ev_comp = as.numeric(state$ev_comp %||% rep(NA_real_, length(component_names)))
   ev_block = mb_named_ev_block(state$ev_block %||% NULL, component_names = component_names, block_names = names(blocks))
@@ -427,9 +479,12 @@ mb_summary_from_mbspca = function(state, pipeop_id, source, include_weights = TR
     run_id = state$run_id %||% NA_character_
   )
 
+  p_values = mb_summary_p_values(state, length(component_names))
   components = data.table::data.table(
     component = component_names,
-    ev_comp = ev_comp
+    ev_comp = ev_comp,
+    conditional_p_value = p_values,
+    p_value_scope = mb_summary_p_value_scope(state, p_values)
   )
 
   block_rows = list()
@@ -507,7 +562,13 @@ mb_summary_from_mbsplsxy = function(state, pipeop_id, source, include_weights = 
   }
   blocks_dt = data.table::rbindlist(block_rows, use.names = TRUE, fill = TRUE)
 
-  components = data.table::data.table(component = component_names)
+  p_values = mb_summary_p_values(state, length(component_names))
+  components = data.table::data.table(
+    component = component_names,
+    objective = as.numeric(state$obj_vec %||% rep(NA_real_, length(component_names))),
+    conditional_p_value = p_values,
+    p_value_scope = mb_summary_p_value_scope(state, p_values)
+  )
   if (is.list(weights_y) && length(weights_y)) {
     components[, n_target_columns := vapply(weights_y, length, integer(1))]
   }

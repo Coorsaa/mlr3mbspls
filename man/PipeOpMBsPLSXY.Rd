@@ -10,21 +10,36 @@ each X-block.
 \description{
 \strong{PipeOpMBsPLSXY} is a supervised variant of MB-sPLS. During training, the
 target (\eqn{Y}) is appended as its own block alongside the input blocks
-\eqn{X_1,\dots,X_B}, so that extracted components maximize correlation
-between X-blocks and Y. For downstream learners, only the \strong{X-side} latent
-scores (LVs) are output (no Y leakage).
+\eqn{X_1,\dots,X_B}, so that extracted components reflect associations
+among the input and target blocks. The block-wise (Gauss-Seidel) PMD weight
+updates, the deterministic start and the stopping rule are those of
+\link{PipeOpMBsPLS}; correlation criteria control evaluation only. For downstream
+learners, only the \strong{X-side} latent scores (LVs) are output, at train and
+at predict time; target-side scores never become features.
 
 \strong{Handling encoded column names.} If upstream encoding expands/renames factors
 into dummy columns like \code{"base.level"} (e.g., via
 \code{PipeOpEncode(method = "treatment" | "one-hot")}), you may keep using the
 \strong{base names} in \code{blocks} (e.g., \code{"MINI_dx"}). At \verb{$train()}, base names are
-expanded to the actual post-encoding columns via regex \code{^<base>(\\.|$)}.
-The resolved names are stored and reused at prediction; missing trained columns
-now raise an explicit error instead of being synthesized as zeros.
+resolved to the actual post-encoding columns by \code{\link[=mb_resolve_block_columns]{mb_resolve_block_columns()}};
+the resolved blocks must be disjoint. The resolved names are stored and
+reused at prediction; missing trained columns raise an explicit error
+instead of being synthesized as zeros.
+
+\strong{Centring.} Every retained X column is centred by its training mean; the
+means are stored in the state and subtracted from prediction data. The target
+block is centred (and optionally scaled) with its training statistics during
+training only.
 
 For classification tasks, Y is internally one-hot encoded (no intercept).
-You can replicate the target block via \code{y_rep} to increase its weight in the
-objective.
+\code{y_rep} repeats target columns within the same block. This can change the
+sparsity geometry, but is not an explicit target-block weight because score
+contributions are standardized. This implementation deflates every block
+symmetrically, so
+the requested component count cannot exceed the effective rank of the
+preprocessed target block. In particular, a centred binary or univariate
+outcome supports one supervised component. Replicating target columns does
+not increase their rank.
 
 \strong{Sparsity constraints.} Either provide a full \code{c_matrix} (rows = blocks
 including target, columns = components), or use per-block \code{c_<block>}
@@ -37,9 +52,32 @@ Supervised Multi-Block Sparse PLS (MB-sPLS-XY) Transformer
 
 \describe{
 \item{\code{blocks_x}}{Resolved X-blocks (numeric, non-constant features).}
+\item{\code{center}}{Named list (by X-block) of training column means,
+each a numeric vector named by column.}
+\item{\code{target_columns}}{Names of the fitted target-block columns.}
 \item{\code{ncomp}}{Number of extracted components.}
-\item{\code{weights_x}, \code{loadings_x}}{Lists per component with weights/loadings per X-block.}
-\item{\code{performance_metric}}{\code{"mac"} (mean absolute correlation) or \code{"frobenius"}.}
+\item{\code{weights_x}, \code{loadings_x}}{Lists per component with named
+weights/loadings per X-block.}
+\item{\code{weights_y}, \code{loadings_y}}{Lists per component with the
+target-block weights/loadings.}
+\item{\code{c_matrix}}{Sparsity matrix actually used when \code{c_matrix}
+was supplied (retained X-blocks plus \code{.target}), otherwise
+\code{NULL}.}
+\item{\code{obj_vec}}{Training objective (MAC/Frobenius) per component,
+computed over the X-blocks and the target block.}
+\item{\code{p_values}}{Conditional component-wise permutation p-values of
+the training diagnostic (\code{NA} when \code{permutation_test =
+        FALSE}). They assume the supplied preprocessed data and
+hyperparameters are fixed and are not full-pipeline inference.}
+\item{\code{p_value_scope}}{Description of that scope when the diagnostic
+ran, otherwise \code{NULL}.}
+\item{\code{converged}, \code{iterations}}{Per component: whether the
+solver converged and the number of sweeps it used.}
+\item{\code{performance_metric}, \code{correlation_method}}{Settings used
+for the objective.}
+\item{\code{emit_y_scores}, \code{scores_y}}{Whether target-side scores
+were requested and, if so, the training target scores (matrix with
+columns \code{LVk_.Y}, rows in training-task order).}
 }
 }
 
@@ -55,6 +93,62 @@ operator errors explicitly.
 
 Hyperparameters are defined in the object's \code{param_set} and can be set
 via \code{param_vals}.
+\itemize{
+\item \code{blocks} (\code{uty}, default: the constructor \code{blocks}; tag \code{"train"}): named
+list mapping X-block names to declared feature names (base names are
+resolved to post-encoding columns). Non-numeric columns and columns
+without finite positive variance in the training data are dropped, and
+blocks without usable columns are dropped.
+\item \code{ncomp} (\code{int}, default \code{1}; tag \code{"train"}): number of components; at most
+the effective rank of the preprocessed target block. Replaced by
+\code{ncol(c_matrix)} when \code{c_matrix} is set.
+\item \code{correlation_method} (\code{fct}, \code{"pearson"} (default) or \code{"spearman"}; tags
+\code{c("train", "predict")}): correlation of block scores used for the
+objective and the permutation diagnostic.
+\item \code{performance_metric} (\code{fct}, \code{"mac"} (default) or \code{"frobenius"}; tags
+\code{c("train", "predict")}): latent-correlation summary reported per
+component.
+\item \code{permutation_test} (\code{lgl}, default \code{FALSE}; tag \code{"train"}): run a
+conditional component-wise permutation diagnostic after each component and
+stop extraction when its p-value exceeds \code{perm_alpha} (LV1 is always
+retained). The p-values are stored in \verb{$state$p_values}. It conditions on
+the supplied preprocessed data and hyperparameters and is not a
+full-pipeline test.
+\item \code{n_perm} (\code{int}, default \code{100}; tag \code{"train"}): permutations of the
+diagnostic.
+\item \code{perm_alpha} (\code{dbl} in \verb{[0, 1]}, default \code{0.05}; tag \code{"train"}): cutoff for
+the conditional diagnostic.
+\item \code{c_matrix} (\code{uty}, default \code{NULL}; tags \code{c("train", "tune")}): matrix of L1
+budgets (rows = X-blocks and optionally \code{".target"}, columns = components).
+Named rows must be unique and non-empty, and the X rows must match either
+all declared or all retained X-blocks. An unnamed matrix is matched by
+position to the declared layout: one row per declared X-block, optionally
+followed by the target row. A missing target row is filled with
+\code{min(c_target, sqrt(p_target))}. X entries must lie in \verb{[1, sqrt(p_b)]},
+where \code{p_b} is the structural width of the block (its resolved numeric
+columns before constant columns are removed); entries above \code{sqrt(p)} of
+the retained columns are nonbinding, capped there and logged. The target
+entry must lie in \verb{[1, sqrt(p_target)]} of the fitted target columns.
+\item \code{y_rep} (\code{int}, default \code{1}; tags \code{c("train", "tune")}): replications of the
+target columns within the target block.
+\item \code{emit_y_scores} (\code{lgl}, default \code{FALSE}; tag \code{"train"}): store the training
+target-block latent scores in \verb{$state$scores_y} for inspection. They are
+never added to the task features, because they are functions of the
+outcome.
+\item \code{center_y} (\code{lgl}, default \code{TRUE}; tag \code{"train"}): retained for backward
+compatibility. The target block is always centred by its training means;
+\code{FALSE} is ignored with a warning.
+\item \code{scale_y} (\code{lgl}, default \code{TRUE}; tag \code{"train"}): scale the target columns
+to unit training standard deviation.
+\item \verb{c_<block>} (one \code{dbl} per X-block, lower \code{1}, upper \code{sqrt(p_b)} of the
+declared names, default \code{max(1, sqrt(p_b) / 3)}; tags \code{c("train", "tune")}):
+L1 budget of the unit-L2 weight vector of that block.
+\item \code{c_target} (\code{dbl} in \verb{[1, 20]}, default \code{5}; tags \code{c("train", "tune")}): L1
+budget of the target block, capped at \code{sqrt(p_target)}.
+\item \code{log_env} (\code{environment} or \code{NULL}, default \code{NULL}; tag \code{"predict"}): if
+set, \verb{$predict()} writes a compact payload (test scores, block names,
+\code{ncomp}, metric) to \code{log_env$last}.
+}
 }
 
 \seealso{

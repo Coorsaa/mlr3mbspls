@@ -24,7 +24,7 @@ number of rows (samples). Column names are used to align named weights/loadings.
 \item{W_all}{\code{list}. Component-wise weight vectors learned in training.
 Must be a list of length \code{K}; each element is a block-wise list of length
 \code{B} containing weight vectors. Named vectors are aligned to the test
-block column names and must cover all trained features; missing entries now
+block column names and must cover all trained features; missing entries
 raise an error instead of being silently zero-filled.}
 
 \item{P_all}{\code{list} or \code{NULL}. Optional component-wise block loadings.
@@ -115,6 +115,13 @@ Because this is a true out-of-sample measure, incremental EV may be
 \emph{negative} (the deflation step increases SS on new data), unless you
 clamp values via \code{clamp_ev}.
 
+\strong{Centring.} The trained weights and loadings refer to blocks centred
+by their \emph{training} column means, so \code{X_blocks_test} must be
+centred with those training means (not with the test means) before calling
+this function; \link{PipeOpMBsPLS} and \code{\link[=compute_pipeop_test_ev]{compute_pipeop_test_ev()}} do this. The
+total SS \eqn{\|X_{b,\mathrm{test}}^{(0)}\|_F^2} then includes any shift
+of the test means away from the training means.
+
 \strong{Deflation behavior.}
 If \code{deflate = TRUE} (recommended; matches training), components are applied
 sequentially and the test residuals are updated after each component.
@@ -135,8 +142,8 @@ yielding a "weights-only" EV diagnostic (note this uses test data to
 estimate \eqn{p}).
 }
 If \code{P_all} is \code{NULL} or empty, callers must choose
-\code{loading_source = "test_ls"} explicitly; \code{"auto"} now errors
-instead of silently changing the diagnostic definition.
+\code{loading_source = "test_ls"} explicitly; \code{"auto"} errors instead
+of silently changing the diagnostic definition.
 
 \strong{Latent correlation (MAC/Frobenius).}
 For each component, the function computes pairwise correlations between block

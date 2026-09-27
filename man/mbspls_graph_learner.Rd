@@ -24,7 +24,9 @@ mbspls_graph_learner(
   val_test_alpha = 0.05,
   val_test_n = 1000L,
   val_test_permute_all = TRUE,
+  seed_validation = NULL,
   bootstrap = TRUE,
+  store_train_blocks = bootstrap,
   stability_only = FALSE,
   B = 500L,
   alpha = 0.05,
@@ -34,6 +36,7 @@ mbspls_graph_learner(
   frequency_threshold = 0.6,
   stable_weight_source = c("training", "bootstrap_mean"),
   stratify_by_block = NULL,
+  bootstrap_groups = NULL,
   seed_train = NULL,
   seed_bootstrap = NULL,
   workers = 1L,
@@ -56,14 +59,30 @@ mbspls_graph_learner(
 
 \item{c_matrix}{Optional L1 constraint matrix for MB-sPLS.}
 
-\item{permutation_test, n_perm, perm_alpha}{Train-time permutation test (MB-sPLS).}
+\item{permutation_test, n_perm, perm_alpha}{Conditional component-wise
+train-time permutation diagnostic (MB-sPLS), not a full-pipeline test.}
 
 \item{predict_weights}{character; one of "auto","raw","stable_ci","stable_frequency".
-Controls which weights PipeOpMBsPLS uses at predict/validation time.}
+Weights that \link{PipeOpMBsPLS} evaluates in its prediction-side payload and
+\code{val_test} diagnostics. The emitted LV features always use the training
+weights; with bootstrap selection active (and \code{stability_only = FALSE}),
+\link{PipeOpMBsPLSBootstrapSelect} replaces them by stable-weight LVs at train
+and predict time. With \code{stability_only = TRUE}, \code{"auto"} evaluates the raw
+weights and \code{"stable_ci"}/\code{"stable_frequency"} are rejected, because no
+feature of that graph is derived from the stable weights.}
 
-\item{val_test, val_test_alpha, val_test_n, val_test_permute_all}{Prediction-side validation (MB-sPLS).}
+\item{val_test, val_test_alpha, val_test_n, val_test_permute_all}{Prediction-side
+conditional permutation diagnostic or descriptive bootstrap uncertainty.}
+
+\item{seed_validation}{Optional seed for prediction-side diagnostics; one
+deterministic stream is assigned per component.}
 
 \item{bootstrap}{Logical; run bootstrap selection (default TRUE).}
+
+\item{store_train_blocks}{Logical; retain the fitted (training-centred)
+block matrices for bootstrap selection, post-fit summaries and plots. The
+default follows \code{bootstrap}. It must be \code{TRUE} when bootstrap selection is
+enabled.}
 
 \item{stability_only}{Logical; only compute stability, no selection (default FALSE).}
 
@@ -71,7 +90,8 @@ Controls which weights PipeOpMBsPLS uses at predict/validation time.}
 
 \item{alpha}{Numeric; CI alpha (default 0.05).}
 
-\item{align}{"block_sign" (default) or "global_correlation".}
+\item{align}{Bootstrap sign alignment passed to \link{PipeOpMBsPLSBootstrapSelect}:
+\code{"block_sign"} (default) or \code{"score_correlation"}.}
 
 \item{bootstrap_selection}{Logical; whether to run bootstrap-based feature
 selection inside \link{PipeOpMBsPLSBootstrapSelect} (default TRUE).}
@@ -84,11 +104,19 @@ selection inside \link{PipeOpMBsPLSBootstrapSelect} (default TRUE).}
 
 \item{stratify_by_block}{Optional dummy block for stratified bootstrap (e.g., "Studygroup").}
 
-\item{seed_train}{Optional seed for MB-sPLS training.}
+\item{bootstrap_groups}{Optional exchangeability-group vector for cluster
+bootstrap sampling. Named vectors are aligned to task row IDs.}
 
-\item{seed_bootstrap}{Optional seed for bootstrap selection.}
+\item{seed_train}{Optional seed for random draws during MB-sPLS training,
+i.e. the permutations of \code{permutation_test}. The fit itself is
+deterministic and does not depend on the seed.}
 
-\item{workers}{Integer; Unix workers (default cores-1).}
+\item{seed_bootstrap}{Optional seed for the bootstrap replicates of
+\link{PipeOpMBsPLSBootstrapSelect}; when set, each replicate gets its own
+deterministic RNG stream. The default \code{NULL} matches the PipeOp and uses
+the ambient RNG, so results are reproducible with \code{\link[=set.seed]{set.seed()}}.}
+
+\item{workers}{Integer; number of cross-platform bootstrap workers.}
 
 \item{id_suffix}{Optional suffix for PipeOp ids.}
 

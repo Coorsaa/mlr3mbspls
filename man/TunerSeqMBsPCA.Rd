@@ -11,12 +11,57 @@ the aggregated value of \code{mbspca.mean_ev} for the selected \code{c_matrix}.
 \description{
 \code{TunerSeqMBsPCA} tunes one component at a time for \code{PipeOpMBsPCA}, choosing
 block-wise sparsity budgets by inner resampling and deflation. Candidate
-solutions are now scored with the package's MB-sPCA measure
-\code{mbspca.mean_ev}, i.e. the same prediction-side explained-variance quantity
-exposed to users, rather than a separate hard-coded proxy objective.
+solutions are scored with the package's MB-sPCA measure \code{mbspca.mean_ev},
+i.e. the same prediction-side explained-variance quantity exposed to users,
+rather than a separate hard-coded proxy objective.
 
 The tuner supports only the package-native MB-sPCA measure
-\code{mbspca.mean_ev}. Passing any other measure now errors explicitly.
+\code{mbspca.mean_ev}. Passing any other measure errors explicitly.
+}
+\details{
+\strong{Inner folds mirror the final fit.} For every inner fold, the
+preprocessing graph upstream of \code{PipeOpMBsPCA} is trained on the fold's
+training rows only and applied to its validation rows. Block columns are
+resolved exactly as \code{PipeOpMBsPCA} resolves them, from the feature columns it
+receives (never the target, and only those selected by its
+\code{affect_columns}): \code{\link[=mb_resolve_block_columns]{mb_resolve_block_columns()}} (so encoded factor columns
+belong to their declared block), followed by the numeric and
+finite-variance filters. Blocks without a usable column on the full tuning
+task are dropped with a warning, as \code{PipeOpMBsPCA} drops them, and the tuned
+\code{c_matrix} has one row per retained block. As in \code{PipeOpMBsPCA}, the node's
+\code{ncomp} may not exceed the rank of any centred retained block on the full
+tuning task; this is checked before the search. Every retained block must
+keep at least one usable column in each inner training fold. Each
+fold's training blocks are centred by their column means and its validation
+rows by the same means, as \code{PipeOpMBsPCA} centres prediction data by its
+training means. Fold fits use the \code{max_iter} and \code{tol} of the \code{PipeOpMBsPCA}
+node. The solver starts deterministically, so the fits that scored the
+selected candidate are reused for the fold payloads and the deflation. A
+warning names retained components whose fold fits did not converge. A
+candidate whose score is undefined in some fold ranks last; if every
+candidate of a component is undefined, the tuning stops with an error. An
+error raised while scoring a candidate stops the tuning with its original
+message.
+
+\code{result_y} is the inner-resampling score of the tuned \code{c_matrix}; since each
+component's \code{c} maximises this score on the same folds, it is
+optimistically biased.
+
+\strong{Early stopping is a heuristic.} After component \code{k} is selected, it is
+refitted on the full tuning task (centred by its own column means and
+deflated by the earlier full-data components) and tested with
+\code{perm_test_component_mbspca()}. That test permutes the rows of every block
+independently, which keeps each block's own covariance and destroys only the
+association between blocks. Its null is therefore "no cross-block
+association": a component that captures strong block-specific variance but
+little shared structure does not pass and stops the tuning. The test needs
+at least two blocks; with a single retained block early stopping is skipped
+with a warning and all \code{ncomp} components are tuned. The test reuses the data
+that selected \code{c}, so \code{perm_alpha} is a cutoff, not an error rate.
+
+After \code{optimize()}, the field \code{diagnostics} holds the resolved blocks, one
+row per component and inner fold (\code{fold_statistics}) and one row per
+evaluated component (\code{components}).
 }
 \section{Works with}{
 
@@ -36,19 +81,24 @@ library(mlr3)
 library(mlr3pipelines)
 library(mlr3tuning)
 blocks = list(eng = c("disp", "hp", "drat"), body = c("wt", "qsec"))
-po = PipeOpMBsPCA$new(blocks = blocks, param_vals = list(ncomp = 3))
-lrn = as_learner(po \%>>\% po("learner", lrn("clust.kmeans", centers = 2)))
-
-ti = TuningInstanceSingleCrit$new(
-  task = mlr3cluster::TaskClust$new("x", backend = mtcars),
-  learner = lrn,
-  resampling = rsmp("holdout"),
-  measure = msr("mbspca.mean_ev"),
-  search_space = paradox::ps(),
-  terminator = trm("none")
+po_mbspca = PipeOpMBsPCA$new(blocks = blocks, param_vals = list(ncomp = 2L))
+learner = as_learner(
+  po_mbspca \%>>\% po("learner", lrn("clust.kmeans", centers = 2L))
 )
-TunerSeqMBsPCA$new(budget = 50)$optimize(ti)
-ti$result_learner_param_vals$c_matrix
+
+instance = ti(
+  task = mlr3cluster::TaskClust$new("x", backend = mtcars),
+  learner = learner,
+  resampling = rsmp("insample"),
+  measure = msr("mbspca.mean_ev"),
+  terminator = trm("evals", n_evals = 1L)
+)
+TunerSeqMBsPCA$new(
+  budget = 2L,
+  resampling = rsmp("cv", folds = 2L),
+  early_stopping = FALSE
+)$optimize(instance)
+instance$result$learner_param_vals[[1L]]$c_matrix
 }
 
 }
@@ -58,6 +108,22 @@ ti$result_learner_param_vals$c_matrix
 \concept{mb-sPCA}
 \section{Super class}{
 \code{\link[mlr3tuning:Tuner]{mlr3tuning::Tuner}} -> \code{TunerSeqMBsPCA}
+}
+\section{Active bindings}{
+\if{html}{\out{<div class="r6-active-bindings">}}
+\describe{
+\item{\code{diagnostics}}{(\code{list()} or \code{NULL})\cr
+Diagnostics of the last completed \code{optimize()} call: \code{blocks}, the
+resolved block columns on the full tuning task; \code{fold_statistics}, a
+\code{\link[data.table:data.table]{data.table::data.table()}} with one row per evaluated component and inner
+fold (\code{component}, \code{fold}, \code{n_train}, \code{n_validation}, the fold \code{score}
+of the selected \code{c}, solver \code{converged}, then \code{iterations} and
+\code{p_value}, which are \code{NA} for MB-sPCA folds, and \code{kept}); and
+\code{components}, one row per evaluated component with its \verb{c_<block>}
+values, \code{search_score}, \code{n_evals}, the early-stopping \code{p_value} (\code{NA}
+when the diagnostic was not run) and \code{kept}. Read-only.}
+}
+\if{html}{\out{</div>}}
 }
 \section{Methods}{
 \subsection{Public methods}{
@@ -104,14 +170,21 @@ search.}
 
 \item{\code{resampling}}{(\code{Resampling}) Template for inner CV.}
 
-\item{\code{parallel}}{(\code{character(1)}) \code{"none"} or \code{"inner"}.}
+\item{\code{parallel}}{(\code{character(1)}) \code{"none"} or \code{"inner"}, which fits the
+inner folds of each candidate in parallel with \code{future} (multisession).
+Fold fits draw no random numbers, so both settings propose the same
+candidates for a given seed.}
 
-\item{\code{early_stopping}}{(\code{logical(1)}) Perform a permutation test after each
-component and stop if not significant (PC-1 is always kept).}
+\item{\code{early_stopping}}{(\code{logical(1)}) Run the cross-block permutation
+diagnostic after each component and stop if its cutoff is not met (PC-1 is
+always kept; see Details). It requires at least two blocks and is skipped
+with a warning otherwise. This is a tuning heuristic, not confirmatory
+inference.}
 
-\item{\code{n_perm}}{(\code{integer(1)}) Number of permutations for the test.}
+\item{\code{n_perm}}{(\code{integer(1)}) Number of permutations for the diagnostic.}
 
-\item{\code{perm_alpha}}{(\code{numeric(1)}) Alpha-level for the test.}
+\item{\code{perm_alpha}}{(\code{numeric(1)}) Cutoff for the diagnostic; not an error
+rate.}
 }
 \if{html}{\out{</div>}}
 }

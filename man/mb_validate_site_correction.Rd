@@ -2,15 +2,32 @@
 % Please edit documentation in R/utils.R
 \name{mb_validate_site_correction}
 \alias{mb_validate_site_correction}
-\title{Validate that referenced site-correction columns exist on a task.}
+\title{Validate site-correction columns against a task}
 \usage{
 mb_validate_site_correction(
   task,
   site_correction = list(),
-  context = "mbspls_graph"
+  context = "mbspls_graph",
+  methods = list()
 )
 }
+\arguments{
+\item{task}{Optional \link[mlr3:Task]{mlr3::Task}; without a task nothing is checked.}
+
+\item{site_correction}{Named list (by block) of site-correction
+specifications.}
+
+\item{context}{Name of the calling function, used in error messages.}
+
+\item{methods}{Named list (by block) of methods; blocks without an entry use
+\code{"partial_corr"}.}
+}
 \description{
-Validate that referenced site-correction columns exist on a task.
+Checks that every column referenced in \code{site_correction} exists on the task
+and that no column read at prediction time is a target column: all
+\code{"partial_corr"} and \code{"dir"} columns and the ComBat \code{site}. ComBat
+\code{covariates} are only used to estimate the batch parameters on the training
+rows and may reference the target. This mirrors the training-time guard of
+\link{PipeOpSiteCorrection}.
 }
 \keyword{internal}

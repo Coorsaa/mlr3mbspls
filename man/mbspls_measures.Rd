@@ -5,7 +5,7 @@
 \title{Measures for MB-sPLS (prediction-side)}
 \description{
 These measures score the compact prediction-side payload written by
-\code{PipeOpMBsPLS} into \code{log_env$last} during \verb{$predict()}. They therefore operate
+\code{PipeOpMBsPLS} into its \code{log_env} during \verb{$predict()}. They therefore operate
 on the test split seen by the downstream learner inside resampling / tuning,
 rather than on training-state diagnostics.
 
@@ -25,12 +25,39 @@ data (either MAC or Frobenius, depending on training)
 
 Make sure the same \code{log_env} is passed into your PipeOp inside the Graph:
 \preformatted{
-  metrics_env <- new.env(parent = emptyenv())
-  po_mb <- po("mbspls", blocks = blocks, ncomp = 3L, log_env = metrics_env)
-  gl <- as_learner(po_std %>>% po_bs %>>% po_mb %>>% po("learner", lrn("clust.kmeans", centers = 1)))
+  metrics_env = new.env(parent = emptyenv())
+  po_mb = po("mbspls", blocks = blocks, ncomp = 3L, log_env = metrics_env)
+  gl = as_learner(po_std \%>>\% po_bs \%>>\% po_mb \%>>\% po("learner", lrn("clust.kmeans", centers = 1)))
+}
+}
+\section{Matching payloads to trained models}{
+
+Every prediction payload is stored under the run id of the model that
+produced it (\code{log_env$mbspls_last[[run_id]]}), and the measures look up the
+run id in the fitted MB-sPLS state of the scored learner. Each resampling
+iteration, benchmarked learner, or tuning configuration is therefore scored
+on its own prediction, even when all of them share one \code{log_env}.
+
+The measures have the \code{"requires_model"} property: use
+\code{store_models = TRUE} in \code{\link[mlr3:resample]{mlr3::resample()}}, \code{\link[mlr3:benchmark]{mlr3::benchmark()}},
+\code{\link[mlr3tuning:tune]{mlr3tuning::tune()}}, \code{\link[mlr3tuning:ti]{mlr3tuning::ti()}}, and \code{\link[mlr3tuning:auto_tuner]{mlr3tuning::auto_tuner()}}.
+Without stored models mlr3 stops with "requires the trained model", because
+the payload of an iteration cannot be identified. A known run id without a
+stored payload yields \code{NA}; this happens when predictions run in parallel
+workers whose \code{log_env} does not reach the main process, so score these
+measures with sequential execution. Payloads are kept per trained model, so
+with several predict sets (e.g. \code{predict_sets = c("train", "test")}) the
+payload of the set predicted last is scored.
 }
 
-For \code{resample()} / \code{benchmark()}, set \code{store_models = TRUE} so the trained
-learner is available when the measure is scored.
+\section{Undefined components}{
+
+A component whose test block scores contain fewer than two non-degenerate
+(non-constant) blocks has no identifiable cross-block pair; its logged
+latent correlation is \code{NaN}. \code{mbspls.mac} and \code{mbspls.mac_evwt} both score
+such a component as zero association. It still counts in the mean of
+\code{mbspls.mac} and keeps its explained-variance weight in \code{mbspls.mac_evwt},
+so a model whose components collapse to a single block is not rewarded.
 }
+
 \concept{Measures}

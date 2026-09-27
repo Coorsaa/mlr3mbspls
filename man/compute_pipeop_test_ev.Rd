@@ -15,7 +15,8 @@ compute_pipeop_test_ev(X_blocks_test, state)
 \item \code{weights}: component-wise block weights (as in training),
 \item \code{loadings}: (optional) component-wise block loadings,
 \item \code{performance_metric}: \code{"mac"} or \code{"frobenius"},
-\item \code{correlation_method}: (optional) \code{"pearson"} or \code{"spearman"}.
+\item \code{correlation_method}: (optional) \code{"pearson"} or \code{"spearman"},
+\item \code{center}: (optional) training column means per block.
 }}
 }
 \value{
@@ -35,8 +36,12 @@ The wrapper always uses \code{deflate = TRUE} to mirror the sequential
 MAC/Frobenius is taken from \code{state$correlation_method} when available;
 otherwise it defaults to \code{"pearson"}.
 
-The wrapper now requires training loadings in \code{state$loadings}; if they are
+The wrapper requires training loadings in \code{state$loadings}; if they are
 absent, it errors instead of silently switching to test-derived least-squares
 loadings.
+
+The test blocks are centred with the training means stored in
+\code{state$center} (states without \code{center}, fitted before centring
+was introduced, are used as supplied).
 }
 \keyword{internal}

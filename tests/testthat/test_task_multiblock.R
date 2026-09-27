@@ -159,7 +159,12 @@ test_that("TaskMultiBlock syncs block metadata on rename and keeps blocks read-o
 
   expect_equal(task$blocks, list(a = c("a1_sfx", "a2"), b = "b1_sfx"))
   expect_equal(task$extra_args$blocks, list(a = c("a1_sfx", "a2"), b = "b1_sfx"))
-  expect_error(task$blocks <- list(a = "a1"), "read-only")
+  expect_error(
+    {
+      task$blocks = list(a = "a1")
+    },
+    "read-only"
+  )
 })
 
 
@@ -191,4 +196,54 @@ test_that("TaskMultiBlock matrix extraction fails loudly for non-numeric block f
     task$block_data(as_matrix = TRUE),
     "requires numeric, integer, or logical"
   )
+})
+
+test_that("potato adapter expands matrix-valued data-frame columns", {
+  testthat::skip_if_not_installed("multiblock")
+
+  task_regr = task_multiblock_potato(task_type = "regr", response = 1L)
+  expect_s3_class(task_regr, "TaskRegr")
+  expect_equal(task_regr$nrow, 26L)
+  expect_equal(task_regr$target_names, "y")
+  expect_setequal(
+    task_regr$block_names,
+    c("Chemical", "Compression", "NIRraw")
+  )
+  expect_equal(
+    lengths(task_regr$block_features()),
+    c(Chemical = 14L, Compression = 12L, NIRraw = 1050L)
+  )
+  expect_true(all(is.finite(task_regr$truth())))
+
+  task_clust = task_multiblock_potato(task_type = "clust")
+  expect_s3_class(task_clust, "TaskClust")
+  expect_equal(task_clust$nrow, 26L)
+})
+
+test_that("potato tasks are registered when multiblock is installed", {
+  testthat::skip_if_not_installed("multiblock")
+
+  expect_true(all(c("mbspls_potato_regr", "mbspls_potato_clust") %in% mlr3::mlr_tasks$keys()))
+  expect_s3_class(mlr3::tsk("mbspls_potato_regr"), "TaskRegrMultiBlock")
+})
+
+test_that("breast TCGA adapter builds the documented three-block tasks", {
+  testthat::skip_if_not_installed("mixOmics")
+
+  task = task_multiblock_breast_tcga(task_type = "classif")
+  expect_s3_class(task, "TaskClassifMultiBlock")
+  expect_identical(task$block_names, c("mRNA", "miRNA", "protein"))
+  expect_identical(lengths(task$blocks), c(mRNA = 200L, miRNA = 184L, protein = 142L))
+  expect_identical(task$nrow, 150L)
+  expect_identical(task$target_names, "subtype")
+  expect_setequal(task$class_names, c("Basal", "Her2", "LumA"))
+  expect_identical(task$label, "TCGA breast cancer 3-block classification task")
+
+  task_clust = task_multiblock_breast_tcga(task_type = "clust")
+  expect_s3_class(task_clust, "TaskClustMultiBlock")
+  expect_length(task_clust$feature_names, 526L)
+
+  expect_true(all(c("mbspls_breast_tcga_classif", "mbspls_breast_tcga_clust") %in% mlr3::mlr_tasks$keys()))
+  expect_s3_class(mlr3::tsk("mbspls_breast_tcga_clust"), "TaskClustMultiBlock")
+  expect_identical(mlr3::tsk("mbspls_breast_tcga_classif")$block_names, c("mRNA", "miRNA", "protein"))
 })

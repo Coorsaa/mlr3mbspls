@@ -11,9 +11,24 @@ mbspls_flip_weights(x, signs = -1L, ...)
 
 \method{mbspls_flip_weights}{list}(x, signs = -1L, flip_boot = TRUE, flip_T = TRUE, ...)
 
-\method{mbspls_flip_weights}{PipeOpMBsPLS}(x, signs = -1L, inplace = TRUE, ...)
+\method{mbspls_flip_weights}{PipeOpMBsPLS}(
+  x,
+  signs = -1L,
+  inplace = TRUE,
+  flip_boot = TRUE,
+  flip_T = TRUE,
+  ...
+)
 
-\method{mbspls_flip_weights}{GraphLearner}(x, signs = -1L, inplace = TRUE, ...)
+\method{mbspls_flip_weights}{GraphLearner}(
+  x,
+  signs = -1L,
+  inplace = TRUE,
+  flip_boot = TRUE,
+  flip_T = TRUE,
+  mbspls_id = NULL,
+  ...
+)
 }
 \arguments{
 \item{x}{Object containing MB-sPLS state/model}
@@ -23,20 +38,66 @@ mbspls_flip_weights(x, signs = -1L, ...)
 \item scalar +1/-1 (applied to ALL components & blocks; -1 means "flip all"),
 \item numeric vector length K (per component; replicated across blocks),
 \item numeric matrix K x B with rownames = components (e.g., "LC_01") and
-colnames = block names; entries must be +1/-1.
+colnames = block names; entries must be +1/-1 (\code{NA} keeps the sign).
 }}
 
 \item{...}{Additional arguments passed to methods}
 
-\item{flip_boot}{Also flip bootstrap summaries/draws if present (default TRUE)}
+\item{flip_boot}{Also flip stability-selection and bootstrap outputs if
+present (default TRUE)}
 
-\item{flip_T}{Also flip training T_mat columns (default TRUE)}
+\item{flip_T}{Also flip score matrix columns (default TRUE)}
 
 \item{inplace}{Modify object in-place (TRUE) or return flipped state (FALSE)}
+
+\item{mbspls_id}{Optional id of the MB-sPLS node when the graph has several.}
 }
 \value{
-The modified object (invisibly)
+The flipped state for the \code{list} method; for the other methods
+the modified object (invisibly) when \code{inplace = TRUE}, otherwise the
+flipped state (\code{PipeOpMBsPLS}) or model list (\code{GraphLearner}).
 }
 \description{
-Flip signs of MB-sPLS weights/loadings/scores
+The reported MB-sPLS criteria depend only on absolute (or squared)
+cross-block correlations, so they do not identify the sign of a block's
+weights. Flipping a block's weights together with its loadings and
+scores therefore leaves the fit, the objective and explained variances
+unchanged, and can be used to orient components for reporting. Per-block
+sign matrices keep the fit unchanged only for such sign-invariant criteria.
+
+All sign-dependent fields that are present are flipped consistently:
+\code{weights}, \code{loadings}, the stability-selection outputs
+\code{weights_stable}, \code{loadings_stable}, \code{weights_stable_ci},
+\code{loadings_stable_ci}, \code{weights_stable_frequency} and
+\code{loadings_stable_frequency}, the bootstrap summary \code{weights_ci}
+(means and interval bounds, which are swapped), \code{selection}
+(training and stable weights), user-supplied \code{weights_boot_draws} and
+the score columns \code{LV<k>_<block>} of \code{T_mat}, \code{T_mat_train},
+\code{T_mat_train_stable_all}, \code{T_mat_train_stable_kept} and
+\code{T_mat_train_kept}. Names and dimensions are preserved. Selection
+frequencies are sign-free and stay unchanged.
+
+\itemize{
+\item The \code{list} method flips an MB-sPLS state (as stored by
+\code{po("mbspls")}) and returns it.
+\item The \code{PipeOpMBsPLS} method flips the trained state and the
+matching run entry of its \code{log_env} (read by bootstrap selection and
+by \code{predict_weights}), so later predictions are negated
+consistently. The stored prediction payload of that run
+(\code{log_env$mbspls_last[[run_id]]}, and \code{log_env$last} if it
+belongs to the run) has its scores \code{T_mat} flipped as well; its
+sign-free statistics are unchanged. The state of a separately trained
+\code{PipeOpMBsPLSBootstrapSelect} is not changed; flip a
+\code{GraphLearner} to keep both in sync.
+\item The \code{GraphLearner} method flips the fitted MB-sPLS state, the
+state of every \code{PipeOpMBsPLSBootstrapSelect} node of the same run
+and the \code{log_env} run entry with its prediction payload. It works
+in place only when every node
+downstream of the MB-sPLS node is sign-transparent (a bootstrap-select
+node, \code{po("nop")} or a featureless learner): other downstream models
+were trained on the original LV columns and would silently change their
+predictions, so an error is raised. With \code{inplace = FALSE} the
+learner and its \code{log_env} are left unchanged and a flipped copy of
+\code{x$model} is returned, e.g. for plotting.
+}
 }

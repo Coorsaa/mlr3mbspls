@@ -2,7 +2,7 @@
 % Please edit documentation in R/mbspls_plot_block_weight_ci.R
 \name{mbspls_plot_block_weight_ci}
 \alias{mbspls_plot_block_weight_ci}
-\title{Plot LC block weights with 95\% CIs from a GraphLearner (or legacy inputs)}
+\title{Plot LC block weights with bootstrap intervals from a GraphLearner (or legacy inputs)}
 \usage{
 mbspls_plot_block_weight_ci(
   x,
@@ -19,23 +19,40 @@ mbspls_plot_block_weight_ci(
 \itemize{
 \item a trained GraphLearner built with \code{mbspls_graph_learner()} (recommended), or
 \item a list like \verb{list(mbspls = <pipeop or state>, mbspls_bootstrap_select = <pipeop or state>)},
-or your previous \code{c(glearner$model$mbspls, glearner$model$mbspls_bootstrap_select)}.
+or a combined list such as \code{c(glearner$model$mbspls, glearner$model$mbspls_bootstrap_select)}.
 }}
 
 \item{source}{One of c("weights","bootstrap").
 \itemize{
-\item "bootstrap": uses aligned summaries from selection state (\code{weights_ci} + \code{weights_selectfreq}).
-\item "weights"  : aggregates across multiple MB-sPLS fits (means + Wald CIs).
+\item "bootstrap": uses the aligned summaries of the selection state
+(\code{weights_ci} + \code{weights_selectfreq}). Bars show aligned bootstrap means,
+error bars the percentile intervals at level \code{1 - alpha} of the
+selector (stored as \code{alpha}; 0.05 if absent).
+\item "weights"  : aggregates across several MB-sPLS fits. Each fit's block
+weights are sign-aligned to the first fit by the inner product (fits
+whose inner product is numerically zero are left unchanged). Bars show
+the mean and error bars mean +/- one SD across fits. This is a
+descriptive spread, not a confidence interval: resampling fits share
+most of their training data. With a single fit no bar is drawn.
 }}
 
 \item{ci_filter}{One of c("none","excludes_zero","overlaps_zero").
 \itemize{
-\item "excludes_zero": keep if (ci_low >= 0 | ci_high <= 0) AND |mean| > 1e-3.
-}}
+\item "excludes_zero": keep if the interval is strictly above or below zero
+AND |mean| exceeds the selector's \code{magnitude_threshold} (1e-3 if
+it is not stored or no selection state is supplied).
+\item "overlaps_zero": keep if the interval contains zero.
+}
+
+With \code{source = "bootstrap"} the interval is the stored percentile
+interval. With \code{source = "weights"} it is mean +/- one SD across
+fits, so "excludes_zero" keeps features whose mean lies more than one SD
+from zero. With a single fit there is no interval, so both filters keep
+nothing and an error is raised.}
 
 \item{top_n}{Integer or NULL. Keep top-N features per blockxcomponent by |mean|.}
 
-\item{add_block_rule}{Logical; thin rule between block facets (default FALSE; safe implementation).}
+\item{add_block_rule}{Logical; whether to draw a thin rule between block facets.}
 
 \item{font}{Character; font family (default "sans").}
 
@@ -45,5 +62,5 @@ or your previous \code{c(glearner$model$mbspls, glearner$model$mbspls_bootstrap_
 ggplot object (all components facetted in columns)
 }
 \description{
-Plot LC block weights with 95\% CIs from a GraphLearner (or legacy inputs)
+Plot LC block weights with bootstrap intervals from a GraphLearner (or legacy inputs)
 }

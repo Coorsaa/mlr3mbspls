@@ -12,26 +12,50 @@ mbspls_extract_bootstrap_means(
 )
 }
 \arguments{
-\item{model}{A single mbspls model containing $weights_boot_draws and $weights.}
+\item{model}{A trained \link[mlr3pipelines:mlr_learners_graph]{mlr3pipelines::GraphLearner} or
+\link[mlr3pipelines:Graph]{mlr3pipelines::Graph} containing a \link{PipeOpMBsPLSBootstrapSelect} node,
+the trained PipeOp itself, its state (e.g.
+\code{glearner$model$mbspls_bootstrap_select}), or a list holding that
+state under \code{mbspls_bootstrap_select}.}
 
 \item{component}{Integer LC index (e.g., 1).}
 
 \item{filter_method}{One of c("ci","frequency").
 \itemize{
-\item "ci": keep features whose CI is >= 0 or <= 0.
-\item "frequency": keep features with selection freq >= filter_level using model$weights_selectfreq.
+\item "ci": keep features whose interval is strictly above or below zero and
+whose |mean| exceeds the selector's \code{magnitude_threshold}
+(default \code{1e-3}).
+\item "frequency": keep features with selection freq >= filter_level.
 }}
 
 \item{filter_level}{Numeric threshold:
 \itemize{
-\item if filter_method == "ci": confidence level in \verb{(0,1)}, default 0.95.
-\item if filter_method == "frequency": minimum freq in \verb{[0,1]}, default 0.5.
+\item if filter_method == "ci": confidence level in \verb{(0,1)}. Stored summaries
+are available only at the level used for training, \code{1 - alpha},
+which is the default; another level is an error (retrain with a
+different \code{alpha}). States that do not record \code{alpha} have
+intervals of unknown level: \code{filter_level} is then ignored with a
+warning.
+\item if filter_method == "frequency": minimum freq in \verb{[0,1]}, default the
+selector's \code{frequency_threshold} (0.5 if it is not stored).
 }}
 }
 \value{
-A tibble with rows (block, feature) that pass the filter, including
-mean, ci_low, ci_high, and freq (if available), sorted by block and |mean| desc.
+A data.table with columns \code{component}, \code{block},
+\code{feature}, \code{mean}, \code{ci_low}, \code{ci_high} and \code{freq}
+(\code{NA} if frequencies are unavailable) for the features that pass the
+filter, sorted by block and decreasing |mean|.
 }
 \description{
-Extract mean bootstrap weights with CI/frequency filtering
+Reads the bootstrap summaries stored by \link{PipeOpMBsPLSBootstrapSelect}:
+\code{weights_ci} (means and percentile intervals of the replicate weights,
+already matched to the training components, sign-aligned block by block and
+filtered by the \code{min_score_cor} acceptance gate) and
+\code{weights_selectfreq}. Nothing is re-aligned here.
+}
+\details{
+For legacy inputs that only provide per-replicate draws in
+\code{weights_boot_draws} (columns \code{component}, \code{block},
+\code{feature}, \code{replicate}, \code{weight}), the draws must already be
+sign-aligned; they are summarised with type-7 percentile intervals.
 }

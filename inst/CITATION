@@ -1,7 +1,7 @@
 citHeader("To cite mlr3mbspls in publications, please cite the package manual.")
 
-citEntry(
-  entry = "Manual",
+bibentry(
+  bibtype = "Manual",
   title = "mlr3mbspls: Multi-Block Sparse Partial Least Squares for mlr3",
   author = c(
     person("Stefan", "Coors"),

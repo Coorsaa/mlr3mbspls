@@ -21,6 +21,10 @@ cpp_block_objective_oos <- function(X_blocks, W_list, spearman = FALSE, frobeniu
     .Call(`_mlr3mbspls_cpp_block_objective_oos`, X_blocks, W_list, spearman, frobenius)
 }
 
+cpp_mbspls_start_weights <- function(X_blocks, c_constraints) {
+    .Call(`_mlr3mbspls_cpp_mbspls_start_weights`, X_blocks, c_constraints)
+}
+
 cpp_mbspls_one_lv <- function(X_blocks, c_constraints, max_iter, tol, frobenius = FALSE, spearman = FALSE) {
     .Call(`_mlr3mbspls_cpp_mbspls_one_lv`, X_blocks, c_constraints, max_iter, tol, frobenius, spearman)
 }
@@ -37,20 +41,8 @@ cpp_mbspls_multi_lv_cmatrix <- function(X_blocks, c_matrix, max_iter = 500L, tol
     .Call(`_mlr3mbspls_cpp_mbspls_multi_lv_cmatrix`, X_blocks, c_matrix, max_iter, tol, spearman, do_perm, n_perm, alpha, frobenius)
 }
 
-cpp_ev_test <- function(X_test, weights, loadings, ncomp) {
-    .Call(`_mlr3mbspls_cpp_ev_test`, X_test, weights, loadings, ncomp)
-}
-
 cpp_compute_test_ev_core <- function(X_blocks_test, W_all, P_all, deflate = TRUE, spearman = FALSE, frobenius = FALSE, eps_var = 1e-12, use_train_loadings = TRUE, clamp_mode = 0L) {
     .Call(`_mlr3mbspls_cpp_compute_test_ev_core`, X_blocks_test, W_all, P_all, deflate, spearman, frobenius, eps_var, use_train_loadings, clamp_mode)
-}
-
-cpp_mbspls_bootstrap <- function(X_blocks, c_constraints, W_ref, R = 500L, spearman = FALSE, frobenius = FALSE, max_iter = 500L, tol = 1e-6, store_weights = TRUE) {
-    .Call(`_mlr3mbspls_cpp_mbspls_bootstrap`, X_blocks, c_constraints, W_ref, R, spearman, frobenius, max_iter, tol, store_weights)
-}
-
-cpp_bootstrap_latent_correlation <- function(weights_matrix, component_idx, block_idx, n_blocks, n_components, spearman = FALSE, min_var = 1e-12, frobenius = FALSE) {
-    .Call(`_mlr3mbspls_cpp_bootstrap_latent_correlation`, weights_matrix, component_idx, block_idx, n_blocks, n_components, spearman, min_var, frobenius)
 }
 
 cpp_perm_test_oos <- function(X_test, W_trained, n_perm = 1000L, spearman = FALSE, frobenius = FALSE, early_stop_threshold = 1.0, permute_all_blocks = TRUE) {
@@ -68,3 +60,4 @@ cpp_lm_coeff_ridge <- function(X, Y, lambda, unpen_idx) {
 cpp_lm_coeff <- function(X, Y) {
     .Call(`_mlr3mbspls_cpp_lm_coeff`, X, Y)
 }
+

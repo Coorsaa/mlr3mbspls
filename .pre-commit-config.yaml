@@ -4,10 +4,6 @@ repos:
   - repo: https://github.com/lorenzwalthert/precommit
     rev: v0.4.3.9030
     hooks:
-      # - id: style-files
-      #   args: [--style_pkg=styler.mlr, --style_fun=mlr_style]
-      #   additional_dependencies:
-      #   - mlr-org/styler.mlr
       # - id: roxygenize
       #   additional_dependencies:
       #   -    checkmate
@@ -38,9 +34,16 @@ repos:
       - id: check-added-large-files
         args: ["--maxkb=1000"]
       - id: end-of-file-fixer
-        exclude: '\.Rd'
+        # Rcpp::compileAttributes() ends R/RcppExports.R with a blank line.
+        exclude: '\.Rd|^R/RcppExports\.R$'
   - repo: local
     hooks:
+      - id: mlr-style
+        name: Check repository-wide styler.mlr formatting
+        entry: Rscript tools/style.R --check
+        language: system
+        pass_filenames: false
+        files: '(^|/)(.*\.(R|Rmd|Rmarkdown|qmd|md)|CITATION)$'
       - id: forbid-to-commit
         name: Don't commit common R artifacts
         entry: Cannot commit .Rhistory, .RData, .Rds or .rds.
@@ -50,3 +53,6 @@ repos:
 
 ci:
     autoupdate_schedule: monthly
+    # pre-commit.ci cannot install the pinned formatter or build the R hook
+    # environment; R CMD check and the styler.mlr job cover these checks.
+    skip: [mlr-style, use-tidy-description, readme-rmd-rendered, parsable-R, no-browser-statement]

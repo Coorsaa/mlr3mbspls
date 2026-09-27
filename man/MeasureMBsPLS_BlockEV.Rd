@@ -6,7 +6,8 @@
 \description{
 Mean of the prediction-side EV matrix across all retained components and all
 blocks. Incremental out-of-sample EV can be negative, so this measure is
-unbounded below and above in principle.
+unbounded below and above in principle. Scoring requires stored models; see
+\link{mbspls_measures}.
 }
 \section{Super class}{
 \code{\link[mlr3:Measure]{mlr3::Measure}} -> \code{MeasureMBsPLS_BlockEV}

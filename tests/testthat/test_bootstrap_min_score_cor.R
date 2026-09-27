@@ -76,8 +76,8 @@ test_that("PipeOpMBsPLSBootstrapSelect - min_score_cor=1.0 rejects all bootstrap
   task_lv = po_mbspls$train(list(task))[[1]]
 
   # min_score_cor=1.0 means LVs must correlate perfectly with bootstrapped LVs;
-  # virtually impossible with noise data, so all reps should be rejected and the
-  # op degrades to stability_only pass-through (no crash).
+  # virtually impossible with noise data, so all reps are rejected and no
+  # feature can be selected. A featureless output task is refused.
   po_sel = mlr3mbspls::PipeOpMBsPLSBootstrapSelect$new(
     param_vals = list(
       log_env = log_env,
@@ -90,10 +90,44 @@ test_that("PipeOpMBsPLSBootstrapSelect - min_score_cor=1.0 rejects all bootstrap
       workers = 1L
     )
   )
+  expect_warning(
+    expect_error(
+      po_sel$train(list(task_lv)),
+      "no feature passed 'ci' stability selection.*stability_only = TRUE"
+    ),
+    "few accepted replicates for component\\(s\\) LC_01 \\(0 of B=10"
+  )
 
-  # Should not throw — when all reps are rejected the op passes through gracefully
-  out = po_sel$train(list(task_lv))[[1]]
-  expect_s3_class(out, "Task")
+  # In stability-only mode the summaries are kept, nothing is published as
+  # stable weights, and the upstream LVs pass through.
+  po_stab = mlr3mbspls::PipeOpMBsPLSBootstrapSelect$new(
+    param_vals = list(
+      log_env = log_env,
+      stability_only = TRUE,
+      B = 10L,
+      min_score_cor = 1.0,
+      workers = 1L
+    )
+  )
+  expect_warning(
+    expect_warning(
+      {
+        out = po_stab$train(list(task_lv))[[1]]
+      },
+      "No stable weights are published"
+    ),
+    "few accepted replicates"
+  )
+  expect_identical(out$feature_names, task_lv$feature_names)
+  expect_identical(po_stab$state$kept_components, integer(0))
+  expect_length(po_stab$state$weights_stable, 0L)
+  st_env = log_env$mbspls_state
+  expect_identical(st_env$ncomp_stable, 0L)
+  expect_null(st_env$weights_stable)
+  expect_null(st_env$loadings_stable)
+  expect_null(st_env$weights_stable_ci)
+  expect_true(st_env$stability_only)
+  expect_identical(st_env$ncomp, 1L)
 })
 
 
@@ -208,9 +242,13 @@ test_that("PipeOpMBsPLSBootstrapSelect - magnitude_threshold=0 keeps all CI-sele
   with_seed_local(42L, function() {
     po_zero$train(list(task_lv))
   })
-  with_seed_local(42L, function() {
-    po_strict$train(list(task_lv))
-  })
+  # nothing passes: stability-only mode warns and publishes no stable weights
+  expect_warning(
+    with_seed_local(42L, function() {
+      po_strict$train(list(task_lv))
+    }),
+    "No stable weights are published"
+  )
 
   st_zero = po_zero$state
   st_strict = po_strict$state
@@ -243,12 +281,18 @@ test_that("PipeOpMBsPLSBootstrapSelect - warns when all reps rejected by min_sco
   task_lv = po_mbspls$train(list(task))[[1]]
 
   po_sel = mlr3mbspls::PipeOpMBsPLSBootstrapSelect$new(
-    param_vals = list(log_env = log_env, bootstrap = TRUE, stability_only = FALSE,
+    param_vals = list(log_env = log_env, bootstrap = TRUE, stability_only = TRUE,
       B = 5L, min_score_cor = 1.0, selection_method = "ci",
       align = "block_sign", workers = 1L))
 
   # With min_score_cor=1.0 all replicates are rejected; n_eff for every component must be 0
-  out = po_sel$train(list(task_lv))[[1]]
+  rec = new.env()
+  rec$warnings = character(0)
+  out = withCallingHandlers(po_sel$train(list(task_lv))[[1]], warning = function(w) {
+    rec$warnings = c(rec$warnings, conditionMessage(w))
+    invokeRestart("muffleWarning")
+  })
+  expect_match(rec$warnings, "few accepted replicates for component\\(s\\) LC_01 \\(0 of B=5", all = FALSE)
   neff = po_sel$state$n_eff_by_component
   expect_true(!is.null(neff))
   expect_true(all(neff$n_eff == 0L))

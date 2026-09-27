@@ -4,9 +4,36 @@
 \alias{with_seed_local}
 \title{Execute code with a temporary RNG seed and restore RNG state afterwards.}
 \usage{
-with_seed_local(seed, fn)
+with_seed_local(seed, fn, kind = c("Mersenne-Twister", "L'Ecuyer-CMRG"))
+}
+\arguments{
+\item{seed}{\code{NULL} or one non-negative integer seed.}
+
+\item{fn}{Function without arguments to evaluate.}
+
+\item{kind}{RNG algorithm seeded for the evaluation: \code{"Mersenne-Twister"}
+(default) or \code{"L'Ecuyer-CMRG"}.}
+}
+\value{
+The value of \code{fn()}.
 }
 \description{
+Evaluates \code{fn()} after seeding the generator \code{kind} together with the
+Inversion normal generator and the Rejection sampler, so a supplied seed
+yields the same draws whatever RNG kinds the caller has selected. The
+caller's RNG state is preserved: its RNG kinds and \code{.Random.seed} (including
+the absence of \code{.Random.seed}) are restored on exit, also when \code{fn()} fails.
+As with any seed-based restoration in R, a cached Box-Muller normal variate
+of the calling session cannot be restored.
+}
+\details{
+With \code{seed = NULL}, \code{fn()} runs unseeded in the caller's RNG context and
+nothing is changed or restored. \code{seed = 0} is an ordinary seed. The default
+Mersenne-Twister generator reproduces results obtained under R's default RNG
+kind. Use \code{kind = "L'Ecuyer-CMRG"} when \code{fn()} distributes work with
+\code{parallel::mclapply()} or \code{parallel::mcparallel()} (\code{mc.set.seed = TRUE}):
+these derive reproducible per-child streams only from that generator.
+
 This helper is intentionally implemented without additional dependencies
 (e.g. withr) and is used to make bootstrap/permutation procedures reproducible
 without permanently changing the session RNG state.

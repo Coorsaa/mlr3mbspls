@@ -36,7 +36,10 @@ mbspls_nested_cv(
 
 \item{tuner_budget}{integer, #candidate evaluations per component.}
 
-\item{tuning_early_stop}{logical, stop tuning early if no sig. components.}
+\item{tuning_early_stop}{logical, whether the tuner applies its
+permutation-based component stopping heuristic. The heuristic is evaluated
+on the inner validation folds that selected \code{c} and pools dependent folds,
+so it is optimistic; see \link{TunerSeqMBsPLS}.}
 
 \item{performance_metric}{"mac" or "frobenius" for the latent correlation.}
 
@@ -45,17 +48,20 @@ used for inner tuning and aligned outer-fold scoring. Must resolve to one of
 \code{mbspls.mac_evwt}, \code{mbspls.mac}, \code{mbspls.ev}, or \code{mbspls.block_ev}.
 \code{mbspls.mac_evwt} remains the default for backward compatibility.}
 
-\item{val_test}{"none", "permutation", or "bootstrap" - run on OUTER test.}
+\item{val_test}{"none", conditional "permutation", or descriptive
+"bootstrap" diagnostic run on the outer assessment split.}
 
 \item{val_test_n}{integer, permutations/boot reps on OUTER test.}
 
-\item{val_test_alpha}{numeric, early-stop / CI level param for validation tests.}
+\item{val_test_alpha}{numeric alpha for the descriptive bootstrap interval;
+retained for permutation API compatibility.}
 
 \item{val_permute_all}{logical, permute all blocks in test validation.}
 
 \item{n_perm_tuning}{integer, permutations used inside the tuner's early stop.}
 
-\item{perm_alpha_tuning}{numeric, tuner early-stop alpha (component-wise).}
+\item{perm_alpha_tuning}{numeric, cutoff of the tuner's stopping heuristic
+(component-wise). It is not an error rate.}
 
 \item{store_payload}{logical, keep the full PipeOpMBsPLS predict payload.}
 }
@@ -64,10 +70,13 @@ list with:
 \itemize{
 \item results: data.table with per-outer-split summary, including the selected
 objective (\code{measure_id}, \code{measure_key}, \code{measure_test},
-\code{measure_test_defined}, \code{measure_test_status}) plus secondary diagnostics
-such as \code{mac_lv1_test} and \code{mac_evwt_test}
+\code{measure_test_defined}, \code{measure_test_status}), the number of components
+whose latent correlation was undefined on the assessment rows and scored
+as zero (\code{measure_test_n_undefined}), plus secondary diagnostics such as
+\code{mac_lv1_test} and \code{mac_evwt_test}
 \item c_mats: list of tuned C* matrices per outer split
-\item inner_scores: numeric vector of best inner-CV scores (one per outer split)
+\item inner_scores: numeric vector of the tuner's inner-CV scores of the
+selected C* (one per outer split; optimistic)
 \item payloads: (optional) list of PipeOp logging payloads for each outer test
 \item summary_table: data.table with aggregated metrics across outer splits,
 including \code{n_total}, \code{n_defined}, and \code{n_failed}
@@ -80,13 +89,31 @@ This function tunes the model on inner folds and evaluates it on outer folds,
 returning a summary of results.
 }
 \details{
+Each outer fold tunes a deep clone of \code{graphlearner} with \link{TunerSeqMBsPLS} on
+the analysis rows and then trains a second clone with the tuned \code{c_matrix}
+on the same rows and predicts the assessment rows. Every PipeOp of these
+clones that has a \code{log_env} parameter (the MB-sPLS node and, for example, a
+\link{PipeOpMBsPLSBootstrapSelect} node) receives one fresh environment per fold,
+so bootstrap stability selection runs on the fold's own MB-sPLS fit and the
+outer estimate covers the complete configured pipeline. The supplied learner
+and its log environment are left unchanged.
+
+\code{inner_scores} are the tuner's inner-resampling scores of the selected
+\code{c_matrix}. They were maximised during tuning and are therefore optimistic;
+the outer \code{measure_test} values are the performance estimate.
+
+If the task has an \code{mlr3} \code{group} column role, every outer split is checked
+before fitting and the function errors if an exchangeability group occurs in
+both analysis and assessment rows. The correct grouping variable remains a
+study-design responsibility and cannot be inferred from feature values.
+
 \code{performance_metric} and \code{measure} operate at different layers of the
 procedure.
 
-\code{performance_metric} controls the direct objective optimized inside the
-MB-sPLS C++ fitting routine when each latent component is estimated. It
-therefore changes how the component weights are fitted (\code{"mac"} or
-\code{"frobenius"}).
+\code{performance_metric} selects the association criterion evaluated for
+convergence and scoring (\code{"mac"} or \code{"frobenius"}). Weight updates follow
+the same covariance-style sparse multiblock procedure for either criterion;
+the solver does not directly optimize a correlation-gradient objective.
 
 \code{measure} controls model selection across candidate sparsity settings and
 across resampling folds on held-out data. It therefore acts as an indirect
@@ -94,8 +121,7 @@ outer optimization criterion for tuning and evaluation.
 
 Choosing \code{measure = "mbspls.ev"} or \code{measure = "mbspls.block_ev"} does not
 make the underlying MB-sPLS algorithm optimize explained variance directly.
-It selects among models that were still fitted with the chosen
-\code{performance_metric}, using an EV-based validation criterion.
+It selects among fitted models using an EV-based validation criterion.
 
 For most analyses, \code{performance_metric = "mac"} with
 \code{measure = "mbspls.mac_evwt"} remains the most natural default because it
