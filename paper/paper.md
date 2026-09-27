@@ -50,7 +50,7 @@ In R, `mixOmics` provides multi-block sparse PLS with prediction for new samples
 
 The MB-sPLS estimator itself is not new; it is closely related to SGCCA and sparse multiple CCA. We did not find in R (i) scores, bootstrap selection and site correction as pipeline operators refitted, with sparsity tuning, in every resampling fold, or (ii) permutation inference for multi-block sparse PLS under explicit exchangeability designs. `RGCCA` and `PMA` tune penalties with unrestricted shuffles, and restricted permutations for two-view CCA and PLS exist in a MATLAB toolkit [@mihalik2022ccapls].
 
-We built an `mlr3` extension rather than contributing to these packages because the unit of reuse we need is the `mlr3pipelines` operator. These packages are built around fitting and inspecting a multi-block model, and their validation helpers resample that model alone; `mlr3mbspls` treats MB-sPLS as one resampled step of a larger pipeline. Adding the operator contract to them would import `mlr3`'s class, parameter and tuning infrastructure into packages with different design goals, whereas `mlr3` distributes such integrations as extension packages [@fischer2025mlr3extralearners].
+We implemented `mlr3mbspls` as a separate `mlr3` extension because we build it on top of `mlr3pipelines` operators. These packages are built around fitting and inspecting a multi-block model, and their validation helpers resample that model alone; `mlr3mbspls` treats MB-sPLS as one resampled step of a larger pipeline. Adding the operator contract to them would import `mlr3`'s class, parameter and tuning infrastructure into packages with different design goals, whereas `mlr3` distributes such integrations as extension packages [@fischer2025mlr3extralearners].
 
 # Software design
 
