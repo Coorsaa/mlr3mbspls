@@ -48,7 +48,7 @@ Sparse partial least squares (PLS) and related latent-variable methods are widel
 
 In R, `mixOmics` provides multi-block sparse PLS with prediction for new samples, and its discriminant form DIABLO adds cross-validated tuning of the number of selected variables [@mixomics; @singh2019diablo]. `RGCCA` implements regularised generalised canonical correlation analysis (CCA) and its sparse variant SGCCA, with cross-validation, permutation-based penalty tuning, bootstrap intervals and stability-based variable selection [@rgcca; @tenenhaus2011rgcca; @tenenhaus2014sgcca]. `PMA` provides sparse multiple CCA [@witten2009mcca]; `multiblock` and `ade4` collect many multi-block methods, including sparse multi-block PLS in `multiblock` [@multiblock; @smilde2022multiblock; @bougeard2018ade4]. In Python, `mbpls` offers non-sparse multi-block PLS [@baum2019mbpls], and `cca-zoo` provides sparse multiview CCA usable as a scikit-learn pipeline step [@chapman2021ccazoo; @pedregosa2011sklearn]. Single-block PLS is available as a tidymodels preprocessing step [@recipes] and as `mlr3` learners [@fischer2025mlr3extralearners], but `mlr3pipelines` has no PLS, CCA or multi-block operator.
 
-The MB-sPLS estimator itself is not new; it is closely related to SGCCA and sparse multiple CCA. We did not find in R (i) scores, bootstrap selection and site correction as pipeline operators refitted, with sparsity tuning, in every resampling fold, or (ii) permutation inference for multi-block sparse PLS under explicit exchangeability designs. `RGCCA` and `PMA` tune penalties with unrestricted shuffles, and restricted permutations for two-view CCA and PLS exist in a MATLAB toolkit [@mihalik2022ccapls].
+The MB-sPLS method implemented here was developed by C. S. Vetter, who first implemented it in MATLAB; it is closely related to SGCCA and sparse multiple CCA. We did not find in R (i) scores, bootstrap selection and site correction as pipeline operators refitted, with sparsity tuning, in every resampling fold, or (ii) permutation inference for multi-block sparse PLS under explicit exchangeability designs. `RGCCA` and `PMA` tune penalties with unrestricted shuffles, and restricted permutations for two-view CCA and PLS exist in a MATLAB toolkit [@mihalik2022ccapls].
 
 We implemented `mlr3mbspls` as a separate `mlr3` extension because we build it on top of `mlr3pipelines` operators. These packages are built around fitting and inspecting a multi-block model, and their validation helpers resample that model alone; `mlr3mbspls` treats MB-sPLS as one resampled step of a larger pipeline. Adding the operator contract to them would import `mlr3`'s class, parameter and tuning infrastructure into packages with different design goals, whereas `mlr3` distributes such integrations as extension packages [@fischer2025mlr3extralearners].
 
@@ -70,7 +70,11 @@ We implemented `mlr3mbspls` as a separate `mlr3` extension because we build it o
 
 # AI usage disclosure
 
-Generative AI coding assistants were used during the development of the package to help with code review, refactoring, bug fixing, test writing and documentation, and to help draft and revise this paper. The authors directed this work, reviewed and approved all AI-assisted changes, and verified their correctness with the test suite, `R CMD check`, the executable vignette and the simulation-based validation scripts.
+Generative AI coding assistants, Claude Code (Anthropic) and Codex (OpenAI) with several underlying models, were used during the development of the package to help with code review, refactoring, bug fixing, test writing and documentation, and to help draft and revise this paper. The authors directed this work, reviewed and approved all AI-assisted changes, and verified their correctness with the test suite, `R CMD check`, the executable vignette and the simulation-based validation scripts.
+
+# Author contributions
+
+C. S. Vetter developed the MB-sPLS method and its original MATLAB implementation. S. Coors designed and implemented this R package on that basis, including its pipeline integration and inference tools.
 
 # Acknowledgements
 
