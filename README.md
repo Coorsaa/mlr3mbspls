@@ -545,10 +545,15 @@ Squares for mlr3. R package version 0.4.0.
 https://github.com/coorsaa/mlr3mbspls
 ```
 
-## Contributing
+## Getting help and contributing
+
+Ask questions and report bugs in the
+[issue tracker](https://github.com/Coorsaa/mlr3mbspls/issues).
+[CONTRIBUTING.md](CONTRIBUTING.md) describes what to include in an issue, how
+to contribute changes, and how the package is maintained.
 
 All R code, examples, vignettes, and R fences in Markdown follow the pinned
-`styler.mlr` guide. See [CONTRIBUTING.md](CONTRIBUTING.md) and run:
+`styler.mlr` guide. Before opening a pull request, run:
 
 ```sh
 Rscript tools/style.R

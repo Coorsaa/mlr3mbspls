@@ -1,5 +1,40 @@
 # Contributing to mlr3mbspls
 
+## Getting help and reporting problems
+
+Use the [issue tracker](https://github.com/Coorsaa/mlr3mbspls/issues) for
+questions, bug reports and feature requests.
+
+- **Questions:** describe what you want to do and include the code you tried.
+- **Bugs:** include a minimal reproducible example, the full error message,
+  `packageVersion("mlr3mbspls")` and the output of `sessionInfo()`.
+- **Feature requests:** describe the analysis or use case that the feature
+  would support.
+
+Report security-relevant problems privately to the maintainer at
+<mail@stefancoors.de> instead of opening a public issue.
+
+## Contributing changes
+
+1. For larger changes, open an issue first to discuss the approach.
+2. Fork the repository, create a branch from `main`, and keep each pull
+   request focused on one change.
+3. Add or update tests for every change in behaviour, update the roxygen
+   documentation, and add an entry to `NEWS.md`.
+4. Format the code and run the tests and `R CMD check` as described below.
+5. Open a pull request that explains the change and its motivation.
+
+## Support and governance
+
+`mlr3mbspls` is maintained by Stefan Coors (maintainer) and Clara Sophie
+Vetter. Issues and pull requests are answered on a best-effort basis.
+Proposed changes are discussed in issues and pull requests; the maintainers
+merge them into `main` after review and passing continuous integration.
+Releases are tagged on GitHub and described in `NEWS.md`. The package follows
+the conventions of the `mlr3` ecosystem.
+
+## Code style
+
 Write R code and documentation in English and follow the mlr style guide. In
 particular, use `=` for assignment, double-quoted strings, lower snake case for
 functions and variables, `UpperCamelCase` for R6 classes, one statement per

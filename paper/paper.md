@@ -74,6 +74,6 @@ Generative AI coding assistants were used during the development of the package 
 
 # Acknowledgements
 
-This work received no specific funding. We thank the `mlr3` community for discussions and for the infrastructure on which this package builds.
+This work received no specific funding, and the authors declare no competing interests. We thank the `mlr3` community for discussions and for the infrastructure on which this package builds.
 
 # References
