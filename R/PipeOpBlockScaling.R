@@ -4,12 +4,29 @@
 #' @description
 #' Scales **multi-block** feature sets before downstream operators (e.g., MB-sPLS).
 #' Supports:
-#'  - `"unit_ssq"`: divide every block matrix \(X_b\) by its Frobenius norm
+#'  - `"unit_ssq"`: center each block, then divide by its Frobenius norm
 #'    (i.e., `sqrt(sum(X_b^2))`) so each block has unit sum-of-squares.
+#'    Centering is controlled by `center` (default `TRUE`); see below.
 #'  - `"feature_sd"`: divide each feature by its sample **sd** (no centering);
 #'    optionally also divide the whole block by `sqrt(p_b)` so blocks with many
 #'    features don't dominate.
 #'  - `"feature_zscore"`: z-score each feature (center + sd scaling);
+#'
+#' @section Centering and choosing a method:
+#' `unit_ssq` centers each block before computing its norm (`center = TRUE`).
+#' On uncentered data `sum(X^2)` includes the column means, which inflates the
+#' explained-variance denominator by one to two orders of magnitude -- a
+#' component can report `ev_block` near 0.95 while explaining little beyond the
+#' means.
+#'
+#' Note that `unit_ssq` applies a **single scalar per block**. It balances the
+#' relative weight of whole blocks but does nothing about differences *between
+#' features within* a block. If features are on heterogeneous scales, the
+#' MB-sPLS gradient `X_b' t` is dominated by the highest-variance features
+#' irrespective of centering (the weight update is invariant to block column
+#' means), and low-variance true signal will not be selected. Use
+#' `"feature_zscore"` (or an upstream `po("scale")`) in that case; a warning is
+#' emitted when within-block feature SDs span more than a factor of 20.
 #'    optionally also divide the block by `sqrt(p_b)`.
 #'
 #' The operator learns scaling parameters on the **training task** and applies
@@ -55,6 +72,7 @@ PipeOpBlockScaling = R6::R6Class(
         method = paradox::p_fct(levels = c("none", "unit_ssq", "feature_sd", "feature_zscore"),
           default = "unit_ssq", tags = c("train", "predict")),
         divide_by_sqrt_p = paradox::p_lgl(default = TRUE, tags = c("train", "predict")),
+        center = paradox::p_lgl(default = TRUE, tags = c("train", "predict")),
         eps = paradox::p_dbl(lower = 0, default = 1e-8, tags = c("train", "predict")),
         verbose = paradox::p_lgl(default = FALSE, tags = c("train", "predict"))
       )
@@ -103,6 +121,7 @@ PipeOpBlockScaling = R6::R6Class(
       method = pv$method %||% "unit_ssq"
       eps = pv$eps %||% 1e-8
       div_p = pv$divide_by_sqrt_p %||% TRUE
+      do_center = pv$center %||% TRUE
       if (length(eps) != 1L || !is.numeric(eps) || !is.finite(eps) || eps <= 0) {
         stop("PipeOpBlockScaling: `eps` must be one finite positive number.",
           call. = FALSE)
@@ -121,6 +140,14 @@ PipeOpBlockScaling = R6::R6Class(
         if (method == "none") {
           scalers[[bn]] = list(type = "none", columns = cols)
         } else if (method == "unit_ssq") {
+          # Centre before taking the block norm. On uncentred data sum(X^2) is a
+          # raw sum of squares that includes the column means, which inflates the
+          # explained-variance denominator by one to two orders of magnitude: a
+          # component can report ev_block ~0.95 while explaining little beyond
+          # the means. Block scaling in the RGCCA sense is applied to centred
+          # data. Set center = FALSE if the data are already centred.
+          mu = if (isTRUE(do_center)) colMeans(X) else rep(0, ncol(X))
+          X = sweep(X, 2, mu, "-")
           alpha = sqrt(sum(X * X))
           if (!is.finite(alpha) || alpha <= eps) {
             stop(sprintf(
@@ -130,8 +157,24 @@ PipeOpBlockScaling = R6::R6Class(
           }
           X = X / alpha
           dt[, (cols) := as.data.table(X)]
+
+          # unit_ssq applies a single scalar per block and therefore cannot
+          # equalise features *within* a block. Where that clearly matters the
+          # MB-sPLS gradient X_b' t is dominated by the highest-variance
+          # features, and centring does not help (the update is invariant to
+          # block column means). Flag it.
+          sds = apply(X, 2, stats::sd)
+          sds = sds[is.finite(sds) & sds > 0]
+          if (length(sds) > 1L && max(sds) / min(sds) > 20) {
+            lgr::lgr$warn(paste0(
+              "[%s] block '%s': feature SDs span a factor of %.0f after unit_ssq ",
+              "scaling. unit_ssq normalises whole blocks and cannot equalise ",
+              "features within them, so weights will be dominated by the ",
+              "highest-variance features. Consider method = 'feature_zscore'."),
+              self$id, bn, max(sds) / min(sds))
+          }
           scalers[[bn]] = list(
-            type = "unit_ssq", alpha = alpha, columns = cols
+            type = "unit_ssq", alpha = alpha, mean = mu, columns = cols
           )
         } else if (method %in% c("feature_sd", "feature_zscore")) {
           mu = if (method == "feature_zscore") colMeans(X) else rep(0, ncol(X))
@@ -235,6 +278,16 @@ PipeOpBlockScaling = R6::R6Class(
               "PipeOpBlockScaling: invalid fitted unit-SSQ state for block '%s'.",
               bn
             ), call. = FALSE)
+          }
+          if (!is.null(sc$mean)) {
+            mu = mb_align_named_numeric(
+              sc$mean,
+              cols = cols,
+              context = sprintf(
+                "PipeOpBlockScaling fitted unit-SSQ means for block '%s'", bn
+              )
+            )
+            X = sweep(X, 2, mu, "-")
           }
           X = X / alpha
           dt[, (cols) := as.data.table(X)]

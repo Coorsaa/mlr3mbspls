@@ -379,6 +379,14 @@ PipeOpMBsPLS = R6::R6Class(
       }
       .mb_assert_component_rank(X_list, pv$ncomp, "PipeOpMBsPLS")
 
+      if (is.null(pv$seed_train)) {
+        lgr::lgr$warn(paste(
+          "[%s] seed_train is NULL: the MB-sPLS solver initialises its weight",
+          "vectors randomly, so the fitted weights, their signs and the local",
+          "optimum reached are not reproducible across runs. Set seed_train to",
+          "obtain reproducible fits."
+        ), self$id)
+      }
       fit = with_seed_local(pv$seed_train, function() {
         if (is.null(c_matrix)) {
           cpp_mbspls_multi_lv(
