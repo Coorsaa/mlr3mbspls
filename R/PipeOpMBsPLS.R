@@ -379,12 +379,15 @@ PipeOpMBsPLS = R6::R6Class(
       }
       .mb_assert_component_rank(X_list, pv$ncomp, "PipeOpMBsPLS")
 
-      if (is.null(pv$seed_train)) {
+      # The one-component solver is deterministic (declared rng = false) and
+      # canonicalises its global sign, so the *fit* needs no seed. Permutation
+      # testing does draw from the RNG, and its p-values therefore vary between
+      # runs unless a seed is set.
+      if (is.null(pv$seed_train) && isTRUE(pv$permutation_test)) {
         lgr::lgr$warn(paste(
-          "[%s] seed_train is NULL: the MB-sPLS solver initialises its weight",
-          "vectors randomly, so the fitted weights, their signs and the local",
-          "optimum reached are not reproducible across runs. Set seed_train to",
-          "obtain reproducible fits."
+          "[%s] permutation_test = TRUE with seed_train = NULL: the permutation",
+          "p-values (and hence which components are retained) are not",
+          "reproducible across runs. Set seed_train for reproducible results."
         ), self$id)
       }
       fit = with_seed_local(pv$seed_train, function() {
